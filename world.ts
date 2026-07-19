@@ -1,8 +1,15 @@
-// world.ts — deterministic 160x160 world (+ Campos Asfódelos / Minotaur labyrinth) for Age of Titans: map generation,
+// world.ts — deterministic 224x224 world (160x160 legacy band + Campos Asfódelos / Minotaur labyrinth
+// + eastern Pantano de la Hidra frontier) for Age of Titans: map generation,
 // walkability grid, flood-fill reachability, spawn tables, A* pathfinding.
 
-export const W = 160;
-export const H = 160;
+export const W = 224;
+export const H = 224;
+// Legacy band: the original 160x160 map. Its generation loops keep these
+// bounds AND the original rng() draw order, so every legacy tile is
+// byte-identical to the pre-expansion world (positions of saved players,
+// town, zones and portals do not move).
+const OW = 160;
+const OH = 160;
 export const SEED = 20260718;
 
 // Seeded PRNG (mulberry32) — the whole world derives from SEED, so server
@@ -32,6 +39,7 @@ export const ZONES = [
   { name: "Hondonada de la Gorgona", x0: 118, y0: 58, x1: 142, y1: 100, lvl: "11-13" },
   { name: "Guarida del Cíclope", x0: 132, y0: 104, x1: 155, y1: 126, lvl: "15" },
   { name: "Campos Asfódelos", x0: 118, y0: 16, x1: 155, y1: 52, lvl: "16-20" },
+  { name: "Pantano de la Hidra", x0: 162, y0: 20, x1: 216, y1: 134, lvl: "21-25" },
 ];
 
 export const NPC_DEFS = [
@@ -48,6 +56,7 @@ export const ZONE_PORTAL_ID: Record<string, string> = {
   "Hondonada de la Gorgona": "gorgona",
   "Guarida del Cíclope": "ciclope",
   "Campos Asfódelos": "asfodelos",
+  "Pantano de la Hidra": "hidra",
 };
 
 export const PORTAL_WAYPOINTS: Record<string, { x: number; y: number; label: string }> = {
@@ -57,10 +66,12 @@ export const PORTAL_WAYPOINTS: Record<string, { x: number; y: number; label: str
   gorgona: { x: 128.5, y: 72, label: "Hondonada de la Gorgona" },
   ciclope: { x: 142.5, y: 108, label: "Guarida del Cíclope" },
   asfodelos: { x: 132.5, y: 44, label: "Campos Asfódelos" },
+  hidra: { x: 170.5, y: 79.5, label: "Pantano de la Hidra" },
 };
 
 export const BOSS_POS = { x: 145.5, y: 115.5 };
 export const BOSS2_POS = { x: 140.5, y: 30.5 }; // Asterión the Minotaur — labyrinth heart
+export const BOSS3_POS = { x: 196.5, y: 100.5 }; // Hidra de Lerna — deep in the swamp
 
 export interface SpawnPoint {
   x: number;
@@ -70,7 +81,7 @@ export interface SpawnPoint {
 }
 
 export interface World {
-  tiles: string[]; // 160 strings of 160 chars
+  tiles: string[]; // 224 strings of 224 chars
   walk: Uint8Array; // 1 = walkable
   reach: Uint8Array; // 1 = reachable from town
   reachCount: number;
@@ -92,12 +103,13 @@ export function buildWorld(): World {
   const g: string[][] = [];
   for (let y = 0; y < H; y++) g.push(new Array(W).fill("g"));
 
-  // --- water border on all edges; wide sea + beach along the south ---
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
+  // --- water border on all edges of the LEGACY band; wide sea + beach along
+  // its south. The new eastern/southern bands are generated further below.
+  for (let y = 0; y < OH; y++) {
+    for (let x = 0; x < OW; x++) {
       const wob = Math.floor(1.6 + 1.4 * Math.sin((x + y) / 7)); // 0..3 wiggle
-      if (x < 3 + (y % 5 === 0 ? 1 : 0) || x >= W - 3 - wob * 0 || y < 3) {
-        if (x < 3 || x >= W - 3 || y < 3) g[y][x] = "w";
+      if (x < 3 + (y % 5 === 0 ? 1 : 0) || x >= OW - 3 - wob * 0 || y < 3) {
+        if (x < 3 || x >= OW - 3 || y < 3) g[y][x] = "w";
       }
       if (y >= 150 + wob) g[y][x] = "w";
       else if (y >= 146 + wob && g[y][x] === "g") g[y][x] = "s";
@@ -149,8 +161,8 @@ export function buildWorld(): World {
 
   // --- scattered trees & rocks (never over town, water, walls, floors) ---
   const OG = ZONES[0];
-  for (let y = 4; y < H - 4; y++)
-    for (let x = 4; x < W - 4; x++) {
+  for (let y = 4; y < OH - 4; y++)
+    for (let x = 4; x < OW - 4; x++) {
       if (g[y][x] !== "g") continue;
       if (inRect(x, y, { x0: TOWN_RECT.x0 - 2, y0: TOWN_RECT.y0 - 2, x1: TOWN_RECT.x1 + 2, y1: TOWN_RECT.y1 + 2 })) continue;
       const olive = inRect(x, y, OG);
@@ -237,6 +249,67 @@ export function buildWorld(): World {
         if (g[yy][x] !== "w" && g[yy][x] !== "F") g[yy][x] = "d";
   }
 
+  // =========================================================================
+  // Tierras nuevas del este (x >= 160) y mar del sur extendido (y >= 160):
+  // el Pantano de la Hidra. La franja clásica 160x160 se genera arriba con
+  // sus límites y su orden de rng originales, así el mapa viejo no cambia.
+  // =========================================================================
+  const SW = ZONES[5]; // Pantano de la Hidra
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      if (x < OW && y < OH) continue; // legacy band: untouched
+      if (x < OW) { g[y][x] = "w"; continue; } // south of the old shore: open sea
+      const wob = Math.floor(1.6 + 1.4 * Math.sin((x + y) / 7));
+      if (x >= W - 3 || y >= H - 3 || y < 3) { g[y][x] = "w"; continue; }
+      if (y >= 146 + wob) g[y][x] = "w"; // costa sur del pantano
+      else if (y >= 142 + wob) g[y][x] = "s";
+    }
+  // Vegetación: charcas/juncos densos dentro del pantano, matorral ligero fuera.
+  for (let y = 4; y < H - 4; y++)
+    for (let x = OW; x < W - 4; x++) {
+      if (g[y][x] !== "g") continue;
+      const swamp = inRect(x, y, SW);
+      const roll = rng();
+      if (swamp) {
+        if (roll < 0.08) g[y][x] = "w"; // charcas
+        else if (roll < 0.15) g[y][x] = "t"; // juncos
+        else if (roll < 0.17) g[y][x] = "r";
+        else if (roll < 0.24) g[y][x] = "s"; // lodo
+      } else {
+        if (roll < 0.05) g[y][x] = "t";
+        else if (roll < 0.062) g[y][x] = "r";
+      }
+    }
+  // Guarida de la Hidra: anillo de rocas; el espolón del camino corta la entrada.
+  const HA = { x: Math.floor(BOSS3_POS.x), y: Math.floor(BOSS3_POS.y) };
+  for (let y = HA.y - 11; y <= HA.y + 11; y++)
+    for (let x = HA.x - 11; x <= HA.x + 11; x++) {
+      if (x < 1 || x >= W - 1 || y < 1 || y >= H - 1) continue;
+      const d = Math.hypot(x - HA.x, y - HA.y);
+      if (d >= 8.5 && d < 10) g[y][x] = "r";
+      else if (d < 8.5 && (g[y][x] === "r" || g[y][x] === "t" || g[y][x] === "w")) g[y][x] = "g";
+    }
+  // Caminos del este (tallados al final, como en la franja clásica): la vía
+  // principal continúa hacia el este y cruza la vieja orilla (x 157-159) como
+  // un vado; el ramal del laberinto se prolonga por el norte; un espolón baja
+  // hasta la guarida de la Hidra.
+  for (let x = 151; x <= 214; x++) {
+    const y = roadY(x);
+    for (const yy of [y, y + 1]) g[yy][x] = "d";
+  }
+  for (let x = 150; x <= 167; x++)
+    for (const yy of [29, 30]) g[yy][x] = "d";
+  { // conector norte-sur dentro del pantano (laberinto ↔ vía principal)
+    const bx = 166;
+    for (let y = 31; y <= roadY(bx); y++)
+      for (const xx of [bx, bx + 1]) g[y][xx] = "d";
+  }
+  { // espolón sur hasta la Hidra
+    const bx = HA.x;
+    for (let y = roadY(bx) + 1; y <= HA.y; y++)
+      for (const xx of [bx, bx + 1]) g[y][xx] = "d";
+  }
+
   const tiles = g.map((row) => row.join(""));
   const walk = new Uint8Array(W * H);
   for (let y = 0; y < H; y++)
@@ -272,8 +345,20 @@ export function buildWorld(): World {
     }
   }
 
-  // --- monster spawn points, ~120 total, only on reachable tiles ---
+  // --- monster spawn points, only on reachable tiles. Spawns are spread out:
+  // min pairwise (Chebyshev) distance 6 tiles, and never within 2 tiles of a
+  // road so the caminos stay safe to travel. Counts per zone are tuned to fit
+  // under that spacing (attempts budget 60k, deterministic via rng()).
   const spawns: SpawnPoint[] = [];
+  const nearRoad = (x: number, y: number): boolean => {
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dx = -2; dx <= 2; dx++) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        if (tiles[ny][nx] === "d") return true;
+      }
+    return false;
+  };
   const place = (
     n: number,
     kind: string,
@@ -282,27 +367,32 @@ export function buildWorld(): World {
     rect: { x0: number; y0: number; x1: number; y1: number },
   ) => {
     let attempts = 0;
-    while (n > 0 && attempts++ < 20000) {
+    while (n > 0 && attempts++ < 60000) {
       const x = rect.x0 + Math.floor(rng() * (rect.x1 - rect.x0 + 1));
       const y = rect.y0 + Math.floor(rng() * (rect.y1 - rect.y0 + 1));
       const t = tiles[y][x];
       if (!reach[y * W + x]) continue;
-      if (t !== "g" && t !== "f" && t !== "s") continue; // keep roads clear
-      if (spawns.some((s) => Math.abs(s.x - x) < 2 && Math.abs(s.y - y) < 2)) continue;
+      if (t !== "g" && t !== "f" && t !== "s") continue;
+      if (nearRoad(x, y)) continue; // keep roads clear
+      if (spawns.some((s) => Math.abs(s.x - x) < 6 && Math.abs(s.y - y) < 6)) continue;
       spawns.push({ x: x + 0.5, y: y + 0.5, kind, lvl: lo + Math.floor(rng() * (hi - lo + 1)) });
       n--;
     }
     if (n > 0) throw new Error(`world: could not place all ${kind} spawns (${n} left)`);
   };
-  place(30, "boar", 1, 2, { x0: 48, y0: 55, x1: 66, y1: 105 });
-  place(25, "satyr", 3, 5, { x0: 64, y0: 55, x1: 80, y1: 105 });
-  place(25, "skeleton", 6, 8, ZONES[1]);
-  place(15, "harpy", 8, 10, ZONES[1]);
-  place(24, "gorgon", 11, 13, ZONES[2]);
+  place(16, "boar", 1, 2, { x0: 48, y0: 55, x1: 66, y1: 105 });
+  place(10, "satyr", 3, 5, { x0: 64, y0: 55, x1: 80, y1: 105 });
+  place(14, "skeleton", 6, 8, ZONES[1]);
+  place(8, "harpy", 8, 10, ZONES[1]);
+  place(12, "gorgon", 11, 13, ZONES[2]);
   spawns.push({ x: BOSS_POS.x, y: BOSS_POS.y, kind: "cyclops", lvl: 15 });
-  place(20, "shade", 16, 18, ZONES[4]);
-  place(14, "fury", 18, 20, ZONES[4]);
+  place(12, "shade", 16, 18, ZONES[4]);
+  place(8, "fury", 18, 20, ZONES[4]);
   spawns.push({ x: BOSS2_POS.x, y: BOSS2_POS.y, kind: "minotaur", lvl: 20 });
+  // Pantano de la Hidra: ~30 spawns nuevos con el mismo espaciado.
+  place(18, "lizardman", 21, 23, { x0: 162, y0: 34, x1: 198, y1: 132 });
+  place(12, "wisp", 23, 25, { x0: 192, y0: 22, x1: 216, y1: 120 });
+  spawns.push({ x: BOSS3_POS.x, y: BOSS3_POS.y, kind: "hydra", lvl: 25 });
 
   // --- startup assertions: nothing may be walled off ---
   for (const s of spawns) {
@@ -313,6 +403,8 @@ export function buildWorld(): World {
     throw new Error("world: boss arena unreachable from town");
   if (!reach[Math.floor(BOSS2_POS.y) * W + Math.floor(BOSS2_POS.x)])
     throw new Error("world: minotaur labyrinth unreachable from town");
+  if (!reach[Math.floor(BOSS3_POS.y) * W + Math.floor(BOSS3_POS.x)])
+    throw new Error("world: hydra swamp lair unreachable from town");
   for (const npc of NPC_DEFS)
     if (!reach[Math.floor(npc.y) * W + Math.floor(npc.x)])
       throw new Error(`world: NPC ${npc.name} unreachable`);
