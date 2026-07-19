@@ -1,0 +1,18 @@
+[Unit]
+Description=Age of Titans companion bot
+After=network.target ideitas-rpg.service
+Requires=ideitas-rpg.service
+PartOf=ideitas-rpg.service
+
+[Service]
+Type=simple
+User=rpg
+Group=rpg
+EnvironmentFile=/etc/ideitas/rpg-bot.env
+ExecStart=/usr/local/bin/bun run /opt/ideitas/rpg/bot.ts
+Restart=on-failure
+RestartSec=3
+WorkingDirectory=/opt/ideitas/rpg
+
+[Install]
+WantedBy=multi-user.target

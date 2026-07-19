@@ -1,0 +1,2190 @@
+// server.ts — Age of Titans authoritative game server (Bun built-ins only).
+// Transport & content contract: /opt/ideitas/rpg/PROTOCOL.md
+import { Database } from "bun:sqlite";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import type { ServerWebSocket } from "bun";
+import {
+  CLASS_BASE, CLASS_WEAPON, MOB_DEFS, NPC_LINES, POTION_DEFS, QUESTS, QUEST_ORDER,
+  SKILLS, WEAPON_SCALING, freshItemId, makePotion, makeQuestItem, mobStats,
+  rollItem, rollRarity,
+} from "./data";
+import type { Item, SkillDef } from "./data";
+import {
+  BOSS2_POS, BOSS_POS, FOUNTAIN, NPC_DEFS, PORTAL_WAYPOINTS, TOWN, TOWN_RECT, W, ZONES, ZONE_PORTAL_ID, astar, buildWorld, inRect,
+} from "./world";
+
+const PORT = Number(process.env.PORT) || 8792;
+const DB_PATH = process.env.RPG_DB || "/var/lib/ideitas/rpg/rpg.sqlite";
+
+const TICK_MS = 1000 / 15;
+const SNAP_MS = 100;
+const AOI = 24;
+const AOI2 = AOI * AOI;
+const PLAYER_SPD = 5;
+const ATTACK_CD = 1100;
+const MELEE_RANGE = 1.7;
+const RANGED_RANGE = 7;
+const CAST_RANGE = 7;
+const LEASH = 15;
+const LOOT_TTL = 60000;
+const INV_SIZE = 24;
+const COMBAT_MS = 5000;
+const POTION_CD = 3000;
+const RECALL_CD = 15000;
+const FOUNTAIN_REGEN_R = 5; // tiles from the fountain that count as "near"
+const FOUNTAIN_HP_REGEN = 0.10; // 10%/s hp — 5x the normal 2%/s
+const FOUNTAIN_MP_REGEN = 0.12; // 12%/s mp — 4x the normal 3%/s
+const LEVEL_CAP = 25;
+
+// Always-online companion bots — shared squad party + starter gear.
+const BOT_SQUAD = new Set(["Achilles", "Atalanta", "Circe", "Chiron"]);
+const BOT_SQUAD_LEADER = "Achilles";
+/** Humans who auto-join the bot squad when they invite any companion bot. */
+const ALLOWED_PARTY_HUMANS = new Set(["cansao", "cansao2", "mayco"]);
+
+// ---------------------------------------------------------------------------
+// World
+// ---------------------------------------------------------------------------
+const world = buildWorld();
+
+function walkableAt(x: number, y: number): boolean {
+  const tx = Math.floor(x), ty = Math.floor(y);
+  return tx >= 0 && ty >= 0 && tx < W && ty < W && world.walk[ty * W + tx] === 1;
+}
+
+// ---------------------------------------------------------------------------
+// Entities
+// ---------------------------------------------------------------------------
+interface Session { player: Player | null; badJson: number; loggingIn: boolean }
+type WS = ServerWebSocket<Session>;
+
+interface StatusHolder {
+  slowUntil: number; slowPct: number; stunUntil: number;
+  lastAtk: number; moving: boolean; d: number;
+}
+
+interface Player extends StatusHolder {
+  id: number; ws: WS | null; name: string; cls: string;
+  lvl: number; xp: number; gold: number; pts: number;
+  str: number; dex: number; int: number;
+  hp: number; mp: number; x: number; y: number;
+  inv: (Item | null)[]; eq: Record<string, Item | null>;
+  quests: Record<string, { n: number; done: boolean; turned: boolean }>;
+  path: { x: number; y: number }[] | null;
+  direct: { x: number; y: number } | null; // straight-line fallback target
+  vel: { x: number; y: number } | null; // WASD velocity (normalized), overrides path/chase
+  atkTarget: number | null; lootTarget: number | null; nextAtk: number; repathAt: number;
+  skillCds: number[]; potCdUntil: number; combatUntil: number; recallCdUntil: number;
+  dead: boolean; lastChat: number; dirty: boolean;
+  visitedZones: string[]; // portal destinations unlocked by visiting regions
+  party: Party | null; partyId: string | null; // live party + durable id (survives logout/restart)
+  invites: Map<string, number>; // invitaciones pendientes (nombre → expira)
+  followId: number | null; // id de un compañero de grupo a seguir (auto-mover/auto-atacar)
+  followStuck: number; // ticks without progress while following a path/leader
+  disconnectedAt: number | null; // set on drop; cleared on reconnect, reaped after LINGER_MS
+  seen: Set<number>; // entity ids sent in the previous snapshot
+}
+
+interface Mob extends StatusHolder {
+  id: number; kind: string; lvl: number; name?: string;
+  x: number; y: number; hp: number; mhp: number;
+  lo: number; hi: number; arm: number; xp: number; gold: () => number;
+  spawn: { x: number; y: number };
+  state: "idle" | "chase" | "reset";
+  target: Player | null; nextAtk: number; nextScan: number; slamAt: number;
+  dead: boolean; respawnAt: number; resetStuck: number;
+  path: { x: number; y: number }[] | null;
+  repathAt: number;
+  mobStuck: number; // ticks without chase progress; then give up / reset
+}
+
+interface Npc { id: number; kind: string; name: string; x: number; y: number }
+interface Loot { id: number; x: number; y: number; item: Item; exp: number }
+
+let nextEntId = 1;
+const players = new Map<string, Player>(); // online players by account name
+const mobs: Mob[] = [];
+const loot = new Map<number, Loot>();
+
+const npcs: Npc[] = NPC_DEFS.map((n) => ({ id: nextEntId++, kind: n.kind, name: n.name, x: n.x, y: n.y }));
+const elder = npcs[0], kora = npcs[1], bront = npcs[2];
+const portalNpc = npcs.find((n) => n.kind === "portal")!;
+
+for (const s of world.spawns) {
+  const st = mobStats(s.kind, s.lvl);
+  mobs.push({
+    id: nextEntId++, kind: s.kind, lvl: s.lvl,
+    name: s.kind === "cyclops" ? "Polifemo" : s.kind === "minotaur" ? "Asterión" : undefined,
+    x: s.x, y: s.y, hp: st.mhp, mhp: st.mhp, lo: st.lo, hi: st.hi, arm: st.arm,
+    xp: st.xp, gold: st.gold, spawn: { x: s.x, y: s.y },
+    state: "idle", target: null, nextAtk: 0, nextScan: 0, slamAt: 0,
+    dead: false, respawnAt: 0, resetStuck: 0,
+    path: null, repathAt: 0, mobStuck: 0,
+    slowUntil: 0, slowPct: 0, stunUntil: 0, lastAtk: 0, moving: false, d: 0,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Persistence
+// ---------------------------------------------------------------------------
+mkdirSync(dirname(DB_PATH), { recursive: true });
+const db = new Database(DB_PATH, { create: true });
+db.exec("PRAGMA journal_mode = WAL;");
+db.exec(`CREATE TABLE IF NOT EXISTS players(
+  name TEXT PRIMARY KEY, pass TEXT NOT NULL, cls TEXT NOT NULL,
+  data TEXT NOT NULL, created INTEGER NOT NULL, seen INTEGER NOT NULL)`);
+db.exec(`CREATE TABLE IF NOT EXISTS parties(
+  id TEXT PRIMARY KEY,
+  members TEXT NOT NULL)`);
+const qGet = db.query<{ name: string; pass: string; cls: string; data: string }, [string]>(
+  "SELECT name, pass, cls, data FROM players WHERE name = ?1",
+);
+const qInsert = db.query(
+  "INSERT INTO players(name, pass, cls, data, created, seen) VALUES(?1, ?2, ?3, ?4, ?5, ?5)",
+);
+const qSave = db.query("UPDATE players SET data = ?2, seen = ?3 WHERE name = ?1");
+
+function serialize(p: Player): string {
+  return JSON.stringify({
+    lvl: p.lvl, xp: p.xp, gold: p.gold, pts: p.pts,
+    str: p.str, dex: p.dex, int: p.int, hp: p.hp, mp: p.mp,
+    x: p.x, y: p.y, inv: p.inv, eq: p.eq, quests: p.quests,
+    partyId: p.partyId,
+    visitedZones: p.visitedZones,
+  });
+}
+
+function savePlayer(p: Player): void {
+  qSave.run(p.name, serialize(p), Date.now());
+  p.dirty = false;
+}
+
+function saveAll(): void {
+  for (const p of players.values()) savePlayer(p);
+}
+
+// ---------------------------------------------------------------------------
+// Small helpers
+// ---------------------------------------------------------------------------
+function num(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function send(ws: WS | null, msg: unknown): void {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+}
+
+function toast(p: Player, msg: string): void {
+  send(p.ws, { t: "toast", msg });
+}
+
+/** Broadcast to every online player whose AOI covers (x,y). */
+function bcastAt(x: number, y: number, msg: unknown): void {
+  const s = JSON.stringify(msg);
+  for (const p of players.values()) {
+    const dx = p.x - x, dy = p.y - y;
+    if (dx * dx + dy * dy <= AOI2 && p.ws && p.ws.readyState === 1) p.ws.send(s);
+  }
+}
+
+function sysChat(text: string): void {
+  const s = JSON.stringify({ t: "chat", text, sys: 1 });
+  for (const p of players.values()) if (p.ws && p.ws.readyState === 1) p.ws.send(s);
+}
+
+function dist(ax: number, ay: number, bx: number, by: number): number {
+  return Math.hypot(ax - bx, ay - by);
+}
+
+function inTown(x: number, y: number): boolean {
+  return inRect(x, y, TOWN_RECT);
+}
+
+// ---------------------------------------------------------------------------
+// Derived player stats (contract formulas)
+// ---------------------------------------------------------------------------
+interface Derived {
+  str: number; dex: number; int: number; arm: number;
+  mhp: number; mmp: number; lo: number; hi: number; crit: number;
+}
+
+function derive(p: Player): Derived {
+  let str = p.str, dex = p.dex, int_ = p.int;
+  let arm = 0, dmgp = 0, crit = 0, hpB = 0, mpB = 0;
+  for (const slot of ["weapon", "armor", "helm", "ring"]) {
+    const it = p.eq[slot];
+    if (!it) continue;
+    arm += it.arm || 0;
+    if (it.mods) {
+      str += it.mods.str || 0; dex += it.mods.dex || 0; int_ += it.mods.int || 0;
+      arm += it.mods.arm || 0; dmgp += it.mods.dmgp || 0; crit += it.mods.crit || 0;
+      hpB += it.mods.hp || 0; mpB += it.mods.mp || 0;
+    }
+  }
+  const w = p.eq.weapon;
+  const [lo0, hi0] = w?.dmg ?? [1, 3];
+  const [stat, mult] = WEAPON_SCALING[w?.icon ?? "sword"] ?? ["str", 0.5];
+  const sv = stat === "str" ? str : stat === "dex" ? dex : int_;
+  const bonus = sv * mult;
+  const dm = 1 + dmgp / 100;
+  return {
+    str, dex, int: int_, arm,
+    mhp: 40 + 12 * p.lvl + 3 * str + hpB,
+    mmp: 20 + 4 * p.lvl + 3 * int_ + mpB,
+    lo: (lo0 + bonus) * dm, hi: (hi0 + bonus) * dm,
+    crit: 5 + 0.15 * dex + crit,
+  };
+}
+
+function xpNext(lvl: number): number {
+  return Math.round(90 * Math.pow(lvl, 1.55));
+}
+
+function weaponRange(p: Player): number {
+  const icon = p.eq.weapon?.icon;
+  return icon === "bow" || icon === "staff" ? RANGED_RANGE : MELEE_RANGE;
+}
+
+function sendYou(p: Player): void {
+  const d = derive(p);
+  p.hp = Math.min(p.hp, d.mhp);
+  p.mp = Math.min(p.mp, d.mmp);
+  send(p.ws, {
+    t: "you",
+    lvl: p.lvl, xp: p.xp, xpNext: xpNext(p.lvl), gold: p.gold, pts: p.pts,
+    str: d.str, dex: d.dex, int: d.int,
+    hp: Math.round(p.hp), mhp: d.mhp, mp: Math.round(p.mp), mmp: d.mmp,
+    arm: d.arm, dmg: [Math.round(d.lo), Math.round(d.hi)],
+    crit: Math.round(d.crit * 10) / 10, spd: PLAYER_SPD,
+    inv: p.inv, eq: p.eq, quests: p.quests, visitedZones: p.visitedZones,
+  });
+  p.dirty = true;
+}
+
+// ---------------------------------------------------------------------------
+// Inventory
+// ---------------------------------------------------------------------------
+/** Add item to inventory (stacks potions/quest items to 10). False = full. */
+function invAdd(p: Player, item: Item): boolean {
+  if (item.slot === "potion" || item.slot === "quest") {
+    for (const it of p.inv) {
+      if (it && it.base === item.base && (it.qty ?? 1) < 10) {
+        it.qty = (it.qty ?? 1) + (item.qty ?? 1);
+        return true;
+      }
+    }
+  }
+  const free = p.inv.indexOf(null);
+  if (free < 0) return false;
+  p.inv[free] = item;
+  return true;
+}
+
+function hornCount(p: Player): number {
+  let n = 0;
+  for (const it of p.inv) if (it && it.base === "horn") n += it.qty ?? 1;
+  return n;
+}
+
+/** Remove `n` units of quest item `base` from inventory. */
+function removeQuestItems(p: Player, base: string, n: number): void {
+  for (let i = 0; i < p.inv.length && n > 0; i++) {
+    const it = p.inv[i];
+    if (!it || it.base !== base) continue;
+    const take = Math.min(it.qty ?? 1, n);
+    n -= take;
+    it.qty = (it.qty ?? 1) - take;
+    if (it.qty <= 0) p.inv[i] = null;
+  }
+}
+
+/** Sync collect-quest progress (q2) with inventory contents. */
+function updateCollect(p: Player): void {
+  const q = p.quests.q2;
+  if (!q || q.turned) return;
+  const def = QUESTS.q2;
+  const n = Math.min(def.count, hornCount(p));
+  if (n !== q.n) {
+    q.n = n;
+    const wasDone = q.done;
+    q.done = n >= def.count;
+    if (q.done && !wasDone) toast(p, `Misión completada: ${def.name} — vuelve con Nikandros`);
+  }
+}
+
+/** Re-sync collect-quest counters from inventory (e.g. after login). */
+function syncCollectQuests(p: Player): void {
+  for (const qid of QUEST_ORDER) {
+    if (QUESTS[qid].kind === "collect") updateCollect(p);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Loot
+// ---------------------------------------------------------------------------
+function dropItem(x: number, y: number, item: Item): void {
+  const jx = x + (Math.random() - 0.5) * 1.4;
+  const jy = y + (Math.random() - 0.5) * 1.4;
+  loot.set(item.id, {
+    id: item.id,
+    x: walkableAt(jx, jy) ? jx : x,
+    y: walkableAt(jx, jy) ? jy : y,
+    item, exp: Date.now() + LOOT_TTL,
+  });
+}
+
+function rollDrops(m: Mob, killer: Player): void {
+  killer.gold += m.gold();
+  if (m.kind === "cyclops") {
+    // Boss always drops 2 rares.
+    const slots = ["weapon", "armor", "helm", "ring"];
+    for (let i = 0; i < 2; i++)
+      dropItem(m.x, m.y, rollItem(slots[Math.floor(Math.random() * slots.length)], 4, "rare"));
+    return;
+  }
+  if (m.kind === "minotaur") {
+    // Labyrinth boss: 3 high-tier rares.
+    const slots = ["weapon", "armor", "helm", "ring"];
+    for (let i = 0; i < 3; i++)
+      dropItem(m.x, m.y, rollItem(slots[Math.floor(Math.random() * slots.length)], 4, "rare"));
+    return;
+  }
+  // Satyr Horn: 60% while q2 is active and the killer still needs horns.
+  const q2 = killer.quests.q2;
+  if (m.kind === "satyr" && q2 && !q2.turned && hornCount(killer) < QUESTS.q2.count && Math.random() < 0.6)
+    dropItem(m.x, m.y, makeQuestItem("horn"));
+  if (Math.random() >= 0.35) return;
+  const tier = m.lvl >= 13 ? 4 : m.lvl >= 9 ? 3 : m.lvl >= 5 ? 2 : 1;
+  if (Math.random() < 0.25) {
+    const key = (m.lvl >= 9 ? ["hp3", "mp3"] : ["hp1", "mp1"])[Math.random() < 0.5 ? 0 : 1];
+    dropItem(m.x, m.y, makePotion(key));
+  } else {
+    const slots = ["weapon", "weapon", "armor", "helm", "ring"];
+    dropItem(m.x, m.y, rollItem(slots[Math.floor(Math.random() * slots.length)], tier, rollRarity()));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// XP / leveling / death
+// ---------------------------------------------------------------------------
+function addXp(p: Player, amount: number): void {
+  if (p.lvl >= LEVEL_CAP) return;
+  p.xp += amount;
+  let leveled = false;
+  while (p.lvl < LEVEL_CAP && p.xp >= xpNext(p.lvl)) {
+    p.xp -= xpNext(p.lvl);
+    p.lvl++;
+    p.pts += 3;
+    leveled = true;
+    sysChat(`¡${p.name} subió al nivel ${p.lvl}!`);
+    bcastAt(p.x, p.y, { t: "fx", k: "level", i: p.id });
+  }
+  if (leveled) {
+    const d = derive(p);
+    p.hp = d.mhp;
+    p.mp = d.mmp;
+    if (p.party) partyBcast(p.party); // refresca niveles en los marcos del grupo
+  }
+  if (p.lvl >= LEVEL_CAP) p.xp = 0;
+}
+
+function mobDie(m: Mob, killer: Player): void {
+  m.dead = true;
+  m.target = null;
+  m.respawnAt = Date.now() + (m.kind === "cyclops" || m.kind === "minotaur" ? 180000 : 20000);
+  // XP compartida: miembros del grupo vivos y conectados a ≤PARTY_XP_RANGE casillas
+  // se reparten la XP con un bono del 15% por miembro extra. Oro solo al que mata.
+  const sharers = killer.party
+    ? killer.party.members.filter(q => q.ws && !q.dead && dist(q.x, q.y, m.x, m.y) <= PARTY_XP_RANGE)
+    : [];
+  if (!sharers.some((q) => q.id === killer.id)) sharers.push(killer);
+  const bonus = 1 + 0.15 * (sharers.length - 1);
+  for (const q of sharers) {
+    // Reducción por sobre-nivel: -20% por nivel más allá de 4 por encima, mín. 10%.
+    const gap = q.lvl - m.lvl;
+    const mult = gap > 4 ? Math.max(0.1, 1 - 0.2 * (gap - 4)) : 1;
+    addXp(q, Math.max(1, Math.round((m.xp * mult * bonus) / sharers.length)));
+  }
+  rollDrops(m, killer);
+  // Crédito de misiones de caza para todos los miembros cercanos.
+  for (const member of sharers) {
+    for (const qid of QUEST_ORDER) {
+      const def = QUESTS[qid];
+      const q = member.quests[qid];
+      if (def.kind !== "kill" || def.target !== m.kind || !q || q.turned || q.done) continue;
+      q.n++;
+      if (q.n >= def.count) {
+        q.done = true;
+        toast(member, `Misión completada: ${def.name} — vuelve con Nikandros`);
+      }
+    }
+    sendYou(member);
+  }
+  if (m.kind === "cyclops") {
+    sysChat(`¡${killer.name} ha derrotado a Polifemo, el terror del este!`);
+    unlockPortal(killer, "asfodelos", true);
+    for (const q of sharers) unlockPortal(q, "asfodelos", true);
+  }
+  if (m.kind === "minotaur") sysChat(`¡${killer.name} ha derrotado a Asterión en el laberinto de los Asfódelos!`);
+}
+
+function playerDie(p: Player): void {
+  p.dead = true;
+  p.hp = 0;
+  p.path = null;
+  p.direct = null;
+  p.vel = null;
+  p.atkTarget = null;
+  p.lootTarget = null;
+  p.moving = false;
+  send(p.ws, { t: "dead" });
+}
+
+// ---------------------------------------------------------------------------
+// Grupos (parties): XP compartida entre miembros cercanos
+// ---------------------------------------------------------------------------
+const PARTY_MAX = 10;
+const PARTY_XP_RANGE = 20; // casillas para compartir XP y crédito de misión
+
+interface PartyMemberMeta { name: string; cls: string; lvl: number }
+interface Party {
+  id: string;
+  members: Player[];          // currently loaded (online or linger) Player objects
+  roster: PartyMemberMeta[];  // durable roster including offline members
+}
+
+const liveParties = new Map<string, Party>();
+
+const qPartyGet = db.query<{ id: string; members: string }, [string]>(
+  "SELECT id, members FROM parties WHERE id = ?1",
+);
+const qPartyUpsert = db.query(
+  "INSERT INTO parties(id, members) VALUES(?1, ?2) ON CONFLICT(id) DO UPDATE SET members = excluded.members",
+);
+const qPartyDel = db.query("DELETE FROM parties WHERE id = ?1");
+
+function newPartyId(): string {
+  return `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function playerById(id: number): Player | null {
+  for (const q of players.values()) if (q.id === id && q.ws) return q;
+  return null;
+}
+
+function syncRosterFromOnline(pt: Party): void {
+  for (const m of pt.members) {
+    const row = pt.roster.find(r => r.name === m.name);
+    if (row) { row.cls = m.cls; row.lvl = m.lvl; }
+    else pt.roster.push({ name: m.name, cls: m.cls, lvl: m.lvl });
+  }
+}
+
+function persistParty(pt: Party): void {
+  syncRosterFromOnline(pt);
+  qPartyUpsert.run(pt.id, JSON.stringify(pt.roster));
+}
+
+function deletePartyRow(id: string): void {
+  qPartyDel.run(id);
+  liveParties.delete(id);
+}
+
+
+function findBotSquadParty(): Party | null {
+  let best: Party | null = null;
+  let bestN = 0;
+  for (const pt of liveParties.values()) {
+    const n = pt.roster.filter(r => BOT_SQUAD.has(r.name)).length;
+    if (n > bestN) { best = pt; bestN = n; }
+  }
+  if (best) return best;
+  const rows = db.query("SELECT id, members FROM parties").all() as { id: string; members: string }[];
+  for (const row of rows) {
+    let roster: PartyMemberMeta[] = [];
+    try {
+      const parsed = JSON.parse(row.members);
+      if (Array.isArray(parsed)) {
+        for (const x of parsed) {
+          if (!x || typeof x !== "object") continue;
+          const name = typeof (x as { name?: unknown }).name === "string" ? (x as { name: string }).name : "";
+          if (!BOT_SQUAD.has(name)) continue;
+          const cls = typeof (x as { cls?: unknown }).cls === "string" ? (x as { cls: string }).cls : "warrior";
+          const lvl = clampInt((x as { lvl?: unknown }).lvl, 1, LEVEL_CAP, 1);
+          roster.push({ name, cls, lvl });
+        }
+      }
+    } catch { /* ignore */ }
+    if (roster.length > bestN) {
+      const pt = getOrLoadParty(row.id);
+      if (pt) { best = pt; bestN = roster.length; }
+    }
+  }
+  return best;
+}
+
+/** Tier-1 common kit per class (weapon matched via CLASS_WEAPON). */
+function ensureBotLoadout(p: Player): void {
+  if (!BOT_SQUAD.has(p.name)) return;
+  let changed = false;
+  const wtype = CLASS_WEAPON[p.cls];
+  if (!p.eq.weapon) { p.eq.weapon = rollItem("weapon", 1, "common", wtype); changed = true; }
+  if (!p.eq.armor) { p.eq.armor = rollItem("armor", 1, "common"); changed = true; }
+  if (!p.eq.helm) { p.eq.helm = rollItem("helm", 1, "common"); changed = true; }
+  if (!p.eq.ring) { p.eq.ring = rollItem("ring", 1, "magic"); changed = true; }
+  if (!changed) return;
+  const d = derive(p);
+  p.hp = Math.min(p.hp, d.mhp);
+  p.mp = Math.min(p.mp, d.mmp);
+  p.dirty = true;
+  savePlayer(p);
+}
+
+/** Merge all online companion bots into one durable party. */
+function ensureBotSquadParty(p: Player): void {
+  if (!BOT_SQUAD.has(p.name)) return;
+
+  let pt = findBotSquadParty();
+  if (p.party) {
+    const squadN = p.party.roster.filter(r => BOT_SQUAD.has(r.name)).length;
+    if (!pt || squadN >= (pt.roster.filter(r => BOT_SQUAD.has(r.name)).length))
+      pt = p.party;
+  }
+
+  if (!pt) {
+    pt = { id: newPartyId(), members: [], roster: [] };
+    attachPlayerToParty(p, pt);
+    persistParty(pt);
+    partyBcast(pt);
+  } else {
+    if (p.party && p.party.id !== pt.id) partyLeave(p, false);
+    if (!pt.roster.some(r => r.name === p.name) && pt.roster.length < PARTY_MAX)
+      attachPlayerToParty(p, pt);
+    else if (!p.party || p.party.id !== pt.id)
+      attachPlayerToParty(p, pt);
+  }
+
+  for (const other of players.values()) {
+    if (!BOT_SQUAD.has(other.name) || other.name === p.name) continue;
+    if (pt.roster.some(r => r.name === other.name)) {
+      if (!other.party || other.party.id !== pt.id) attachPlayerToParty(other, pt);
+      continue;
+    }
+    if (pt.roster.length >= PARTY_MAX) break;
+    if (other.party && other.party.id !== pt.id) partyLeave(other, false);
+    attachPlayerToParty(other, pt);
+    other.dirty = true;
+    savePlayer(other);
+  }
+
+  persistParty(pt);
+  partyBcast(pt);
+}
+
+function partyWireRoster(pt: Party): { id: number; name: string; cls: string; lvl: number; online: boolean }[] {
+  syncRosterFromOnline(pt);
+  return pt.roster.map(r => {
+    const live = pt.members.find(m => m.name === r.name);
+    if (live) return { id: live.id, name: live.name, cls: live.cls, lvl: live.lvl, online: !!live.ws };
+    return { id: 0, name: r.name, cls: r.cls, lvl: r.lvl, online: false };
+  });
+}
+
+
+/** Whitelisted human invited a companion bot → join that bot's durable squad party. */
+function partyJoinHumanToBotSquad(human: Player, bot: Player): boolean {
+  if (!ALLOWED_PARTY_HUMANS.has(human.name.toLowerCase())) return false;
+  if (!BOT_SQUAD.has(bot.name)) return false;
+
+  let pt = bot.party || (bot.partyId ? getOrLoadParty(bot.partyId) : null);
+  if (!pt) {
+    ensureBotSquadParty(bot);
+    pt = bot.party || (bot.partyId ? getOrLoadParty(bot.partyId) : null);
+  }
+  if (!pt) {
+    toast(human, "Los compañeros aún no tienen grupo");
+    return true;
+  }
+
+  if (human.party?.id === pt.id || (human.partyId === pt.id && pt.roster.some(r => r.name === human.name))) {
+    if (!human.party) attachPlayerToParty(human, pt);
+    partyBcast(pt);
+    toast(human, "Ya estás en el grupo de compañeros");
+    return true;
+  }
+
+  if (human.party || human.partyId) partyLeave(human, false);
+
+  if (pt.roster.length >= PARTY_MAX) {
+    toast(human, "El grupo está lleno");
+    return true;
+  }
+
+  attachPlayerToParty(human, pt);
+  human.dirty = true;
+  savePlayer(human);
+  persistParty(pt);
+  partyBcast(pt);
+  for (const m of pt.members) if (m !== human && m.ws) toast(m, `${human.name} se unió al grupo`);
+  toast(human, `Te uniste al grupo de ${bot.name}`);
+  for (const m of pt.members) if (BOT_SQUAD.has(m.name)) m.invites.delete(human.name);
+  return true;
+}
+
+function partyBcast(pt: Party): void {
+  const roster = partyWireRoster(pt);
+  for (const m of pt.members) if (m.ws) send(m.ws, { t: "party", members: roster });
+}
+
+function clearFollowIfInvalid(pl: Player): void {
+  if (pl.followId == null) return;
+  // Only follow currently-loaded, online party mates.
+  if (pl.party && pl.party.members.some(m => m.id === pl.followId && m.ws)) return;
+  pl.followId = null;
+  if (pl.ws) send(pl.ws, { t: "follow_state", id: null });
+}
+
+/** Detach a loaded player from the live party object without clearing durable membership. */
+function partyUnload(p: Player): void {
+  const pt = p.party;
+  if (!pt) return;
+  const idx = pt.members.indexOf(p);
+  if (idx >= 0) pt.members.splice(idx, 1);
+  p.party = null;
+  persistParty(pt);
+  partyBcast(pt);
+  clearFollowIfInvalid(p);
+  for (const m of pt.members) clearFollowIfInvalid(m);
+}
+
+function attachPlayerToParty(p: Player, pt: Party): void {
+  if (!pt.members.includes(p)) pt.members.push(p);
+  p.party = pt;
+  p.partyId = pt.id;
+  const row = pt.roster.find(r => r.name === p.name);
+  if (row) { row.cls = p.cls; row.lvl = p.lvl; }
+  else pt.roster.push({ name: p.name, cls: p.cls, lvl: p.lvl });
+  liveParties.set(pt.id, pt);
+}
+
+function getOrLoadParty(id: string): Party | null {
+  const live = liveParties.get(id);
+  if (live) return live;
+  const row = qPartyGet.get(id);
+  if (!row) return null;
+  let roster: PartyMemberMeta[] = [];
+  try {
+    const parsed = JSON.parse(row.members);
+    if (Array.isArray(parsed)) {
+      for (const x of parsed) {
+        if (!x || typeof x !== "object") continue;
+        const name = typeof (x as { name?: unknown }).name === "string" ? (x as { name: string }).name : "";
+        if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) continue;
+        const cls = typeof (x as { cls?: unknown }).cls === "string" ? (x as { cls: string }).cls : "warrior";
+        const lvl = clampInt((x as { lvl?: unknown }).lvl, 1, LEVEL_CAP, 1);
+        roster.push({ name, cls, lvl });
+      }
+    }
+  } catch { /* ignore */ }
+  if (roster.length === 0) {
+    deletePartyRow(id);
+    return null;
+  }
+  const pt: Party = { id, members: [], roster };
+  liveParties.set(id, pt);
+  return pt;
+}
+
+/** Restore durable party after login/load. No-op if partyId missing/invalid. */
+function restoreParty(p: Player): void {
+  if (!p.partyId) return;
+  const pt = getOrLoadParty(p.partyId);
+  if (!pt || !pt.roster.some(r => r.name === p.name)) {
+    p.partyId = null;
+    p.party = null;
+    p.dirty = true;
+    return;
+  }
+  // Pull in any other already-online roster mates that somehow lack the link.
+  for (const r of pt.roster) {
+    const other = players.get(r.name);
+    if (other && other !== p && !pt.members.includes(other)) {
+      other.party = pt;
+      other.partyId = pt.id;
+    }
+  }
+  attachPlayerToParty(p, pt);
+  persistParty(pt);
+}
+
+function partyLeave(p: Player, notify = true): void {
+  // Explicit leave only — clears durable membership.
+  const pt = p.party || (p.partyId ? getOrLoadParty(p.partyId) : null);
+  if (!pt) {
+    p.party = null;
+    p.partyId = null;
+    if (p.ws) send(p.ws, { t: "party", members: [] });
+    return;
+  }
+  const originalOnline = [...pt.members];
+  const idxLive = pt.members.indexOf(p);
+  if (idxLive >= 0) pt.members.splice(idxLive, 1);
+  pt.roster = pt.roster.filter(r => r.name !== p.name);
+  p.party = null;
+  p.partyId = null;
+  p.dirty = true;
+  savePlayer(p);
+  if (p.ws) send(p.ws, { t: "party", members: [] });
+  clearFollowIfInvalid(p);
+
+  if (pt.roster.length <= 1) {
+    // Disband leftover solo member.
+    for (const m of [...pt.members]) {
+      m.party = null;
+      m.partyId = null;
+      m.dirty = true;
+      savePlayer(m);
+      if (m.ws) {
+        send(m.ws, { t: "party", members: [] });
+        if (notify) toast(m, "El grupo se ha disuelto");
+      }
+      clearFollowIfInvalid(m);
+    }
+    // Also clear durable id for the remaining offline roster name, if any.
+    for (const r of pt.roster) {
+      const offline = players.get(r.name);
+      if (offline) {
+        offline.party = null;
+        offline.partyId = null;
+        offline.dirty = true;
+        savePlayer(offline);
+      } else {
+        // Patch saved blob for offline account so restart doesn't revive a solo party.
+        const row = qGet.get(r.name);
+        if (row) {
+          try {
+            const data = JSON.parse(row.data) as Record<string, unknown>;
+            data.partyId = null;
+            qSave.run(r.name, JSON.stringify(data), Date.now());
+          } catch { /* ignore */ }
+        }
+      }
+    }
+    pt.members.length = 0;
+    pt.roster.length = 0;
+    deletePartyRow(pt.id);
+  } else {
+    persistParty(pt);
+    partyBcast(pt);
+    if (notify) for (const m of pt.members) if (m.ws) toast(m, `${p.name} dejó el grupo`);
+    for (const m of originalOnline) if (m !== p) clearFollowIfInvalid(m);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Combat
+// ---------------------------------------------------------------------------
+function mitigate(raw: number, arm: number): number {
+  const mit = Math.min(0.6, arm / (arm + 80));
+  return Math.max(1, Math.round(raw * (1 - mit)));
+}
+
+/** Player damages a mob (basic attack or skill at pct of weapon damage). */
+function playerHit(p: Player, m: Mob, pct: number): void {
+  if (m.dead) return;
+  const d = derive(p);
+  let raw = (d.lo + Math.random() * (d.hi - d.lo)) * pct;
+  const crit = Math.random() * 100 < d.crit;
+  if (crit) raw *= 1.6;
+  const dmg = mitigate(raw, m.arm);
+  m.hp -= dmg;
+  p.combatUntil = Date.now() + COMBAT_MS;
+  p.lastAtk = Date.now();
+  p.d = m.x < p.x ? 1 : 0;
+  const ev: Record<string, unknown> = { t: "dmg", i: m.id, a: dmg };
+  if (crit) ev.c = 1;
+  bcastAt(m.x, m.y, ev);
+  if (m.hp <= 0) {
+    mobDie(m, p);
+    return;
+  }
+  // Getting hit always draws aggro (even beyond the scan radius / while walking home).
+  if (!m.target) {
+    m.target = p;
+    m.state = "chase";
+  }
+}
+
+/** Mob damages a player. */
+function mobHit(m: Mob, p: Player, mul = 1): void {
+  if (p.dead || inTown(p.x, p.y)) return;
+  const d = derive(p);
+  const raw = (m.lo + Math.random() * (m.hi - m.lo)) * mul;
+  const dmg = mitigate(raw, d.arm);
+  p.hp -= dmg;
+  p.combatUntil = Date.now() + COMBAT_MS;
+  m.lastAtk = Date.now();
+  m.d = p.x < m.x ? 1 : 0;
+  bcastAt(p.x, p.y, { t: "dmg", i: p.id, a: dmg });
+  // Solo auto-retaliate: if not in a party and not WASD-steering, lock onto the attacker
+  // when we have no living target (manual click / party follow still win when set).
+  if (!p.party && !p.vel && !p.dead) {
+    const cur = p.atkTarget != null ? mobById(p.atkTarget) : null;
+    if (!cur || cur.dead) {
+      p.atkTarget = m.id;
+      p.lootTarget = null;
+      p.repathAt = 0;
+    }
+  }
+  if (p.hp <= 0) playerDie(p);
+}
+
+function applySlow(t: StatusHolder, pct: number, ms: number): void {
+  const until = Date.now() + ms;
+  if (until > t.slowUntil || pct > t.slowPct) {
+    t.slowUntil = until;
+    t.slowPct = pct;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Skills
+// ---------------------------------------------------------------------------
+function useSkill(p: Player, n: number, targetId: number | null, px: number | null, py: number | null): void {
+  const def = SKILLS[p.cls]?.find((s) => s.n === n);
+  if (!def) return;
+  const now = Date.now();
+  if (p.lvl < def.unlock) return toast(p, `Se desbloquea al nivel ${def.unlock}`);
+  if (now < p.skillCds[n]) return toast(p, `${def.name} está en enfriamiento`);
+  if (p.mp < def.cost) return toast(p, "No tienes suficiente maná");
+
+  const hits: Mob[] = [];
+  let fxMsg: Record<string, unknown> | null = null;
+  const isHealFx = def.fx.k === "heal";
+  if (def.kind === "target") {
+    const m = targetId != null ? mobById(targetId) : null;
+    if (!m || m.dead) return toast(p, "Sin objetivo");
+    if (dist(p.x, p.y, m.x, m.y) > CAST_RANGE + 0.5) return toast(p, "Fuera de alcance");
+    hits.push(m);
+    fxMsg = { t: "fx", k: "proj", from: { x: r2(p.x), y: r2(p.y) }, to: { x: r2(m.x), y: r2(m.y) }, style: def.fx.style };
+    p.d = m.x < p.x ? 1 : 0;
+  } else if (!isHealFx || def.fx.k === "aoe") {
+    const cx = def.kind === "self" ? p.x : px;
+    const cy = def.kind === "self" ? p.y : py;
+    if (cx == null || cy == null) return toast(p, "Punto de destino inválido");
+    if (def.kind === "point" && dist(p.x, p.y, cx, cy) > CAST_RANGE + 0.5) return toast(p, "Fuera de alcance");
+    const r = def.radius ?? 2;
+    // Pure support heals skip the mob sweep; damaging self/point skills still hit.
+    if (def.pct > 0) {
+      for (const m of mobs)
+        if (!m.dead && dist(m.x, m.y, cx, cy) <= r) hits.push(m);
+    }
+    if (def.fx.k === "aoe")
+      fxMsg = { t: "fx", k: "aoe", x: r2(cx), y: r2(cy), r, style: def.fx.style };
+  }
+
+  p.mp -= def.cost;
+  p.skillCds[n] = now + def.cd;
+  if (def.pct > 0 || hits.length) p.combatUntil = now + COMBAT_MS;
+  if (fxMsg) bcastAt(p.x, p.y, fxMsg);
+
+  // Healing (cleric Oración / Círculo sagrado): always self, then optional party modes.
+  if (def.heal && def.heal > 0) {
+    const applyHeal = (pl: Player) => {
+      if (pl.dead || !pl.ws) return;
+      const d = derive(pl);
+      const before = pl.hp;
+      const amount = def.healMissing
+        ? Math.max(0, d.mhp - pl.hp) * def.heal!
+        : d.mhp * def.heal!;
+      pl.hp = Math.min(d.mhp, pl.hp + amount);
+      if (pl.hp > before) {
+        bcastAt(pl.x, pl.y, { t: "fx", k: "heal", i: pl.id });
+        sendYou(pl);
+      }
+    };
+    applyHeal(p);
+    if (p.party) {
+      const r = def.radius ?? 4;
+      if (def.healMostHurt) {
+        // Oración: also heal the single most damaged living ally in range.
+        let best: Player | null = null;
+        let bestRatio = 1;
+        for (const mate of p.party.members) {
+          if (mate === p || mate.dead || !mate.ws) continue;
+          if (dist(p.x, p.y, mate.x, mate.y) > r) continue;
+          const d = derive(mate);
+          const ratio = d.mhp > 0 ? mate.hp / d.mhp : 1;
+          if (ratio < bestRatio - 1e-9 || (Math.abs(ratio - bestRatio) < 1e-9 && best && mate.id < best.id)) {
+            bestRatio = ratio;
+            best = mate;
+          }
+        }
+        if (best && bestRatio < 0.999) applyHeal(best);
+      } else if (def.healParty) {
+        for (const mate of p.party.members) {
+          if (mate === p) continue;
+          if (dist(p.x, p.y, mate.x, mate.y) <= r) applyHeal(mate);
+        }
+      }
+    }
+  }
+
+  for (const m of hits) {
+    if (def.stun) m.stunUntil = Math.max(m.stunUntil, now + def.stun);
+    if (def.slow) applySlow(m, def.slow.pct, def.slow.ms);
+    if (def.pct > 0) playerHit(p, m, def.pct);
+  }
+  sendYou(p);
+}
+
+function mobById(id: number): Mob | null {
+  for (const m of mobs) if (m.id === id) return m;
+  return null;
+}
+
+function r2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+// ---------------------------------------------------------------------------
+// Shops
+// ---------------------------------------------------------------------------
+interface StockEntry { item: Item; infinite: boolean }
+let koraStock: StockEntry[] = [];
+let brontStock: StockEntry[] = [];
+
+function restock(): void {
+  koraStock = [
+    { item: makePotion("hp1"), infinite: true },
+    { item: makePotion("mp1"), infinite: true },
+    { item: makePotion("hp3"), infinite: true },
+    { item: makePotion("mp3"), infinite: true },
+    { item: rollItem("ring", 1, "magic"), infinite: false },
+    { item: rollItem("ring", 2, "magic"), infinite: false },
+    { item: rollItem(Math.random() < 0.5 ? "helm" : "armor", 2, "magic"), infinite: false },
+  ];
+  brontStock = [];
+  for (const wt of ["sword", "axe", "bow", "staff"]) {
+    brontStock.push({ item: rollItem("weapon", 1, "common", wt), infinite: false });
+    brontStock.push({ item: rollItem("weapon", Math.random() < 0.5 ? 2 : 3, Math.random() < 0.3 ? "magic" : "common", wt), infinite: false });
+  }
+  for (const at of ["armor", "armor", "helm", "helm"])
+    brontStock.push({ item: rollItem(at, 1 + Math.floor(Math.random() * 3), Math.random() < 0.3 ? "magic" : "common"), infinite: false });
+}
+restock();
+
+function sendShop(p: Player, npc: Npc): void {
+  const stock = npc === kora ? koraStock : brontStock;
+  send(p.ws, {
+    t: "shop", npc: npc.id, name: npc.name,
+    items: stock.map((s, idx) => ({ idx, item: s.item, price: s.item.val })),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Quests / dialog
+// ---------------------------------------------------------------------------
+function questState(p: Player, qid: string): string {
+  const q = p.quests[qid];
+  if (q) return q.turned ? "turned" : q.done ? "complete" : "active";
+  const idx = QUEST_ORDER.indexOf(qid);
+  if (idx === 0) return "available";
+  const prev = p.quests[QUEST_ORDER[idx - 1]];
+  return prev?.turned ? "available" : "locked";
+}
+
+const REWARD_WEAPON_ES: Record<string, string> = {
+  sword: "espada mágica", axe: "hacha mágica", bow: "arco mágico", staff: "bastón mágico",
+};
+
+function rewardText(item: string | undefined, cls: string): string | undefined {
+  if (!item) return undefined;
+  if (item === "weapon") return REWARD_WEAPON_ES[CLASS_WEAPON[cls]] ?? "arma mágica";
+  if (item === "armor") return "armadura mágica";
+  return "objeto raro";
+}
+
+
+
+function retroUnlockPortals(p: Player): void {
+  // Veterans who cleared the east: unlock portals without forcing a re-walk.
+  if (p.lvl >= 5) unlockPortal(p, "olivares", true);
+  if (p.lvl >= 8) unlockPortal(p, "argos", true);
+  if (p.lvl >= 11) unlockPortal(p, "gorgona", true);
+  if (p.lvl >= 15 || p.quests.q6?.done || p.quests.q6?.turned) unlockPortal(p, "ciclope", true);
+  if (p.quests.q6?.done || p.quests.q6?.turned || p.quests.q7) unlockPortal(p, "asfodelos", true);
+}
+
+function unlockPortal(p: Player, id: string, silent = false): void {
+  if (!PORTAL_WAYPOINTS[id]) return;
+  if (!p.visitedZones.includes(id)) {
+    p.visitedZones.push(id);
+    p.dirty = true;
+    if (!silent) toast(p, `Portal desbloqueado: ${PORTAL_WAYPOINTS[id].label}`);
+  }
+}
+
+function checkZoneVisit(p: Player): void {
+  const zx = Math.floor(p.x), zy = Math.floor(p.y);
+  for (const z of ZONES) {
+    if (!inRect(zx, zy, z)) continue;
+    const pid = ZONE_PORTAL_ID[z.name];
+    if (pid) unlockPortal(p, pid);
+  }
+}
+
+function sendPortalDialog(p: Player): void {
+  const destinations = Object.entries(PORTAL_WAYPOINTS).map(([id, wp]) => ({
+    id,
+    label: wp.label,
+    unlocked: id === "helike" || p.visitedZones.includes(id),
+  }));
+  send(p.ws, {
+    t: "portal",
+    npc: portalNpc.id,
+    name: portalNpc.name,
+    lines: NPC_LINES.portal,
+    destinations,
+  });
+}
+
+function sendElderDialog(p: Player): void {
+  send(p.ws, {
+    t: "dialog", npc: elder.id, name: elder.name, kind: "elder",
+    lines: NPC_LINES.elder,
+    quests: QUEST_ORDER.map((qid) => {
+      const def = QUESTS[qid];
+      return {
+        qid, name: def.name, desc: def.desc, state: questState(p, qid),
+        n: p.quests[qid]?.n ?? 0, count: def.count,
+        rew: { xp: def.rew.xp, gold: def.rew.gold, item: rewardText(def.rew.item, p.cls) },
+      };
+    }),
+  });
+}
+
+function questReward(p: Player, item: "weapon" | "armor" | "rare"): Item {
+  if (item === "weapon") return rollItem("weapon", 2, "magic", CLASS_WEAPON[p.cls]);
+  if (item === "armor") return rollItem("armor", 3, "magic");
+  const slots = ["weapon", "armor", "helm", "ring"];
+  return rollItem(slots[Math.floor(Math.random() * slots.length)], 4, "rare", CLASS_WEAPON[p.cls]);
+}
+
+// ---------------------------------------------------------------------------
+// Login
+// ---------------------------------------------------------------------------
+function defaultPlayer(name: string, cls: string, ws: WS): Player {
+  const base = CLASS_BASE[cls];
+  const p: Player = {
+    id: nextEntId++, ws, name, cls,
+    lvl: 1, xp: 0, gold: 25, pts: 0,
+    str: base.str, dex: base.dex, int: base.int,
+    hp: 0, mp: 0,
+    x: TOWN.x + 0.5 + (Math.random() - 0.5) * 2, y: TOWN.y + 3.5,
+    inv: new Array(INV_SIZE).fill(null),
+    eq: { weapon: null, armor: null, helm: null, ring: null },
+    quests: {},
+    visitedZones: ["helike"],
+    path: null, direct: null, vel: null, atkTarget: null, lootTarget: null, nextAtk: 0, repathAt: 0,
+    skillCds: [0, 0, 0, 0, 0], potCdUntil: 0, combatUntil: 0, recallCdUntil: 0,
+    dead: false, lastChat: 0, dirty: true, seen: new Set(),
+    party: null, partyId: null, invites: new Map(), disconnectedAt: null, followId: null,
+    followStuck: 0,
+    slowUntil: 0, slowPct: 0, stunUntil: 0, lastAtk: 0, moving: false, d: 0,
+  };
+  const d = derive(p);
+  p.hp = d.mhp;
+  p.mp = d.mmp;
+  return p;
+}
+
+function sanitizeItem(v: unknown): Item | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.base !== "string" || typeof o.slot !== "string" || typeof o.name !== "string") return null;
+  const it: Item = {
+    id: freshItemId(), base: o.base, name: String(o.name).slice(0, 48),
+    slot: String(o.slot), icon: typeof o.icon === "string" ? o.icon : "sword",
+    tier: clampInt(o.tier, 1, 4, 1), rarity: typeof o.rarity === "string" ? o.rarity : "common",
+    lvl: clampInt(o.lvl, 1, 13, 1), val: clampInt(o.val, 0, 100000, 0),
+  };
+  if (Array.isArray(o.dmg) && o.dmg.length === 2)
+    it.dmg = [clampInt(o.dmg[0], 1, 999, 1), clampInt(o.dmg[1], 1, 999, 3)];
+  if (typeof o.arm === "number") it.arm = clampInt(o.arm, 0, 999, 0);
+  if (o.mods && typeof o.mods === "object") {
+    it.mods = {};
+    for (const [k, mv] of Object.entries(o.mods as Record<string, unknown>))
+      if (typeof mv === "number" && Number.isFinite(mv)) it.mods[k] = clampInt(mv, 0, 999, 0);
+  }
+  if (typeof o.qty === "number") it.qty = clampInt(o.qty, 1, 10, 1);
+  return it;
+}
+
+function clampInt(v: unknown, lo: number, hi: number, dflt: number): number {
+  const n = typeof v === "number" && Number.isFinite(v) ? Math.round(v) : dflt;
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
+  const p = defaultPlayer(name, cls, ws);
+  try {
+    const d = JSON.parse(data) as Record<string, unknown>;
+    p.lvl = clampInt(d.lvl, 1, LEVEL_CAP, 1);
+    p.xp = clampInt(d.xp, 0, 10000000, 0);
+    p.gold = clampInt(d.gold, 0, 100000000, 0);
+    p.pts = clampInt(d.pts, 0, 3 * LEVEL_CAP, 0);
+    const base = CLASS_BASE[cls];
+    p.str = clampInt(d.str, base.str, 200, base.str);
+    p.dex = clampInt(d.dex, base.dex, 200, base.dex);
+    p.int = clampInt(d.int, base.int, 200, base.int);
+    if (typeof d.x === "number" && typeof d.y === "number" && walkableAt(d.x, d.y)) {
+      p.x = d.x;
+      p.y = d.y;
+    }
+    if (Array.isArray(d.inv))
+      for (let i = 0; i < INV_SIZE; i++) p.inv[i] = sanitizeItem(d.inv[i]);
+    if (d.eq && typeof d.eq === "object") {
+      const eq = d.eq as Record<string, unknown>;
+      for (const slot of ["weapon", "armor", "helm", "ring"]) {
+        const it = sanitizeItem(eq[slot]);
+        p.eq[slot] = it && it.slot === slot ? it : null;
+      }
+    }
+    if (d.quests && typeof d.quests === "object") {
+      for (const [qid, qv] of Object.entries(d.quests as Record<string, unknown>)) {
+        if (!QUESTS[qid] || !qv || typeof qv !== "object") continue;
+        const q = qv as Record<string, unknown>;
+        p.quests[qid] = {
+          n: clampInt(q.n, 0, QUESTS[qid].count, 0),
+          done: q.done === true,
+          turned: q.turned === true,
+        };
+      }
+    }
+    const dv = derive(p);
+    p.hp = clampInt(d.hp, 1, dv.mhp, dv.mhp);
+    p.mp = clampInt(d.mp, 0, dv.mmp, dv.mmp);
+    if (Array.isArray(d.visitedZones)) {
+      const ok = new Set(Object.keys(PORTAL_WAYPOINTS));
+      p.visitedZones = d.visitedZones.filter((z): z is string => typeof z === "string" && ok.has(z));
+      if (!p.visitedZones.includes("helike")) p.visitedZones.unshift("helike");
+    }
+    if (typeof d.partyId === "string" && d.partyId.length > 0 && d.partyId.length <= 64)
+      p.partyId = d.partyId;
+  } catch {
+    // corrupted blob: keep freshly-rolled defaults
+  }
+  syncCollectQuests(p);
+  return p;
+}
+
+async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> {
+  const sess = ws.data;
+  if (sess.player || sess.loggingIn) return;
+  const name = typeof msg.name === "string" ? msg.name : "";
+  const pass = typeof msg.pass === "string" ? msg.pass : "";
+  const cls = typeof msg.cls === "string" ? msg.cls : "";
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return send(ws, { t: "err", msg: "El nombre debe tener 3-16 letras, dígitos o _" });
+  if (pass.length < 4) return send(ws, { t: "err", msg: "La contraseña debe tener al menos 4 caracteres" });
+
+  sess.loggingIn = true;
+  try {
+    const row = qGet.get(name);
+    let player: Player;
+    if (row) {
+      const ok = await Bun.password.verify(pass, row.pass).catch(() => false);
+      if (!ok) return send(ws, { t: "err", msg: "Contraseña incorrecta" });
+      const existing = players.get(name);
+      if (existing) {
+        // Kick the older socket, keep the live in-memory state.
+        const old = existing.ws;
+        existing.ws = null;
+        if (old) {
+          old.data.player = null;
+          send(old, { t: "err", msg: "Iniciaste sesión en otro lugar" });
+          old.close();
+        }
+        savePlayer(existing);
+        existing.ws = ws;
+        existing.disconnectedAt = null; // reconnected within the grace window — keeps party, invites, etc.
+        existing.seen = new Set();
+        player = existing;
+      } else {
+        player = loadPlayer(name, row.cls, row.data, ws);
+        players.set(name, player);
+      }
+    } else {
+      if (!CLASS_BASE[cls]) return send(ws, { t: "err", msg: "Elige una clase: guerrero, cazador, mago o clérigo" });
+      const hash = await Bun.password.hash(pass);
+      player = defaultPlayer(name, cls, ws);
+      qInsert.run(name, hash, cls, serialize(player), Date.now());
+      players.set(name, player);
+    }
+    sess.player = player;
+    // Reattach durable party (survives logout + server restart) unless already linked via linger reconnect.
+    if (!player.party) restoreParty(player);
+    else persistParty(player.party);
+    ensureBotLoadout(player);
+    ensureBotSquadParty(player);
+    send(ws, {
+      t: "welcome", id: player.id, name: player.name, cls: player.cls,
+      skills: SKILLS[player.cls].map((s) => ({ n: s.n, name: s.name, desc: s.desc, cost: s.cost, cd: s.cd, unlock: s.unlock, kind: s.kind })),
+    });
+    ws.send(MAP_MSG);
+    sendYou(player);
+    // Reconnecting while dead used to hide the revive UI (welcome clears it) and never
+    // re-send {t:"dead"}, leaving the player invisible/stuck with no Resucitar button.
+    if (player.dead) send(ws, { t: "dead" });
+    // Test-only: drop a potion ~8 tiles east so loot-chase can be verified without a kill.
+    if (process.env.RPG_TEST_LOOT === "1") {
+      let dx = 8, dy = 0;
+      while (dx > 1 && !walkableAt(player.x + dx, player.y + dy)) dx -= 1;
+      dropItem(player.x + dx, player.y + dy, makePotion("hp1"));
+    }
+    retroUnlockPortals(player);
+    checkZoneVisit(player);
+    if (player.party) partyBcast(player.party); // reenvía el roster tras reconectar / restaurar
+    if (player.followId != null) send(ws, { t: "follow_state", id: player.followId });
+    sysChat(`${player.name} ha entrado en Helike.`);
+  } finally {
+    sess.loggingIn = false;
+  }
+}
+
+const MAP_MSG = JSON.stringify({
+  t: "map", w: W, h: W, tiles: world.tiles, town: { x: TOWN.x, y: TOWN.y }, zones: ZONES,
+});
+
+// ---------------------------------------------------------------------------
+// Client message handlers
+// ---------------------------------------------------------------------------
+function nearNpc(p: Player, npc: Npc, range = 3): boolean {
+  return dist(p.x, p.y, npc.x, npc.y) <= range;
+}
+
+
+/** Pick ground loot if in range. true = done (picked / gone / full), false = still need to approach. */
+function tryPickupLoot(p: Player, id: number): boolean {
+  const l = loot.get(id);
+  if (!l) return true;
+  if (dist(p.x, p.y, l.x, l.y) > 2) return false;
+  if (!invAdd(p, l.item)) {
+    toast(p, "Inventario lleno");
+    return true;
+  }
+  loot.delete(id);
+  updateCollect(p);
+  sendYou(p);
+  return true;
+}
+
+function handleMsg(ws: WS, raw: string | Buffer): void {
+  let msg: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(String(raw));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("shape");
+    msg = parsed as Record<string, unknown>;
+  } catch {
+    if (++ws.data.badJson >= 5) ws.close();
+    return;
+  }
+  const t = msg.t;
+  if (t === "login") {
+    void handleLogin(ws, msg).catch((e) => {
+      console.error("[rpg] login error:", e);
+      send(ws, { t: "err", msg: "Error al iniciar sesión, inténtalo de nuevo" });
+    });
+    return;
+  }
+  const p = ws.data.player;
+  if (!p) return;
+  const now = Date.now();
+  const stunned = now < p.stunUntil;
+
+  switch (t) {
+    case "move": {
+      if (p.dead || stunned) return;
+      const x = num(msg.x), y = num(msg.y);
+      if (x == null || y == null) return;
+      const tx = Math.max(0.5, Math.min(W - 0.5, x));
+      const ty = Math.max(0.5, Math.min(W - 0.5, y));
+      p.atkTarget = null;
+      p.lootTarget = null;
+      const path = astar(world.walk, p.x, p.y, tx, ty);
+      if (path) {
+        p.path = path;
+        p.direct = null;
+      } else {
+        p.path = null;
+        p.direct = { x: tx, y: ty }; // straight-line fallback
+      }
+      break;
+    }
+    case "dir": {
+      // Velocity movement: accepts cardinal WASD (-1..1) or analog joystick floats.
+      // Non-zero also cancels the auto-attack / loot locks.
+      if (p.dead) return;
+      const dx = num(msg.x), dy = num(msg.y);
+      if (dx == null || dy == null) return;
+      const cx = Math.max(-1, Math.min(1, dx));
+      const cy = Math.max(-1, Math.min(1, dy));
+      const mag = Math.hypot(cx, cy);
+      if (mag < 0.2) { p.vel = null; break; }
+      // Keep direction continuous (no 4/8-way snap) so mobile joystick feels natural.
+      p.vel = { x: cx / mag, y: cy / mag };
+      p.path = null;
+      p.direct = null;
+      p.atkTarget = null;
+      p.lootTarget = null;
+      break;
+    }
+    case "attack": {
+      if (p.dead || stunned) return;
+      const id = num(msg.id);
+      if (id == null) return;
+      // id:0 = explicit cancel (empty-ground click / drop target).
+      if (id === 0) {
+        p.atkTarget = null;
+        p.lootTarget = null;
+        p.path = null;
+        p.direct = null;
+        break;
+      }
+      const m = mobById(id);
+      if (!m || m.dead) return;
+      p.atkTarget = m.id;
+      p.lootTarget = null;
+      p.path = null;
+      p.direct = null;
+      p.repathAt = 0;
+      break;
+    }
+    case "skill": {
+      if (p.dead || stunned) return;
+      const n = num(msg.n);
+      if (n == null || n < 1 || n > 4) return;
+      useSkill(p, n, num(msg.id), num(msg.x), num(msg.y));
+      break;
+    }
+    case "pickup": {
+      if (p.dead) return;
+      const id = num(msg.id);
+      if (id == null) return;
+      if (!loot.get(id)) return;
+      // Same lock+chase pattern as attack: approach until within 2 tiles, then pick.
+      p.atkTarget = null;
+      p.lootTarget = id;
+      p.path = null;
+      p.direct = null;
+      p.repathAt = 0;
+      if (tryPickupLoot(p, id)) p.lootTarget = null;
+      break;
+    }
+    case "talk": {
+      if (p.dead) return;
+      const id = num(msg.id);
+      const npc = npcs.find((n) => n.id === id);
+      if (!npc || !nearNpc(p, npc)) return;
+      if (npc.kind === "elder") sendElderDialog(p);
+      else if (npc.kind === "portal") sendPortalDialog(p);
+      else {
+        send(p.ws, { t: "dialog", npc: npc.id, name: npc.name, kind: npc.kind, lines: NPC_LINES[npc.kind] });
+        sendShop(p, npc);
+      }
+      break;
+    }
+    case "buy": {
+      if (p.dead) return;
+      const npcId = num(msg.npc), idx = num(msg.idx);
+      const npc = npcs.find((n) => n.id === npcId);
+      if (!npc || (npc !== kora && npc !== bront) || !nearNpc(p, npc)) return;
+      const stock = npc === kora ? koraStock : brontStock;
+      if (idx == null || !Number.isInteger(idx) || idx < 0 || idx >= stock.length) return;
+      const entry = stock[idx];
+      const price = entry.item.val;
+      if (p.gold < price) return toast(p, "No tienes suficiente oro");
+      // Infinite stock hands out fresh copies; uniques transfer + leave stock.
+      const bought = entry.infinite ? makePotion(entry.item.base) : entry.item;
+      if (!invAdd(p, bought)) return toast(p, "Inventario lleno");
+      p.gold -= price;
+      if (!entry.infinite) stock.splice(idx, 1);
+      sendShop(p, npc);
+      sendYou(p);
+      break;
+    }
+    case "sell": {
+      if (p.dead) return;
+      const slot = num(msg.slot);
+      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+      if (!nearNpc(p, kora) && !nearNpc(p, bront)) return toast(p, "No hay ningún mercader cerca");
+      const it = p.inv[slot];
+      if (!it) return;
+      if (it.slot === "quest") return toast(p, "No puedes vender objetos de misión");
+      const gain = Math.floor(it.val / 4) * (it.qty ?? 1);
+      p.gold += gain;
+      p.inv[slot] = null;
+      toast(p, `Vendiste ${it.name} por ${gain} de oro`);
+      sendYou(p);
+      break;
+    }
+    case "drop": {
+      if (p.dead || stunned) return;
+      const slot = num(msg.slot);
+      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+      const it = p.inv[slot];
+      if (!it) return;
+      if (it.slot === "quest") return toast(p, "No puedes tirar objetos de misión");
+      // Drop one unit from stacks; full item otherwise. Shared ground loot — anyone can pick it up.
+      let dropped: Item;
+      const qty = it.qty ?? 1;
+      if (qty > 1) {
+        it.qty = qty - 1;
+        dropped = { ...it, id: freshItemId(), qty: 1 };
+      } else {
+        p.inv[slot] = null;
+        dropped = it;
+      }
+      dropItem(p.x, p.y, dropped);
+      updateCollect(p);
+      toast(p, `Tiraste ${dropped.name}`);
+      sendYou(p);
+      break;
+    }
+    case "equip": {
+      if (p.dead || stunned) return;
+      const slot = num(msg.slot);
+      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+      const it = p.inv[slot];
+      if (!it) return;
+      if (it.slot !== "weapon" && it.slot !== "armor" && it.slot !== "helm" && it.slot !== "ring")
+        return toast(p, "No puedes equipar eso");
+      if (p.lvl < it.lvl) return toast(p, `Requiere nivel ${it.lvl}`);
+      p.inv[slot] = p.eq[it.slot];
+      p.eq[it.slot] = it;
+      sendYou(p);
+      break;
+    }
+    case "unequip": {
+      if (p.dead || stunned) return;
+      const eslot = msg.eslot;
+      if (eslot !== "weapon" && eslot !== "armor" && eslot !== "helm" && eslot !== "ring") return;
+      const it = p.eq[eslot];
+      if (!it) return;
+      const free = p.inv.indexOf(null);
+      if (free < 0) return toast(p, "Inventario lleno");
+      p.inv[free] = it;
+      p.eq[eslot] = null;
+      sendYou(p);
+      break;
+    }
+    case "use": {
+      if (p.dead || stunned) return;
+      const slot = num(msg.slot);
+      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+      const it = p.inv[slot];
+      if (!it || it.slot !== "potion") return;
+      if (now < p.potCdUntil) return toast(p, "Las pociones están en enfriamiento");
+      const def = POTION_DEFS[it.base];
+      if (!def) return;
+      const d = derive(p);
+      if (def.pool === "hp") p.hp = Math.min(d.mhp, p.hp + d.mhp * def.heal);
+      else p.mp = Math.min(d.mmp, p.mp + d.mmp * def.heal);
+      p.potCdUntil = now + POTION_CD;
+      it.qty = (it.qty ?? 1) - 1;
+      if (it.qty <= 0) p.inv[slot] = null;
+      bcastAt(p.x, p.y, { t: "fx", k: "heal", i: p.id });
+      sendYou(p);
+      break;
+    }
+    case "allot": {
+      const stat = msg.stat;
+      if (stat !== "str" && stat !== "dex" && stat !== "int") return;
+      if (p.pts <= 0) return toast(p, "No tienes puntos de característica disponibles");
+      p.pts--;
+      p[stat]++;
+      sendYou(p);
+      break;
+    }
+    case "quest_accept": {
+      if (p.dead) return;
+      const qid = typeof msg.qid === "string" ? msg.qid : "";
+      if (!QUESTS[qid]) return;
+      if (!nearNpc(p, elder)) return toast(p, "Debes hablar con Nikandros");
+      if (questState(p, qid) !== "available") return toast(p, "Aún no puedes aceptar esa misión");
+      p.quests[qid] = { n: 0, done: false, turned: false };
+      if (QUESTS[qid].kind === "collect") updateCollect(p);
+      toast(p, `Misión aceptada: ${QUESTS[qid].name}`);
+      if (qid === "q7") unlockPortal(p, "asfodelos", true);
+      sendYou(p);
+      sendElderDialog(p);
+      break;
+    }
+    case "quest_turnin": {
+      if (p.dead) return;
+      const qid = typeof msg.qid === "string" ? msg.qid : "";
+      const def = QUESTS[qid];
+      if (!def) return;
+      if (!nearNpc(p, elder)) return toast(p, "Debes hablar con Nikandros");
+      if (questState(p, qid) !== "complete") return toast(p, "Esa misión no está completa");
+      let rewardItem: Item | null = null;
+      if (def.rew.item) {
+        rewardItem = questReward(p, def.rew.item);
+        if (!invAdd(p, rewardItem)) return toast(p, "Primero libera espacio en el inventario");
+      }
+      if (def.kind === "collect") removeQuestItems(p, def.target, def.count);
+      p.quests[qid].turned = true;
+      p.gold += def.rew.gold;
+      addXp(p, def.rew.xp);
+      toast(p, `Misión completada: +${def.rew.xp} de experiencia, +${def.rew.gold} de oro${rewardItem ? `, ${rewardItem.name}` : ""}`);
+      if (qid === "q6") unlockPortal(p, "asfodelos", true);
+      sendYou(p);
+      sendElderDialog(p);
+      break;
+    }
+    case "party_invite": {
+      const id = num(msg.id);
+      if (id == null) return;
+      const target = playerById(id);
+      if (!target || target === p) return;
+      if (partyJoinHumanToBotSquad(p, target)) break;
+      const myPt = p.party || (p.partyId ? getOrLoadParty(p.partyId) : null);
+      if (myPt && myPt.roster.length >= PARTY_MAX) return toast(p, "El grupo está lleno");
+      if (target.party || target.partyId) return toast(p, `${target.name} ya está en un grupo`);
+      target.invites.set(p.name, now + 30000);
+      send(target.ws, { t: "party_invited", from: p.name, cls: p.cls, lvl: p.lvl });
+      toast(p, `Invitación enviada a ${target.name}`);
+      break;
+    }
+    case "party_accept": {
+      const from = typeof msg.from === "string" ? msg.from : null;
+      if (!from) return;
+      const exp = p.invites.get(from);
+      p.invites.delete(from);
+      if (!exp || now > exp) return toast(p, "La invitación ya no es válida");
+      const inviter = players.get(from);
+      if (!inviter || !inviter.ws) return toast(p, "Ese héroe ya no está conectado");
+      if (p.party || p.partyId) return toast(p, "Ya estás en un grupo — sal primero");
+      let pt = inviter.party || (inviter.partyId ? getOrLoadParty(inviter.partyId) : null);
+      if (!pt) {
+        pt = { id: newPartyId(), members: [], roster: [] };
+        attachPlayerToParty(inviter, pt);
+        inviter.dirty = true;
+        savePlayer(inviter);
+      } else if (!inviter.party) {
+        attachPlayerToParty(inviter, pt);
+      }
+      if (pt.roster.length >= PARTY_MAX) return toast(p, "El grupo está lleno");
+      if (pt.roster.some(r => r.name === p.name)) return toast(p, "Ya estás en ese grupo");
+      attachPlayerToParty(p, pt);
+      p.dirty = true;
+      savePlayer(p);
+      persistParty(pt);
+      partyBcast(pt);
+      for (const m of pt.members) if (m !== p && m.ws) toast(m, `${p.name} se unió al grupo`);
+      break;
+    }
+    case "party_decline": {
+      const from = typeof msg.from === "string" ? msg.from : null;
+      if (!from) return;
+      if (p.invites.delete(from)) {
+        const inviter = players.get(from);
+        if (inviter && inviter.ws) toast(inviter, `${p.name} rechazó la invitación`);
+      }
+      break;
+    }
+    case "party_leave": {
+      partyLeave(p);
+      break;
+    }
+    case "party_follow": {
+      const id = num(msg.id);
+      if (id !== null) {
+        if (!p.party || id === p.id || !p.party.members.some(m => m.id === id))
+          return toast(p, "Ese jugador no está en tu grupo");
+      }
+      p.followId = id;
+      send(p.ws, { t: "follow_state", id });
+      break;
+    }
+    case "portal_travel": {
+      if (p.dead || stunned) return;
+      const dest = typeof msg.dest === "string" ? msg.dest : "";
+      const wp = PORTAL_WAYPOINTS[dest];
+      if (!wp) return;
+      if (dest !== "helike" && !p.visitedZones.includes(dest))
+        return toast(p, "Primero debes visitar esa región a pie");
+      if (!nearNpc(p, portalNpc)) return toast(p, "Debes estar junto a la Piedra de tránsito");
+      if (p.combatUntil > now) return toast(p, "No puedes viajar en combate");
+      p.x = wp.x;
+      p.y = wp.y;
+      p.path = null;
+      p.direct = null;
+      p.vel = null;
+      p.atkTarget = null;
+      p.lootTarget = null;
+      p.followStuck = 0;
+      p.combatUntil = 0;
+      sendYou(p);
+      toast(p, `Viajaste a ${wp.label}`);
+      break;
+    }
+    case "chat": {
+      const text = typeof msg.text === "string" ? msg.text.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 200) : "";
+      if (!text) return;
+      if (now - p.lastChat < 1000) return toast(p, "Estás escribiendo demasiado rápido");
+      p.lastChat = now;
+      const s = JSON.stringify({ t: "chat", from: p.name, text });
+      for (const q of players.values()) if (q.ws && q.ws.readyState === 1) q.ws.send(s);
+      break;
+    }
+    case "respawn": {
+      if (!p.dead) return;
+      p.dead = false;
+      p.x = TOWN.x + 0.5 + (Math.random() - 0.5) * 2;
+      p.y = TOWN.y + 3.5;
+      const d = derive(p);
+      p.hp = d.mhp;
+      p.mp = d.mmp;
+      p.gold = Math.floor(p.gold * 0.9);
+      p.combatUntil = 0;
+      p.slowUntil = 0;
+      p.stunUntil = 0;
+      sendYou(p);
+      break;
+    }
+    case "recall": {
+      if (p.dead) return;
+      if (now < p.recallCdUntil) return toast(p, `Recall en enfriamiento (${Math.ceil((p.recallCdUntil - now) / 1000)}s)`);
+      p.recallCdUntil = now + RECALL_CD;
+      // Random point in a ring just outside the fountain basin — always lands
+      // on plaza stone since the whole plaza around it is walkable by build.
+      const ang = Math.random() * Math.PI * 2;
+      const r = FOUNTAIN.r + 1 + Math.random() * 1.5;
+      p.x = FOUNTAIN.x + Math.cos(ang) * r;
+      p.y = FOUNTAIN.y + Math.sin(ang) * r;
+      p.path = null;
+      p.direct = null;
+      p.vel = null;
+      p.atkTarget = null;
+      p.lootTarget = null;
+      p.combatUntil = 0;
+      bcastAt(p.x, p.y, { t: "fx", k: "recall", i: p.id });
+      toast(p, "Has vuelto a Helike");
+      break;
+    }
+    default:
+      break; // unknown types ignored per contract
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Movement helpers
+// ---------------------------------------------------------------------------
+/** Move entity toward (tx,ty) by `step`, sliding along walls. True if moved. */
+function stepToward(e: { x: number; y: number; d: number }, tx: number, ty: number, step: number): boolean {
+  const dx = tx - e.x, dy = ty - e.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-4) return false;
+  const s = Math.min(step, len);
+  const nx = e.x + (dx / len) * s;
+  const ny = e.y + (dy / len) * s;
+  if (dx !== 0) e.d = dx < 0 ? 1 : 0;
+  if (walkableAt(nx, ny)) {
+    e.x = nx;
+    e.y = ny;
+    return true;
+  }
+  if (walkableAt(nx, e.y)) {
+    e.x = nx;
+    return true;
+  }
+  if (walkableAt(e.x, ny)) {
+    e.y = ny;
+    return true;
+  }
+  return false;
+}
+
+type PathBody = {
+  x: number; y: number; d: number; moving: boolean;
+  path: { x: number; y: number }[] | null;
+};
+
+/** Consume waypoints along e.path for up to speed*dt. Marks e.moving when it advances. */
+function followPath(e: PathBody, speed: number, dt: number): void {
+  let budget = speed * dt;
+  while (budget > 1e-6 && e.path && e.path.length) {
+    const wp = e.path[0];
+    const dx = wp.x - e.x, dy = wp.y - e.y;
+    const d = Math.hypot(dx, dy);
+    if (dx !== 0) e.d = dx < 0 ? 1 : 0;
+    if (d <= budget) {
+      e.x = wp.x;
+      e.y = wp.y;
+      budget -= d;
+      e.path.shift();
+    } else {
+      e.x += (dx / d) * budget;
+      e.y += (dy / d) * budget;
+      budget = 0;
+    }
+    e.moving = true;
+  }
+  if (e.path && !e.path.length) e.path = null;
+}
+
+// ---------------------------------------------------------------------------
+// Simulation (15 Hz)
+// ---------------------------------------------------------------------------
+let lastTick = Date.now();
+
+function simTick(): void {
+  const now = Date.now();
+  const dt = Math.min(0.2, (now - lastTick) / 1000);
+  lastTick = now;
+
+  // --- players ---
+  for (const p of players.values()) {
+    if (!p.ws) continue;
+    p.moving = false;
+    if (p.dead) continue;
+    checkZoneVisit(p);
+
+    // Regen: 2%/s hp + 3%/s mp out of combat (5s), 1%/s mp in combat. Near
+    // the plaza fountain (sanctuary — town already blocks all incoming
+    // damage) both rates jump to a fast blanket regen regardless of combat.
+    const d = derive(p);
+    const inCombat = now < p.combatUntil;
+    const nearFountain = dist(p.x, p.y, FOUNTAIN.x, FOUNTAIN.y) <= FOUNTAIN_REGEN_R;
+    if (nearFountain) {
+      if (p.hp < d.mhp) p.hp = Math.min(d.mhp, p.hp + d.mhp * FOUNTAIN_HP_REGEN * dt);
+      if (p.mp < d.mmp) p.mp = Math.min(d.mmp, p.mp + d.mmp * FOUNTAIN_MP_REGEN * dt);
+    } else {
+      if (!inCombat && p.hp < d.mhp) p.hp = Math.min(d.mhp, p.hp + d.mhp * 0.02 * dt);
+      if (p.mp < d.mmp) p.mp = Math.min(d.mmp, p.mp + d.mmp * (inCombat ? 0.01 : 0.03) * dt);
+    }
+
+    if (now < p.stunUntil) continue;
+    const speed = PLAYER_SPD * (now < p.slowUntil ? 1 - p.slowPct : 1);
+
+    // Modo "seguir": si no tengo blanco propio vivo, heredo el del líder de grupo.
+    // Self-healing: si el líder ya no está en mi grupo, limpio followId aquí mismo.
+    let followLeader: Player | null = null;
+    if (p.followId != null) {
+      followLeader = p.party?.members.find(m => m.id === p.followId) ?? null;
+      if (!followLeader) { p.followId = null; send(p.ws, { t: "follow_state", id: null }); }
+    }
+    // While the player is steering with WASD, do not re-lock onto the leader's
+    // target — otherwise canceling combat with movement gets undone next tick.
+    if (followLeader && followLeader.atkTarget != null && !p.vel) {
+      const myTarget = p.atkTarget != null ? mobById(p.atkTarget) : null;
+      if (!myTarget || myTarget.dead) {
+        const theirTarget = mobById(followLeader.atkTarget);
+        if (theirTarget && !theirTarget.dead) p.atkTarget = followLeader.atkTarget;
+      }
+    }
+
+    // WASD velocity steering has priority over click paths and attack-chase.
+    // Starting WASD clears atkTarget (see "dir" handler), so no auto-hit while moving.
+    if (p.vel) {
+      const tx = Math.max(0.5, Math.min(W - 0.5, p.x + p.vel.x * 2));
+      const ty = Math.max(0.5, Math.min(W - 0.5, p.y + p.vel.y * 2));
+      if (stepToward(p, tx, ty, speed * dt)) p.moving = true;
+    }
+
+    if (p.atkTarget != null) {
+      const m = mobById(p.atkTarget);
+      if (!m || m.dead) {
+        p.atkTarget = null;
+        p.path = null;
+      } else {
+        const range = weaponRange(p);
+        const dd = dist(p.x, p.y, m.x, m.y);
+        if (dd <= range) {
+          p.path = null;
+          p.direct = null;
+          p.d = m.x < p.x ? 1 : 0;
+          if (now >= p.nextAtk) {
+            p.nextAtk = now + ATTACK_CD;
+            const icon = p.eq.weapon?.icon;
+            if (icon === "bow" || icon === "staff")
+              bcastAt(p.x, p.y, { t: "fx", k: "proj", from: { x: r2(p.x), y: r2(p.y) }, to: { x: r2(m.x), y: r2(m.y) }, style: icon === "bow" ? "arrow" : "fire" });
+            else
+              bcastAt(p.x, p.y, { t: "fx", k: "slash", x: r2(p.x), y: r2(p.y), tx: r2(m.x), ty: r2(m.y) });
+            playerHit(p, m, 1);
+          }
+        } else if (!p.vel) {
+          if (now >= p.repathAt) {
+            p.repathAt = now + 500;
+            const path = astar(world.walk, p.x, p.y, m.x, m.y);
+            if (path) {
+              p.path = path;
+              p.direct = null;
+            } else {
+              p.path = null;
+              p.direct = { x: m.x, y: m.y };
+            }
+          }
+          if (p.path) followPath(p, speed, dt);
+          else if (p.direct && !stepToward(p, p.direct.x, p.direct.y, speed * dt)) p.direct = null;
+          else if (p.direct) p.moving = true;
+        }
+      }
+    } else if (p.lootTarget != null) {
+      const l = loot.get(p.lootTarget);
+      if (!l) {
+        p.lootTarget = null;
+        p.path = null;
+      } else {
+        const dd = dist(p.x, p.y, l.x, l.y);
+        if (dd <= 2) {
+          p.path = null;
+          p.direct = null;
+          if (tryPickupLoot(p, p.lootTarget)) p.lootTarget = null;
+        } else if (!p.vel) {
+          if (now >= p.repathAt) {
+            p.repathAt = now + 500;
+            const path = astar(world.walk, p.x, p.y, l.x, l.y);
+            if (path) {
+              p.path = path;
+              p.direct = null;
+            } else {
+              p.path = null;
+              p.direct = { x: l.x, y: l.y };
+            }
+          }
+          if (p.path) followPath(p, speed, dt);
+          else if (p.direct && !stepToward(p, p.direct.x, p.direct.y, speed * dt)) p.direct = null;
+          else if (p.direct) p.moving = true;
+        }
+      }
+    } else if (p.path && !p.vel) {
+      followPath(p, speed, dt);
+    } else if (p.direct && !p.vel) {
+      if (dist(p.x, p.y, p.direct.x, p.direct.y) < 0.15 || !stepToward(p, p.direct.x, p.direct.y, speed * dt))
+        p.direct = null;
+      else p.moving = true;
+    } else if (followLeader && !p.vel) {
+      // Seguir: A* around walls instead of a straight shove that freezes on obstacles.
+      const fd = dist(p.x, p.y, followLeader.x, followLeader.y);
+      if (fd <= 2) {
+        p.path = null;
+        p.followStuck = 0;
+      } else {
+        const end = p.path && p.path.length ? p.path[p.path.length - 1] : null;
+        const drifted = !end || dist(end.x, end.y, followLeader.x, followLeader.y) > 2.5;
+        if (drifted && now >= p.repathAt) {
+          p.repathAt = now + 400;
+          p.path = astar(world.walk, p.x, p.y, followLeader.x, followLeader.y);
+        }
+        const ox = p.x, oy = p.y;
+        if (p.path && p.path.length) {
+          followPath(p, speed, dt);
+        } else if (stepToward(p, followLeader.x, followLeader.y, speed * dt)) {
+          p.moving = true;
+        }
+        if (Math.hypot(p.x - ox, p.y - oy) > 1e-4) {
+          p.followStuck = 0;
+        } else if (++p.followStuck > 40) {
+          // Path went stale / wedged — drop it and force a fresh repath next tick.
+          p.path = null;
+          p.followStuck = 0;
+          p.repathAt = 0;
+        }
+      }
+    }
+  }
+
+  // --- monsters ---
+  for (const m of mobs) {
+    if (m.dead) {
+      if (now >= m.respawnAt) {
+        m.dead = false;
+        m.hp = m.mhp;
+        m.x = m.spawn.x;
+        m.y = m.spawn.y;
+        m.state = "idle";
+        m.target = null;
+        m.stunUntil = 0;
+        m.slowUntil = 0;
+        m.path = null;
+        m.repathAt = 0;
+        m.mobStuck = 0;
+      }
+      continue;
+    }
+    m.moving = false;
+    if (now < m.stunUntil) continue;
+    const def = MOB_DEFS[m.kind];
+    const speed = def.spd * (now < m.slowUntil ? 1 - m.slowPct : 1);
+
+    if (m.state === "reset") {
+      // Walk home only — no heal, no invulnerability. A hit mid-walk re-aggros (see playerHit).
+      m.path = null;
+      if (m.target && !m.target.dead && m.target.ws) {
+        m.state = "chase";
+        m.resetStuck = 0;
+        // fall through into chase logic this tick
+      } else if (dist(m.x, m.y, m.spawn.x, m.spawn.y) < 1) {
+        m.state = "idle";
+        m.resetStuck = 0;
+        m.mobStuck = 0;
+        continue;
+      } else if (stepToward(m, m.spawn.x, m.spawn.y, speed * 1.5 * dt)) {
+        m.moving = true;
+        m.resetStuck = 0;
+        continue;
+      } else if (++m.resetStuck > 30) {
+        // Wedged against scenery on the way home — snap back.
+        m.x = m.spawn.x;
+        m.y = m.spawn.y;
+        m.state = "idle";
+        m.resetStuck = 0;
+        m.mobStuck = 0;
+        continue;
+      } else {
+        continue;
+      }
+    }
+
+    // Leash: too far from home → give up and walk back (no heal / no invuln).
+    if (dist(m.x, m.y, m.spawn.x, m.spawn.y) > LEASH) {
+      m.state = "reset";
+      m.target = null;
+      m.path = null;
+      m.mobStuck = 0;
+      continue;
+    }
+
+    // Validate / acquire target.
+    let t = m.target;
+    if (t && (t.dead || !t.ws || inTown(t.x, t.y) || dist(m.x, m.y, t.x, t.y) > def.aggro * 4)) {
+      m.target = t = null;
+      m.state = dist(m.x, m.y, m.spawn.x, m.spawn.y) > 3 ? "reset" : "idle";
+      m.path = null;
+      m.mobStuck = 0;
+    }
+    if (!t) {
+      if (now >= m.nextScan) {
+        m.nextScan = now + 500;
+        let best: Player | null = null, bestD = def.aggro;
+        for (const p of players.values()) {
+          if (p.dead || !p.ws || inTown(p.x, p.y)) continue;
+          const dd = dist(m.x, m.y, p.x, p.y);
+          if (dd <= bestD) {
+            best = p;
+            bestD = dd;
+          }
+        }
+        if (best) {
+          m.target = best;
+          m.state = "chase";
+        }
+      }
+      // Idle regen while unengaged.
+      if (m.state === "idle" && m.hp < m.mhp) m.hp = Math.min(m.mhp, m.hp + m.mhp * 0.05 * dt);
+      continue;
+    }
+
+    const dd = dist(m.x, m.y, t.x, t.y);
+    if (dd <= def.range) {
+      m.path = null;
+      m.mobStuck = 0;
+      m.d = t.x < m.x ? 1 : 0;
+      if (now >= m.nextAtk) {
+        m.nextAtk = now + def.cd;
+        if ((m.kind === "cyclops" || m.kind === "minotaur") && now >= m.slamAt) {
+          // Boss AoE slam at the target's feet.
+          m.slamAt = now + 7000 + Math.random() * 4000;
+          const sx = t.x, sy = t.y, r = 3;
+          bcastAt(sx, sy, { t: "fx", k: "aoe", x: r2(sx), y: r2(sy), r, style: "slam" });
+          for (const p of players.values())
+            if (!p.dead && p.ws && dist(p.x, p.y, sx, sy) <= r) mobHit(m, p, 1.5);
+        } else {
+          if (def.ranged)
+            bcastAt(m.x, m.y, { t: "fx", k: "proj", from: { x: r2(m.x), y: r2(m.y) }, to: { x: r2(t.x), y: r2(t.y) }, style: def.ranged });
+          else
+            bcastAt(m.x, m.y, { t: "fx", k: "slash", x: r2(m.x), y: r2(m.y), tx: r2(t.x), ty: r2(t.y) });
+          mobHit(m, t, 1);
+          if (def.slow && !t.dead) applySlow(t, def.slow.pct, def.slow.ms);
+        }
+      }
+    } else {
+      // Chase with A* so walls don't freeze the mob mid-aggro.
+      const end = m.path && m.path.length ? m.path[m.path.length - 1] : null;
+      const drifted = !end || dist(end.x, end.y, t.x, t.y) > 2.5;
+      if (drifted && now >= m.repathAt) {
+        m.repathAt = now + 500;
+        m.path = astar(world.walk, m.x, m.y, t.x, t.y);
+      }
+      const ox = m.x, oy = m.y;
+      if (m.path && m.path.length) {
+        followPath(m, speed, dt);
+      } else if (stepToward(m, t.x, t.y, speed * dt)) {
+        m.moving = true;
+      }
+      if (Math.hypot(m.x - ox, m.y - oy) > 1e-4) {
+        m.mobStuck = 0;
+      } else if (++m.mobStuck > 40) {
+        // Unreachable / wedged: drop target and return home instead of freezing forever (no heal).
+        m.target = null;
+        m.state = dist(m.x, m.y, m.spawn.x, m.spawn.y) > 3 ? "reset" : "idle";
+        m.path = null;
+        m.mobStuck = 0;
+        m.repathAt = 0;
+      }
+    }
+  }
+
+  // --- loot expiry ---
+  for (const [id, l] of loot) if (now >= l.exp) loot.delete(id);
+}
+
+// ---------------------------------------------------------------------------
+// Snapshots (10 Hz)
+// ---------------------------------------------------------------------------
+function entFlags(e: StatusHolder, now: number): number {
+  return (
+    (e.moving ? 1 : 0) |
+    (now - e.lastAtk < 500 ? 2 : 0) |
+    (now < e.slowUntil ? 4 : 0) |
+    (now < e.stunUntil ? 8 : 0)
+  );
+}
+
+function snapshotTick(): void {
+  const now = Date.now();
+  const pop = players.size;
+  for (const p of players.values()) {
+    if (!p.ws || p.ws.readyState !== 1) continue;
+    const ents: Record<string, unknown>[] = [];
+    const seen = new Set<number>();
+
+    for (const n of npcs) {
+      const dx = n.x - p.x, dy = n.y - p.y;
+      if (dx * dx + dy * dy > AOI2) continue;
+      seen.add(n.id);
+      ents.push({ i: n.id, k: n.kind, x: n.x, y: n.y, h: 100, H: 100, l: 1, n: n.name, s: 0, d: 0 });
+    }
+    for (const m of mobs) {
+      if (m.dead) continue;
+      const dx = m.x - p.x, dy = m.y - p.y;
+      if (dx * dx + dy * dy > AOI2) continue;
+      seen.add(m.id);
+      const e: Record<string, unknown> = {
+        i: m.id, k: m.kind, x: r2(m.x), y: r2(m.y),
+        h: Math.max(0, Math.round(m.hp)), H: m.mhp, l: m.lvl,
+        s: entFlags(m, now), d: m.d,
+      };
+      if (m.name) e.n = m.name;
+      ents.push(e);
+    }
+    for (const q of players.values()) {
+      if (!q.ws) continue;
+      // Keep the local dead player in their own snapshot so the camera still has a body;
+      // other clients should not see corpses wandering the AOI.
+      if (q.dead && q !== p) continue;
+      const dx = q.x - p.x, dy = q.y - p.y;
+      if (dx * dx + dy * dy > AOI2) continue;
+      seen.add(q.id);
+      const d = derive(q);
+      const e: Record<string, unknown> = {
+        i: q.id, k: q.cls, x: r2(q.x), y: r2(q.y),
+        h: Math.max(0, Math.round(q.hp)), H: d.mhp, l: q.lvl, n: q.name,
+        s: entFlags(q, now), d: q.d,
+      };
+      if (q === p) {
+        e.m = Math.round(q.mp);
+        e.M = d.mmp;
+      }
+      ents.push(e);
+    }
+
+    const gone: number[] = [];
+    for (const id of p.seen) if (!seen.has(id)) gone.push(id);
+    p.seen = seen;
+
+    const lootList: Record<string, unknown>[] = [];
+    for (const l of loot.values()) {
+      const dx = l.x - p.x, dy = l.y - p.y;
+      if (dx * dx + dy * dy > AOI2) continue;
+      lootList.push({ i: l.id, x: r2(l.x), y: r2(l.y), name: l.item.name, rarity: l.item.rarity, icon: l.item.icon });
+    }
+
+    send(p.ws, { t: "st", pop, ents, gone, loot: lootList });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Server
+// ---------------------------------------------------------------------------
+const server = Bun.serve<Session, Record<string, never>>({
+  hostname: "127.0.0.1",
+  port: PORT,
+  fetch(req, srv) {
+    const url = new URL(req.url);
+    if (url.pathname === "/rpg/api/health")
+      return Response.json({ ok: true, pop: players.size });
+    if (url.pathname === "/rpg/ws") {
+      if (srv.upgrade(req, { data: { player: null, badJson: 0, loggingIn: false } })) return undefined;
+      return new Response("websocket upgrade required", { status: 426 });
+    }
+    return new Response("not found", { status: 404 });
+  },
+  websocket: {
+    message(ws, raw) {
+      try {
+        handleMsg(ws, raw);
+      } catch (e) {
+        console.error("[rpg] message error:", e);
+      }
+    },
+    close(ws) {
+      const p = ws.data.player;
+      ws.data.player = null;
+      if (p && p.ws === ws) {
+        p.ws = null;
+        p.disconnectedAt = Date.now(); // linger in memory so a quick reconnect keeps party/state
+        savePlayer(p);
+        sysChat(`${p.name} se ha ido.`);
+      }
+    },
+  },
+});
+
+setInterval(simTick, TICK_MS);
+setInterval(snapshotTick, SNAP_MS);
+setInterval(saveAll, 30000);
+
+// Finalizes players who dropped and never reconnected within the grace window.
+// Party membership is durable (SQLite) — logout/disconnect/restart do NOT leave
+// the party. Only an explicit party_leave clears it. Linger just frees memory.
+const PARTY_LINGER_MS = 90000;
+setInterval(() => {
+  const now = Date.now();
+  for (const p of players.values()) {
+    if (p.disconnectedAt && !p.ws && now - p.disconnectedAt > PARTY_LINGER_MS) {
+      savePlayer(p);
+      partyUnload(p); // stay in durable roster; drop live handle only
+      players.delete(p.name);
+    }
+  }
+}, 10000);
+setInterval(restock, 300000);
+
+function shutdown(): void {
+  for (const pt of liveParties.values()) persistParty(pt);
+  saveAll();
+  db.close();
+  process.exit(0);
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
+
+console.log(
+  `[rpg] Age of Titans listening on 127.0.0.1:${server.port} — world ${W}x${W}, ` +
+  `${world.spawns.length} spawn points, ${world.reachCount} tiles reachable from town (reachability OK), ` +
+  `${npcs.length} NPCs, boss at (${BOSS_POS.x},${BOSS_POS.y}), db=${DB_PATH}`,
+);

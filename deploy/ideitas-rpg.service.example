@@ -1,0 +1,17 @@
+[Unit]
+Description=Age of Titans — browser MMORPG game server
+After=network.target
+
+[Service]
+Type=simple
+User=rpg
+Group=rpg
+ExecStart=/usr/local/bin/bun run /opt/ideitas/rpg/server.ts
+Environment=PORT=8792
+Environment=RPG_DB=/var/lib/ideitas/rpg/rpg.sqlite
+Restart=on-failure
+RestartSec=2
+WorkingDirectory=/opt/ideitas/rpg
+
+[Install]
+WantedBy=multi-user.target

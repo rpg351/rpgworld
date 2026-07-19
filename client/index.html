@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="theme-color" content="#12100b">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>La Era de los Titanes — Ideitas</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a140c'/%3E%3Cpath d='M6 8h20v4h-7v14h-6V12H6z' fill='%23c8933b'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css?v=20260730">
+</head>
+<body>
+
+<!-- ===== Login ===== -->
+<div id="login" class="screen">
+  <div class="login-box">
+    <h1 class="title">LA ERA <span class="of">de los Titanes</span></h1>
+    <div class="subtitle">Helike · Grecia mítica</div>
+    <div class="meander"></div>
+
+    <form id="loginForm" autocomplete="on">
+      <label for="nameInput">Nombre del héroe</label>
+      <input id="nameInput" name="username" type="text" maxlength="16" autocomplete="username" required>
+
+      <label for="passInput">Contraseña</label>
+      <input id="passInput" name="password" type="password" maxlength="64" autocomplete="current-password" required>
+
+      <div id="clsRow" class="cls-row">
+        <div class="cls-card sel" data-cls="warrior">
+          <canvas width="72" height="88"></canvas>
+          <div class="cls-name">Guerrero</div>
+          <div class="cls-desc">Fuerza y armadura. Combate cuerpo a cuerpo.</div>
+        </div>
+        <div class="cls-card" data-cls="hunter">
+          <canvas width="72" height="88"></canvas>
+          <div class="cls-name">Cazador</div>
+          <div class="cls-desc">Destreza y arco. Ataque a distancia.</div>
+        </div>
+        <div class="cls-card" data-cls="mage">
+          <canvas width="72" height="88"></canvas>
+          <div class="cls-name">Mago</div>
+          <div class="cls-desc">Inteligencia y hechizos elementales.</div>
+        </div>
+        <div class="cls-card" data-cls="cleric">
+          <canvas width="72" height="88"></canvas>
+          <div class="cls-name">Clérigo</div>
+          <div class="cls-desc">Sanación sagrada y magia divina.</div>
+        </div>
+      </div>
+
+      <p id="loginErr" style="color:var(--blood);min-height:1.2em;margin-top:8px;font-size:12px"></p>
+      <button id="enterBtn" type="submit">Crear héroe</button>
+    </form>
+
+    <div class="mode-toggle">
+      <a href="#" id="toLogin" class="mode-link">¿Ya tienes cuenta? Iniciar sesión</a>
+      <a href="#" id="toRegister" class="mode-link hidden">¿No tienes héroe? Crear cuenta</a>
+    </div>
+    <p class="hint">WASD mover · 1–4 habilidades · I inventario · C atacar · J diario</p>
+  </div>
+</div>
+
+<!-- ===== Game ===== -->
+<div id="game" class="screen hidden">
+  <canvas id="world"></canvas>
+  <canvas id="minimap" width="152" height="152"></canvas>
+  <div id="zoneBanner"></div>
+  <div id="toasts"></div>
+
+  <div id="chat">
+    <div id="chatLog"></div>
+    <input id="chatInput" type="text" placeholder="Pulsa Enter para escribir…" maxlength="200">
+  </div>
+
+  <div id="hud">
+    <div class="orb-wrap">
+      <canvas id="hpOrb" class="orb" width="112" height="112"></canvas>
+      <div id="hpLabel" class="orb-label"></div>
+    </div>
+    <div id="hudCenter">
+      <div id="xpBar"><div id="xpFill"></div><div id="lvlNum"></div></div>
+      <div id="skillRow">
+        <div class="skill" data-n="1"><canvas width="52" height="52"></canvas><span class="key">1</span><span class="cost"></span><span class="lock"></span></div>
+        <div class="skill" data-n="2"><canvas width="52" height="52"></canvas><span class="key">2</span><span class="cost"></span><span class="lock"></span></div>
+        <div class="skill" data-n="3"><canvas width="52" height="52"></canvas><span class="key">3</span><span class="cost"></span><span class="lock"></span></div>
+        <div class="skill" data-n="4"><canvas width="52" height="52"></canvas><span class="key">4</span><span class="cost"></span><span class="lock"></span></div>
+      </div>
+      <div id="hudInfo">
+        <span id="zoneHud"></span>
+        <span id="goldHud"></span>
+        <span id="popHud"></span>
+        <button id="autoAtkBtn" type="button" aria-pressed="false">⚔ AUTO</button>
+        <button id="muteBtn" type="button" title="Silenciar audio">🔇</button>
+      </div>
+    </div>
+    <div class="orb-wrap">
+      <canvas id="mpOrb" class="orb" width="112" height="112"></canvas>
+      <div id="mpLabel" class="orb-label"></div>
+    </div>
+  </div>
+
+  <div id="invPanel" class="panel hidden">
+    <div class="panel-title">Inventario <span class="panel-x" data-close="invPanel">✕</span></div>
+    <div id="eqGrid"></div>
+    <div id="invGrid"></div>
+    <div id="invGold"></div>
+    <div id="dropHint">Arrastra un objeto fuera del inventario para tirarlo al suelo.</div>
+    <div id="sellHint" class="hidden">Clic en un objeto para venderlo al mercader.</div>
+  </div>
+
+  <div id="charPanel" class="panel hidden">
+    <div class="panel-title">Personaje <span class="panel-x" data-close="charPanel">✕</span></div>
+    <div id="charBody"></div>
+  </div>
+
+  <div id="questPanel" class="panel hidden">
+    <div class="panel-title">Diario de misiones <span class="panel-x" data-close="questPanel">✕</span></div>
+    <div id="questBody"></div>
+  </div>
+
+  <div id="dialogPanel" class="panel hidden">
+    <div id="dialogName" class="panel-title">Diálogo <span class="panel-x" data-close="dialogPanel">✕</span></div>
+    <div id="dialogBody"></div>
+  </div>
+
+  <div id="shopPanel" class="panel hidden">
+    <div id="shopName" class="panel-title">Mercader <span class="panel-x" data-close="shopPanel">✕</span></div>
+    <div id="shopBody"></div>
+    <div id="shopGold"></div>
+  </div>
+
+  <div id="tooltip" class="hidden"></div>
+
+
+  <div id="mobileHud" aria-hidden="true">
+    <div id="joystick" class="hidden" aria-hidden="true" aria-label="Joystick de movimiento">
+      <div id="joyBase"></div>
+      <div id="joyKnob"></div>
+    </div>
+    <div id="mobileBtns">
+      <button type="button" id="mobChat" class="mob-btn">Chat</button>
+      <button type="button" id="mobInv" class="mob-btn">Inv</button>
+      <button type="button" id="mobQuest" class="mob-btn">Misiones</button>
+      <button type="button" id="mobChar" class="mob-btn">Héroe</button>
+    </div>
+  </div>
+
+  <div id="partyFrames" class="hidden"></div>
+  <div id="playerMenu" class="hidden"></div>
+  <div id="inviteBox" class="hidden"></div>
+
+  <div id="deathOverlay" class="overlay hidden">
+    <div class="overlay-title">Has caído</div>
+    <button id="respawnBtn" type="button">Resucitar en Helike</button>
+  </div>
+
+  <div id="reconnect" class="overlay hidden">
+    <div class="overlay-title small">Reconectando…</div>
+  </div>
+</div>
+
+<script>
+if (!document.getElementById("respawnBtn") && !location.search.includes("v=")) {
+  location.replace(location.pathname + "?v=" + Date.now());
+}
+</script>
+<script src="audio.js?v=20260730"></script>
+<script src="game.js?v=20260730"></script>
+</body>
+</html>
