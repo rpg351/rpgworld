@@ -21,79 +21,79 @@
   const SONG_BARS = 32;
 
   // 20 songs — distinct root / mode / tempo / motif / texture. Auto-rotates.
-  // Tuned to A432 ("healing"/Verdi reference pitch) instead of the usual
-  // A440 concert pitch — every root below is the equal-tempered A440 note
-  // frequency scaled by 432/440; the interval ratios (scales) are untouched.
+  // Tuned to "scientific pitch" (C4 = 256 Hz, so C5 = 512 Hz) instead of the
+  // usual A440 concert pitch — every root below is the equal-tempered A440
+  // note frequency scaled by 256/261.6256; scale ratios are untouched.
   const SONGS = [
-    { name: "Amanecer en Helike", beat: 0.58, root: 144.16, scale: AEOLIAN, fifth: 1.5,
+    { name: "Amanecer en Helike", beat: 0.58, root: 143.67, scale: AEOLIAN, fifth: 1.5,
       pad: 0.034, pluck: 0.045, sparkle: 0.012, perc: 0.01, percOff: true,
       motif: [0,2,4,2, 3,5,4,0, 4,2,5,4, 3,2,0,4], bars: 32, filter: 880 },
-    { name: "Los Olivares", beat: 0.50, root: 161.81, scale: DORIAN, fifth: 1.5,
+    { name: "Los Olivares", beat: 0.50, root: 161.27, scale: DORIAN, fifth: 1.5,
       pad: 0.028, pluck: 0.05, sparkle: 0.016, perc: 0.012, percOff: true,
       motif: [0,4,2,5, 4,7,5,4, 2,0,4,2, 5,4,2,0], bars: 28, filter: 1000, padType: "triangle" },
-    { name: "Ruinas de Argos", beat: 0.64, root: 128.44, scale: PHRYGIAN, fifth: 1.5,
+    { name: "Ruinas de Argos", beat: 0.64, root: 128.00, scale: PHRYGIAN, fifth: 1.5,
       pad: 0.04, pluck: 0.038, sparkle: 0.008, perc: 0.008,
       motif: [0,1,3,1, 4,3,1,0, 5,4,3,1, 0,3,1,4], bars: 36, filter: 720, shimmer: 0.012, shimmerDeg: 3 },
-    { name: "Hondonada de la Gorgona", beat: 0.46, root: 108.00, scale: AEOLIAN, fifth: 1.498,
+    { name: "Hondonada de la Gorgona", beat: 0.46, root: 107.63, scale: AEOLIAN, fifth: 1.498,
       pad: 0.036, pluck: 0.042, sparkle: 0.01, perc: 0.014, percOff: true,
       motif: [0,3,5,7, 5,3,0,2, 4,7,5,3, 2,0,3,5], bars: 32, filter: 650, pluckType: "sine" },
     // Reworked — was a plain scale-run hymn; now slower, sparser, with an
     // octave leap and rests so it reads as solemn rather than sing-song.
-    { name: "Himno de la Fuente", beat: 0.78, root: 171.44, scale: IONIAN, fifth: 1.5,
+    { name: "Himno de la Fuente", beat: 0.78, root: 170.86, scale: IONIAN, fifth: 1.5,
       pad: 0.034, pluck: 0.032, sparkle: 0.014, perc: 0.0,
       motif: [0,-1,7,4, 9,-1,7,5, 2,-1,9,7, 5,4,-1,0], bars: 32, filter: 1000, shimmer: 0.012, shimmerDeg: 4 },
-    { name: "Vigilia Nocturna", beat: 0.62, root: 121.24, scale: DORIAN, fifth: 1.5,
+    { name: "Vigilia Nocturna", beat: 0.62, root: 120.82, scale: DORIAN, fifth: 1.5,
       pad: 0.038, pluck: 0.036, sparkle: 0.01, perc: 0.007,
       motif: [4,2,0,2, 5,4,2,0, 7,5,4,2, 0,2,4,5], bars: 32, filter: 820, pluckType: "sine" },
     // Reworked — was a bouncy pentatonic chase riff; now syncopated with
     // rests and wide leaps for a predatory, uneven stalking feel.
-    { name: "Cacería de Artemisa", beat: 0.34, root: 192.44, scale: PENTA_MIN, fifth: 1.5,
+    { name: "Cacería de Artemisa", beat: 0.34, root: 191.79, scale: PENTA_MIN, fifth: 1.5,
       pad: 0.02, pluck: 0.05, sparkle: 0.014, perc: 0.02, percOff: true,
       motif: [0,-1,7,4, -1,9,4,-1, 7,2,-1,9, 4,-1,2,7], bars: 24, filter: 1200, pluckType: "sawtooth" },
     // Reworked — was a bright arpeggio shrine tune; now slower with a
     // droning fifth and sparse, unevenly-spaced tones for a mystic feel.
-    { name: "Luz de Asclepio", beat: 0.9, root: 152.74, scale: LYDIAN, fifth: 1.5,
+    { name: "Luz de Asclepio", beat: 0.9, root: 152.22, scale: LYDIAN, fifth: 1.5,
       pad: 0.038, pluck: 0.03, sparkle: 0.018, perc: 0.0,
       motif: [0,-1,-1,4, -1,7,-1,-1, 5,-1,9,-1, -1,4,-1,-1], bars: 32, filter: 1050, shimmer: 0.018, shimmerDeg: 3 },
-    { name: "Brisa del Puerto", beat: 0.54, root: 136.11, scale: MIXOLYD, fifth: 1.498,
+    { name: "Brisa del Puerto", beat: 0.54, root: 135.61, scale: MIXOLYD, fifth: 1.498,
       pad: 0.03, pluck: 0.048, sparkle: 0.014, perc: 0.011, percOff: true,
       motif: [0,4,5,4, 2,0,2,4, 7,5,4,2, 0,2,4,0], bars: 28, filter: 980 },
-    { name: "Eco del Titán", beat: 0.48, root: 85.72, scale: PHRYGIAN, fifth: 1.5,
+    { name: "Eco del Titán", beat: 0.48, root: 85.43, scale: PHRYGIAN, fifth: 1.5,
       pad: 0.042, pluck: 0.04, sparkle: 0.006, perc: 0.015,
       motif: [0,1,0,4, 3,1,0,5, 4,3,1,0, 4,5,3,0], bars: 32, filter: 600, padType: "triangle" },
     // Reworked — was a lullaby-plain rest theme; now leans on a sustained
     // pad and a sparse, wide-interval motif instead of a walked scale.
-    { name: "Descanso del Héroe", beat: 0.85, root: 181.63, scale: IONIAN, fifth: 1.5,
+    { name: "Descanso del Héroe", beat: 0.85, root: 181.02, scale: IONIAN, fifth: 1.5,
       pad: 0.04, pluck: 0.026, sparkle: 0.01, perc: 0.0,
       motif: [0,-1,-1,5, -1,-1,4,-1, -1,7,-1,-1, 2,-1,0,-1], bars: 36, filter: 900, shimmer: 0.013, shimmerDeg: 2 },
-    { name: "Sombra de Circe", beat: 0.56, root: 114.44, scale: PHRYGIAN, fifth: 1.5,
+    { name: "Sombra de Circe", beat: 0.56, root: 114.03, scale: PHRYGIAN, fifth: 1.5,
       pad: 0.038, pluck: 0.044, sparkle: 0.01, perc: 0.009, padType: "triangle",
       motif: [0,3,1,-1, 4,3,5,1, 0,-1,4,3, 1,5,3,0], bars: 32, filter: 700, pluckType: "sawtooth" },
-    { name: "Forja de Hefesto", beat: 0.4, root: 90.82, scale: MIXOLYD, fifth: 1.5,
+    { name: "Forja de Hefesto", beat: 0.4, root: 90.51, scale: MIXOLYD, fifth: 1.5,
       pad: 0.026, pluck: 0.058, sparkle: 0.0, perc: 0.022, percOff: true,
       motif: [0,4,0,4, 3,-1,3,-1, 5,4,2,0, 4,-1,0,-1], bars: 28, filter: 680 },
-    { name: "Lamento de las Nereidas", beat: 0.72, root: 128.44, scale: AEOLIAN, fifth: 1.5,
+    { name: "Lamento de las Nereidas", beat: 0.72, root: 128.00, scale: AEOLIAN, fifth: 1.5,
       pad: 0.04, pluck: 0.03, sparkle: 0.016, perc: 0.0, pluckType: "sine",
       motif: [0,-1,3,5, -1,7,5,3, -1,2,0,-1, 3,5,3,0], bars: 36, filter: 760, shimmer: 0.014, shimmerDeg: 3 },
-    { name: "Trueno de Zeus", beat: 0.36, root: 80.90, scale: MIXOLYD, fifth: 1.5,
+    { name: "Trueno de Zeus", beat: 0.36, root: 80.64, scale: MIXOLYD, fifth: 1.5,
       pad: 0.03, pluck: 0.05, sparkle: 0.0, perc: 0.024, percOff: true,
       motif: [0,7,4,7, 5,-1,5,7, 3,7,2,7, 0,-1,0,7], bars: 28, filter: 620 },
-    { name: "Umbral del Inframundo", beat: 0.6, root: 72.09, scale: PHRYGIAN, fifth: 1.498,
+    { name: "Umbral del Inframundo", beat: 0.6, root: 71.84, scale: PHRYGIAN, fifth: 1.498,
       pad: 0.044, pluck: 0.032, sparkle: 0.004, perc: 0.012, padType: "triangle",
       motif: [0,-1,1,-1, 4,-1,3,-1, 0,1,0,-1, 5,4,1,0], bars: 32, filter: 520 },
-    { name: "Coro de las Musas", beat: 0.66, root: 161.81, scale: LYDIAN, fifth: 1.5,
+    { name: "Coro de las Musas", beat: 0.66, root: 161.27, scale: LYDIAN, fifth: 1.5,
       pad: 0.032, pluck: 0.036, sparkle: 0.02, perc: 0.006, padType: "triangle",
       motif: [0,4,7,9, 7,4,-1,5, 9,7,4,2, -1,0,4,-1], bars: 32, filter: 1150, shimmer: 0.016, shimmerDeg: 4 },
     // New — E minor (Aeolian) family alongside "Sombra de Circe" (E Phrygian):
     // same modal neighborhood, distinct scale/register/texture so it reads
     // as kin, not a reskin.
-    { name: "Manantial de Mnemósine", beat: 0.74, root: 161.81, scale: AEOLIAN, fifth: 1.5,
+    { name: "Manantial de Mnemósine", beat: 0.74, root: 161.27, scale: AEOLIAN, fifth: 1.5,
       pad: 0.036, pluck: 0.028, sparkle: 0.016, perc: 0.0, pluckType: "sine",
       motif: [0,-1,2,4, -1,5,4,2, -1,0,2,5, 4,2,-1,0], bars: 36, filter: 860, shimmer: 0.015, shimmerDeg: 3 },
-    { name: "Susurro de las Náyades", beat: 0.82, root: 80.90, scale: AEOLIAN, fifth: 1.5,
+    { name: "Susurro de las Náyades", beat: 0.82, root: 80.64, scale: AEOLIAN, fifth: 1.5,
       pad: 0.044, pluck: 0.022, sparkle: 0.01, perc: 0.0, padType: "triangle",
       motif: [0,-1,-1,3, -1,-1,2,-1, -1,4,-1,-1, 0,-1,-1,-1], bars: 32, filter: 560, shimmer: 0.01, shimmerDeg: 2 },
-    { name: "Vela de los Dioscuros", beat: 0.6, root: 242.44, scale: AEOLIAN, fifth: 1.5,
+    { name: "Vela de los Dioscuros", beat: 0.6, root: 241.63, scale: AEOLIAN, fifth: 1.5,
       pad: 0.024, pluck: 0.034, sparkle: 0.02, perc: 0.006,
       motif: [0,2,0,4, 3,2,0,5, 4,3,2,0, 5,4,2,0], bars: 32, filter: 1300, shimmer: 0.018, shimmerDeg: 4 },
   ];
@@ -376,12 +376,12 @@
         case "slash":
           if (!this._rate("slash", 70)) return;
           this._noise(0.12, 0.35, dest, t0, 800, 6000);
-          this._tone(220, 0.08, "sawtooth", 0.08, dest, t0);
+          this._tone(215.27, 0.08, "sawtooth", 0.08, dest, t0);
           break;
         case "arrow":
           if (!this._rate("arrow", 60)) return;
-          this._tone(880, 0.12, "triangle", 0.12, dest, t0);
-          this._tone(1320, 0.08, "sine", 0.06, dest, t0 + 0.02);
+          this._tone(861.08, 0.12, "triangle", 0.12, dest, t0);
+          this._tone(1291.62, 0.08, "sine", 0.06, dest, t0 + 0.02);
           this._noise(0.06, 0.12, dest, t0, 2000, 8000);
           break;
         case "fire":
@@ -391,26 +391,26 @@
           break;
         case "holy":
           if (!this._rate("holy", 80)) return;
-          this._tone(523.25, 0.18, "sine", 0.12, dest, t0);
-          this._tone(659.25, 0.2, "sine", 0.1, dest, t0 + 0.05);
-          this._tone(783.99, 0.25, "triangle", 0.08, dest, t0 + 0.1);
+          this._tone(512.00, 0.18, "sine", 0.12, dest, t0);
+          this._tone(645.07, 0.2, "sine", 0.1, dest, t0 + 0.05);
+          this._tone(766.93, 0.25, "triangle", 0.08, dest, t0 + 0.1);
           break;
         case "aoe":
           if (!this._rate("aoe", 90)) return;
           this._noise(0.25, 0.3, dest, t0, 120, 2500);
-          this._tone(110, 0.22, "square", 0.06, dest, t0);
+          this._tone(107.63, 0.22, "square", 0.06, dest, t0);
           break;
         case "heal":
           if (!this._rate("heal", 120)) return;
-          this._tone(392, 0.15, "sine", 0.1, dest, t0);
-          this._tone(523.25, 0.2, "sine", 0.1, dest, t0 + 0.08);
-          this._tone(659.25, 0.28, "triangle", 0.09, dest, t0 + 0.16);
+          this._tone(383.57, 0.15, "sine", 0.1, dest, t0);
+          this._tone(512.00, 0.2, "sine", 0.1, dest, t0 + 0.08);
+          this._tone(645.07, 0.28, "triangle", 0.09, dest, t0 + 0.16);
           break;
         case "level":
-          this._tone(392, 0.18, "triangle", 0.14, dest, t0);
-          this._tone(523.25, 0.18, "triangle", 0.14, dest, t0 + 0.14);
-          this._tone(659.25, 0.18, "triangle", 0.14, dest, t0 + 0.28);
-          this._tone(783.99, 0.4, "sine", 0.16, dest, t0 + 0.42);
+          this._tone(383.57, 0.18, "triangle", 0.14, dest, t0);
+          this._tone(512.00, 0.18, "triangle", 0.14, dest, t0 + 0.14);
+          this._tone(645.07, 0.18, "triangle", 0.14, dest, t0 + 0.28);
+          this._tone(766.93, 0.4, "sine", 0.16, dest, t0 + 0.42);
           break;
         case "hit": {
           const onMe = opt && opt.onMe;
@@ -426,32 +426,32 @@
           this._noise(0.1, 0.25, dest, t0, 500, 5000);
           break;
         case "dead":
-          this._tone(220, 0.35, "sawtooth", 0.12, dest, t0);
-          this._tone(146.8, 0.45, "sawtooth", 0.1, dest, t0 + 0.15);
-          this._tone(98, 0.7, "triangle", 0.1, dest, t0 + 0.35);
+          this._tone(215.27, 0.35, "sawtooth", 0.12, dest, t0);
+          this._tone(143.64, 0.45, "sawtooth", 0.1, dest, t0 + 0.15);
+          this._tone(95.89, 0.7, "triangle", 0.1, dest, t0 + 0.35);
           break;
         case "ui":
           if (!this._rate("ui", 40)) return;
-          this._tone(660, 0.05, "sine", 0.05, dest, t0);
+          this._tone(645.81, 0.05, "sine", 0.05, dest, t0);
           break;
         case "chat":
           if (!this._rate("chat", 200)) return;
-          this._tone(740, 0.05, "sine", 0.04, dest, t0);
-          this._tone(990, 0.06, "sine", 0.035, dest, t0 + 0.05);
+          this._tone(724.09, 0.05, "sine", 0.04, dest, t0);
+          this._tone(968.71, 0.06, "sine", 0.035, dest, t0 + 0.05);
           break;
         case "invite":
-          this._tone(523.25, 0.1, "triangle", 0.1, dest, t0);
-          this._tone(659.25, 0.14, "triangle", 0.1, dest, t0 + 0.1);
+          this._tone(512.00, 0.1, "triangle", 0.1, dest, t0);
+          this._tone(645.07, 0.14, "triangle", 0.1, dest, t0 + 0.1);
           break;
         case "pickup":
           if (!this._rate("pickup", 80)) return;
-          this._tone(880, 0.06, "sine", 0.08, dest, t0);
-          this._tone(1174, 0.1, "sine", 0.07, dest, t0 + 0.05);
+          this._tone(861.08, 0.06, "sine", 0.08, dest, t0);
+          this._tone(1148.76, 0.1, "sine", 0.07, dest, t0 + 0.05);
           break;
         case "login":
-          this._tone(329.63, 0.15, "triangle", 0.1, dest, t0);
-          this._tone(493.88, 0.2, "triangle", 0.1, dest, t0 + 0.12);
-          this._tone(659.25, 0.35, "sine", 0.12, dest, t0 + 0.26);
+          this._tone(322.54, 0.15, "triangle", 0.1, dest, t0);
+          this._tone(483.26, 0.2, "triangle", 0.1, dest, t0 + 0.12);
+          this._tone(645.07, 0.35, "sine", 0.12, dest, t0 + 0.26);
           break;
         default:
           break;

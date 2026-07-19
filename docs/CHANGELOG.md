@@ -1,3 +1,15 @@
+## 2026-07-19 — Afinación científica (C=256/512 Hz) en toda la audio
+
+- **Audio — afinación "scientific pitch"**: se reemplazó A432 por el estándar de "afinación
+  científica" (Sauveur), donde cada nota Do es una potencia de 2 exacta — Do4 = 256 Hz,
+  Do5 = 512 Hz. Factor de conversión desde A440: ×(256/261.6256). Aplicado a **las 20**
+  raíces de canciones y a **todos los tonos musicales de los efectos de sonido** (golpe
+  sagrado, curación, subida de nivel, recoger objeto, invitación, chat, login, espada,
+  flecha, muerte, clic de UI) — los sonidos de percusión/impacto sin altura definida
+  (slash de ruido, hit, crit, fire) se dejaron intactos por diseño, no son notas.
+- Cache bust `?v=20260811`.
+
+
 ## 2026-07-19 — Afinación A432, volumen y HUD
 
 - **Audio — afinación "healing" A432**: todo el catálogo (17 pistas) se re-afinó de A440 a
