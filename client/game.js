@@ -124,8 +124,13 @@ var I18N = {
     "ability.unavailable": "Tu clase aún no tiene árbol de habilidades.",
     "ability.points": (n) => `${n} punto${n === 1 ? "" : "s"} de habilidad disponible${n === 1 ? "" : "s"}`,
     "ability.tier": (n) => `Nivel ${n}`,
-    "ability.needMore": (n) => `Requiere ${n} habilidades desbloqueadas`,
+    "ability.needMore": (n) => `Requiere ${n} puntos gastados en el árbol`,
     "ability.unlock": "Desbloquear",
+    "ability.upgrade": "Mejorar",
+    "ability.maxed": "Rango máximo",
+    "ability.active": "Activa",
+    "ability.passive": "Pasiva",
+    "ability.needNode": "Asigna un punto a esta habilidad en el árbol (tecla H)",
   },
   en: {
     "login.subtitle": "Helike · Mythic Greece",
@@ -218,8 +223,13 @@ var I18N = {
     "ability.unavailable": "Your class doesn't have an ability tree yet.",
     "ability.points": (n) => `${n} ability point${n === 1 ? "" : "s"} available`,
     "ability.tier": (n) => `Tier ${n}`,
-    "ability.needMore": (n) => `Requires ${n} unlocked abilities`,
+    "ability.needMore": (n) => `Requires ${n} points spent in the tree`,
     "ability.unlock": "Unlock",
+    "ability.upgrade": "Upgrade",
+    "ability.maxed": "Max rank",
+    "ability.active": "Active",
+    "ability.passive": "Passive",
+    "ability.needNode": "Put a point into this skill in your tree (H key)",
   },
 };
 var LS_LANG = "aot_lang";
@@ -751,6 +761,7 @@ function sampleEnt(E, t) {
 var ZONE_TINT = {
   3: "rgba(150,60,40,0.08)",
   4: "rgba(90,70,140,0.10)",
+  5: "rgba(50,110,70,0.10)",
 };
 function tileAt(x, y) {
   if (!S.map || x < 0 || y < 0 || x >= S.map.w || y >= S.map.h)
@@ -1458,6 +1469,125 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.fillRect(-2, -20 - bob, 4, 2);
       break;
     }
+    case "lizardman": {
+      // hombre lagarto del pantano: cuerpo escamoso verde, cola y lanza
+      g.fillStyle = "#3f6a2e";
+      g.fillRect(-5, 0 - bob, 2.6, 7 + wob);
+      g.fillRect(1, 0 - bob, 2.6, 7 - wob);
+      g.fillStyle = "#4d8038";
+      g.beginPath();
+      g.moveTo(-6, -12 - bob);
+      g.quadraticCurveTo(0, -15 - bob, 6, -12 - bob);
+      g.lineTo(5, 1 - bob);
+      g.lineTo(-5, 1 - bob);
+      g.closePath();
+      g.fill();
+      // cola
+      g.strokeStyle = "#3f6a2e";
+      g.lineWidth = 3;
+      g.lineCap = "round";
+      g.beginPath();
+      g.moveTo(-4, 2 - bob);
+      g.quadraticCurveTo(-12, 6 - bob, -14, 0 - bob + wob);
+      g.stroke();
+      // cabeza con hocico
+      g.fillStyle = "#5a9440";
+      g.beginPath();
+      g.arc(0, -16 - bob, 4.6, 0, 7);
+      g.fill();
+      g.beginPath();
+      g.moveTo(3, -17 - bob);
+      g.lineTo(9, -15 - bob);
+      g.lineTo(3, -13.5 - bob);
+      g.closePath();
+      g.fill();
+      g.fillStyle = "#ffd84a";
+      g.beginPath();
+      g.arc(1.2, -17 - bob, 1.1, 0, 7);
+      g.fill();
+      // lanza
+      g.strokeStyle = "#7a5a30";
+      g.lineWidth = 1.8;
+      g.beginPath();
+      g.moveTo(6, 6 - bob);
+      g.lineTo(9, -20 - bob);
+      g.stroke();
+      g.fillStyle = "#c8d0d8";
+      g.beginPath();
+      g.moveTo(9, -20 - bob);
+      g.lineTo(7.6, -24 - bob);
+      g.lineTo(10.4, -24 - bob);
+      g.closePath();
+      g.fill();
+      break;
+    }
+    case "wisp": {
+      // fuego fatuo: orbe espectral que flota entre los juncos
+      const flo = Math.sin(t / 300) * 2;
+      g.globalAlpha = 0.35;
+      g.fillStyle = "#8af0e0";
+      g.beginPath();
+      g.arc(0, -10 - bob - flo, 8.5, 0, 7);
+      g.fill();
+      g.globalAlpha = 0.85;
+      g.fillStyle = "#b8fff2";
+      g.beginPath();
+      g.arc(0, -10 - bob - flo, 4.6, 0, 7);
+      g.fill();
+      g.fillStyle = "#ffffff";
+      g.beginPath();
+      g.arc(0, -11 - bob - flo, 2, 0, 7);
+      g.fill();
+      // estelas
+      g.globalAlpha = 0.5;
+      g.strokeStyle = "#8af0e0";
+      g.lineWidth = 1.4;
+      g.beginPath();
+      g.moveTo(-3, -5 - bob - flo);
+      g.quadraticCurveTo(-6, 2 - bob, -2, 6 - bob + wob);
+      g.moveTo(3, -5 - bob - flo);
+      g.quadraticCurveTo(6, 2 - bob, 2, 6 - bob - wob);
+      g.stroke();
+      g.globalAlpha = 1;
+      break;
+    }
+    case "hydra": {
+      // Hidra de Lerna: cuerpo pantanoso y tres cuellos con cabezas
+      g.fillStyle = "#2e5230";
+      g.beginPath();
+      g.ellipse(0, -4 - bob, 11, 8, 0, 0, 7);
+      g.fill();
+      g.fillStyle = "#3a6438";
+      g.fillRect(-8, 2 - bob, 4, 6 + wob);
+      g.fillRect(4, 2 - bob, 4, 6 - wob);
+      // tres cuellos serpenteantes
+      g.strokeStyle = "#3f7a40";
+      g.lineWidth = 4;
+      g.lineCap = "round";
+      const sway = Math.sin(t / 260) * 2;
+      g.beginPath();
+      g.moveTo(-4, -8 - bob);
+      g.quadraticCurveTo(-12 - sway, -20 - bob, -10, -26 - bob - sway);
+      g.moveTo(0, -9 - bob);
+      g.quadraticCurveTo(sway, -22 - bob, 0, -30 - bob + sway);
+      g.moveTo(4, -8 - bob);
+      g.quadraticCurveTo(12 + sway, -20 - bob, 10, -26 - bob + sway);
+      g.stroke();
+      // cabezas
+      g.fillStyle = "#4d8c48";
+      for (const [hx, hy] of [[-10, -27 - sway], [0, -31 + sway], [10, -27 + sway]]) {
+        g.beginPath();
+        g.arc(hx, hy - bob, 3.6, 0, 7);
+        g.fill();
+      }
+      g.fillStyle = "#ffd84a";
+      for (const [hx, hy] of [[-10, -27 - sway], [0, -31 + sway], [10, -27 + sway]]) {
+        g.beginPath();
+        g.arc(hx + 1, hy - 0.6 - bob, 1, 0, 7);
+        g.fill();
+      }
+      break;
+    }
     default: {
       g.fillStyle = "#888";
       g.beginPath();
@@ -1552,12 +1682,12 @@ function drawEntity(E, t) {
     return;
   const moving = (E.s & 1) !== 0;
   const isNpc = NPC_KINDS[E.k], isPlayer = PLAYER_KINDS[E.k];
-  const scale = E.k === "cyclops" ? 2 : 1;
+  const scale = E.k === "cyclops" || E.k === "hydra" ? 2 : 1;
   const bob = Math.sin(t / 400 + E.bobP) * (moving ? 0.5 : 1.2);
   const walk = moving ? 1 : 0;
   ctx.save();
   ctx.translate(sx, sy);
-  if ((E.k === "cyclops" || E.k === "minotaur") && !E.dieT) {
+  if ((E.k === "cyclops" || E.k === "minotaur" || E.k === "hydra") && !E.dieT) {
     const pulse = 0.5 + Math.sin(t / 260) * 0.5;
     const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, 46 * scale);
     gr.addColorStop(0, `rgba(255,90,40,${0.16 + pulse * 0.1})`);
@@ -1638,7 +1768,7 @@ function drawEntity(E, t) {
       ctx.fill();
     }
   }
-  const topY = E.k === "cyclops" ? -62 : E.k === "harpy" ? -34 : -26;
+  const topY = E.k === "cyclops" ? -62 : E.k === "hydra" ? -70 : E.k === "harpy" ? -34 : -26;
   if (E.h < E.H && E.h > 0) {
     const bw = 26 * scale;
     ctx.fillStyle = "rgba(0,0,0,.6)";
@@ -1646,13 +1776,13 @@ function drawEntity(E, t) {
     ctx.fillStyle = isPlayer || isNpc ? "#5fae4a" : "#c8382a";
     ctx.fillRect(-bw / 2 + 0.5, topY + 0.5, (bw - 1) * (E.h / E.H), 3);
   }
-  if (isPlayer || E.k === "cyclops") {
+  if (isPlayer || E.k === "cyclops" || E.k === "hydra") {
     ctx.font = "11px Georgia";
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(0,0,0,.7)";
     const label = `${E.n || ""} · ${E.l}`;
     ctx.fillText(label, 1, topY - 5 + 1);
-    ctx.fillStyle = idOf(E) === S.myId ? "#ecc16e" : S.partyIds.has(idOf(E)) ? "#7de08a" : (E.k === "cyclops" || E.k === "minotaur") ? "#ff9a5e" : "#cfe0ff";
+    ctx.fillStyle = idOf(E) === S.myId ? "#ecc16e" : S.partyIds.has(idOf(E)) ? "#7de08a" : (E.k === "cyclops" || E.k === "minotaur" || E.k === "hydra") ? "#ff9a5e" : "#cfe0ff";
     ctx.fillText(label, 0, topY - 5);
   } else if (isNpc) {
     ctx.font = "11px Georgia";
@@ -2052,6 +2182,7 @@ function drawPortals(t) {
     gorgona: { x: 128.5, y: 72 },
     ciclope: { x: 142.5, y: 108 },
     asfodelos: { x: 132.5, y: 44 },
+    hidra: { x: 170.5, y: 79.5 },
   };
   for (const id of S.you.visitedZones) {
     const p = pts[id];
@@ -2365,7 +2496,7 @@ function updateTargetFrame() {
   }
   tf.classList.remove("hidden");
   $("targetName").textContent = `${E.n || E.k} · Nv ${E.l}`;
-  $("targetName").classList.toggle("boss", E.k === "cyclops" || E.k === "minotaur");
+  $("targetName").classList.toggle("boss", E.k === "cyclops" || E.k === "minotaur" || E.k === "hydra");
   $("targetFill").style.width = Math.max(0, 100 * E.h / (E.H || 1)) + "%";
 }
 function isEnemyEnt(E, id) {
@@ -2502,7 +2633,7 @@ function frame() {
     $("chatLog").classList.add("idle");
 }
 function entRadius(E) {
-  return E.k === "cyclops" || E.k === "minotaur" ? 1.4 : 0.7;
+  return E.k === "cyclops" || E.k === "minotaur" || E.k === "hydra" ? 1.4 : 0.7;
 }
 function pickAt(wx, wy) {
   const mobile = typeof isMobileUi === "function" && isMobileUi();
@@ -2578,6 +2709,14 @@ canvas.addEventListener("touchend", (e) => {
   handleWorldPointer(t.clientX, t.clientY);
 }, { passive: false });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+// Rank of the active tree node backing skill n; skill 1 is the baseline skill
+// (always castable), and classes without a node for n fall back to available.
+function activeNodeRank(n) {
+  if (n === 1) return 1;
+  const node = S.abilityTree.find((a) => a.kind === "active" && a.skillN === n);
+  if (!node) return 1;
+  return (S.you && S.you.abilities && S.you.abilities[node.id]) || 0;
+}
 function castSkill(n) {
   const sk = S.skills.find((s) => s.n === n);
   if (!sk || S.dead)
@@ -2592,6 +2731,11 @@ function castSkill(n) {
   };
   if (S.you && S.you.lvl < sk.unlock) {
     deny();
+    return;
+  }
+  if (activeNodeRank(n) < 1) {
+    deny();
+    toast((I18N[getLang()] || I18N.es)["ability.needNode"]);
     return;
   }
   // Already cooling down: keep remaining time — never restart the countdown.
@@ -3207,8 +3351,9 @@ function refreshSkillLocks() {
     if (!sk)
       return;
     const locked = S.you.lvl < sk.unlock;
-    el.classList.toggle("locked", locked);
-    el.querySelector(".lock").textContent = locked ? `Lv ${sk.unlock}` : "";
+    const noNode = !locked && activeNodeRank(+el.dataset.n) < 1;
+    el.classList.toggle("locked", locked || noNode);
+    el.querySelector(".lock").textContent = locked ? `Lv ${sk.unlock}` : noNode ? "H" : "";
   });
 }
 function drawSkillCooldowns(t) {
@@ -4024,28 +4169,38 @@ function renderAbilities() {
     b.innerHTML = `<p class="ability-empty">${t("ability.unavailable")}</p>`;
     return;
   }
-  const owned = new Set((y && y.abilities) || []);
-  const ownedCount = owned.size;
+  const ranks = (y && y.abilities) || {};
+  let spent = 0;
+  for (const k in ranks) spent += ranks[k] || 0;
   const avail = (y && y.abilityPts) || 0;
   pts.textContent = t("ability.points", avail);
-  const tierReq = (tier) => tier === 1 ? 0 : tier === 2 ? 2 : 5;
+  const tierReq = (tier) => tier === 1 ? 0 : tier === 2 ? 5 : 12;
   const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
   let html = "";
   let curTier = 0;
   for (const a of S.abilityTree) {
     if (a.tier !== curTier) {
       curTier = a.tier;
-      if (curTier > 1) html += `<div class="ability-tier-label">${t("ability.tier", curTier)}</div>`;
+      if (curTier > 1)
+        html += `<div class="ability-tier-label">${t("ability.tier", curTier)} · ${t("ability.needMore", tierReq(curTier))}</div>`;
     }
-    const has = owned.has(a.id);
-    const locked = !has && ownedCount < tierReq(a.tier);
-    const affordable = !has && !locked && avail > 0;
-    html += `<div class="ability-card${has ? " owned" : ""}${locked ? " locked" : ""}">
-      <div class="ability-name">${esc(a.name)}${has ? " ✓" : ""}</div>
-      <div class="ability-desc">${esc(a.desc)}</div>
-      ${has ? "" : locked
+    const rank = ranks[a.id] || 0;
+    const max = a.max || 5;
+    const locked = rank === 0 && spent < tierReq(a.tier);
+    const canUp = !locked && rank < max && avail > 0 && spent >= tierReq(a.tier);
+    let pips = "";
+    for (let i = 1; i <= max; i++) pips += `<span class="pip${i <= rank ? " on" : ""}"></span>`;
+    html += `<div class="ability-card${rank > 0 ? " owned" : ""}${locked ? " locked" : ""}">
+      <div class="ability-name">${esc(a.name)}
+        <span class="ability-kind ${a.kind}">${t(a.kind === "active" ? "ability.active" : "ability.passive")}</span>
+        <span class="ability-rank">${rank}/${max}</span></div>
+      <div class="ability-pips">${pips}</div>
+      <div class="ability-desc">${esc(a.desc)} <span class="ability-perrank">${esc(a.perRankDesc || "")}</span></div>
+      ${locked
         ? `<div class="ability-req">${t("ability.needMore", tierReq(a.tier))}</div>`
-        : `<button type="button" class="btn ability-btn" data-id="${a.id}" ${affordable ? "" : "disabled"}>${t("ability.unlock")}</button>`}
+        : rank >= max
+          ? `<div class="ability-max">${t("ability.maxed")}</div>`
+          : `<button type="button" class="btn ability-btn" data-id="${a.id}" ${canUp ? "" : "disabled"}>${rank === 0 ? t("ability.unlock") : t("ability.upgrade")} (${rank}→${rank + 1})</button>`}
     </div>`;
   }
   b.innerHTML = html;
