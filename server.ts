@@ -56,8 +56,59 @@ function walkableAt(x: number, y: number): boolean {
 // ---------------------------------------------------------------------------
 // Entities
 // ---------------------------------------------------------------------------
-interface Session { player: Player | null; badJson: number; loggingIn: boolean }
+interface Session { player: Player | null; badJson: number; loggingIn: boolean; ip: string; tokens: number; lastRefill: number }
 type WS = ServerWebSocket<Session>;
+
+// ---------------------------------------------------------------------------
+// Abuse guards: per-connection message rate limit, per-IP connection cap,
+// and login brute-force throttling (per-IP and per-account, exponential backoff).
+// ---------------------------------------------------------------------------
+const MSG_BUCKET_CAP = 40; // burst allowance
+const MSG_REFILL_PER_SEC = 20; // steady-state messages/sec
+const MAX_CONN_PER_IP = 8;
+const connByIp = new Map<string, number>();
+
+/** True = message allowed (consumes a token); false = drop (client over budget). */
+function takeToken(sess: Session): boolean {
+  const now = Date.now();
+  const elapsed = (now - sess.lastRefill) / 1000;
+  sess.lastRefill = now;
+  sess.tokens = Math.min(MSG_BUCKET_CAP, sess.tokens + elapsed * MSG_REFILL_PER_SEC);
+  if (sess.tokens < 1) return false;
+  sess.tokens -= 1;
+  return true;
+}
+
+interface ThrottleState { fails: number; lockUntil: number }
+const loginThrottle = new Map<string, ThrottleState>();
+
+/** ms remaining before `key` (ip or account name) may attempt login again; 0 = allowed now. */
+function loginLockedMs(key: string): number {
+  const st = loginThrottle.get(key);
+  if (!st) return 0;
+  return Math.max(0, st.lockUntil - Date.now());
+}
+
+/** Exponential backoff: 5 fails free, then 2^(fails-5) seconds capped at 5 min. */
+function recordLoginFail(key: string): void {
+  const st = loginThrottle.get(key) ?? { fails: 0, lockUntil: 0 };
+  st.fails++;
+  if (st.fails > 5) {
+    const secs = Math.min(300, 2 ** (st.fails - 5));
+    st.lockUntil = Date.now() + secs * 1000;
+  }
+  loginThrottle.set(key, st);
+}
+
+function clearLoginFails(key: string): void {
+  loginThrottle.delete(key);
+}
+
+// Periodic sweep so the maps don't grow unbounded from one-off/expired entries.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, st] of loginThrottle) if (st.lockUntil < now && st.fails <= 5) loginThrottle.delete(k);
+}, 60000);
 
 interface StatusHolder {
   slowUntil: number; slowPct: number; stunUntil: number;
@@ -1188,6 +1239,10 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
   const cls = typeof msg.cls === "string" ? msg.cls : "";
   if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return send(ws, { t: "err", msg: "El nombre debe tener 3-16 letras, dígitos o _" });
   if (pass.length < 4) return send(ws, { t: "err", msg: "La contraseña debe tener al menos 4 caracteres" });
+  const ipKey = `ip:${sess.ip}`, acctKey = `acct:${name.toLowerCase()}`;
+  const lockedMs = Math.max(loginLockedMs(ipKey), loginLockedMs(acctKey));
+  if (lockedMs > 0)
+    return send(ws, { t: "err", msg: `Demasiados intentos. Prueba de nuevo en ${Math.ceil(lockedMs / 1000)}s` });
 
   sess.loggingIn = true;
   try {
@@ -1195,7 +1250,11 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
     let player: Player;
     if (row) {
       const ok = await Bun.password.verify(pass, row.pass).catch(() => false);
-      if (!ok) return send(ws, { t: "err", msg: "Contraseña incorrecta" });
+      if (!ok) {
+        recordLoginFail(ipKey);
+        recordLoginFail(acctKey);
+        return send(ws, { t: "err", msg: "Contraseña incorrecta" });
+      }
       const existing = players.get(name);
       if (existing) {
         // Kick the older socket, keep the live in-memory state.
@@ -1223,6 +1282,8 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
       players.set(name, player);
     }
     sess.player = player;
+    clearLoginFails(ipKey);
+    clearLoginFails(acctKey);
     // Reattach durable party (survives logout + server restart) unless already linked via linger reconnect.
     if (!player.party) restoreParty(player);
     else persistParty(player.party);
@@ -1290,6 +1351,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     if (++ws.data.badJson >= 5) ws.close();
     return;
   }
+  if (!takeToken(ws.data)) return; // over the per-connection message budget: silently drop
   const t = msg.t;
   if (t === "login") {
     void handleLogin(ws, msg).catch((e) => {
@@ -2128,12 +2190,21 @@ const server = Bun.serve<Session, Record<string, never>>({
     if (url.pathname === "/rpg/api/health")
       return Response.json({ ok: true, pop: players.size });
     if (url.pathname === "/rpg/ws") {
-      if (srv.upgrade(req, { data: { player: null, badJson: 0, loggingIn: false } })) return undefined;
+      // Behind Caddy: real client IP is the first X-Forwarded-For hop, not the
+      // loopback peer address `srv.requestIP` would report.
+      const xff = req.headers.get("x-forwarded-for");
+      const ip = (xff ? xff.split(",")[0].trim() : null) || srv.requestIP(req)?.address || "unknown";
+      if ((connByIp.get(ip) ?? 0) >= MAX_CONN_PER_IP)
+        return new Response("too many connections", { status: 429 });
+      if (srv.upgrade(req, { data: { player: null, badJson: 0, loggingIn: false, ip, tokens: MSG_BUCKET_CAP, lastRefill: Date.now() } })) return undefined;
       return new Response("websocket upgrade required", { status: 426 });
     }
     return new Response("not found", { status: 404 });
   },
   websocket: {
+    open(ws) {
+      connByIp.set(ws.data.ip, (connByIp.get(ws.data.ip) ?? 0) + 1);
+    },
     message(ws, raw) {
       try {
         handleMsg(ws, raw);
@@ -2142,6 +2213,8 @@ const server = Bun.serve<Session, Record<string, never>>({
       }
     },
     close(ws) {
+      const n = (connByIp.get(ws.data.ip) ?? 1) - 1;
+      if (n <= 0) connByIp.delete(ws.data.ip); else connByIp.set(ws.data.ip, n);
       const p = ws.data.player;
       ws.data.player = null;
       if (p && p.ws === ws) {

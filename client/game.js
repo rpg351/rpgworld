@@ -483,10 +483,10 @@ function drawTiles(t) {
       switch (ch) {
         case "g": {
           const v = 30 + r * 12;
-          ctx.fillStyle = `rgb(${44 + r2 * 10 | 0},${62 + v | 0},${30 + r * 8 | 0})`;
+          ctx.fillStyle = `rgb(${30 + r * 8 | 0},${44 + r2 * 10 | 0},${62 + v | 0})`;
           ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
           if (r2 > 0.4) {
-            ctx.fillStyle = `rgba(${90 + r * 60 | 0},${120 + r2 * 50 | 0},50,.5)`;
+            ctx.fillStyle = `rgba(50,${90 + r * 60 | 0},${120 + r2 * 50 | 0},.5)`;
             for (let i = 0;i < 3; i++) {
               const px = sx + thash(tx, ty, 10 + i) * TILE, py = sy + thash(tx, ty, 20 + i) * TILE;
               ctx.fillRect(px, py, 2, 3 + r3 * 2);
@@ -526,7 +526,7 @@ function drawTiles(t) {
           break;
         }
         case "t": {
-          ctx.fillStyle = `rgb(${44 + r2 * 10 | 0},${62 + 30 + r * 12 | 0},${30 + r * 8 | 0})`;
+          ctx.fillStyle = `rgb(${30 + r * 8 | 0},${44 + r2 * 10 | 0},${62 + 30 + r * 12 | 0})`;
           ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
           const cx = sx + TILE / 2 + (r - 0.5) * 6, cy = sy + TILE / 2 + (r2 - 0.5) * 6;
           ctx.fillStyle = "rgba(0,0,0,.28)";
@@ -549,7 +549,7 @@ function drawTiles(t) {
           break;
         }
         case "r": {
-          ctx.fillStyle = `rgb(${44 + r2 * 10 | 0},${62 + 30 + r * 12 | 0},${30 + r * 8 | 0})`;
+          ctx.fillStyle = `rgb(${30 + r * 8 | 0},${44 + r2 * 10 | 0},${62 + 30 + r * 12 | 0})`;
           ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
           const cx = sx + TILE / 2 + (r - 0.5) * 5, cy = sy + TILE / 2 + (r2 - 0.5) * 5;
           ctx.fillStyle = "rgba(0,0,0,.3)";
@@ -3105,7 +3105,7 @@ function buildMinimapBase() {
       let c;
       switch (ch) {
         case "g":
-          c = [46, 64, 32];
+          c = [32, 46, 64];
           break;
         case "d":
           c = [104, 82, 52];
@@ -3126,7 +3126,7 @@ function buildMinimapBase() {
           c = [26, 52, 88];
           break;
         case "t":
-          c = [30, 46, 22];
+          c = [22, 30, 46];
           break;
         case "r":
           c = [78, 76, 70];
