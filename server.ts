@@ -121,6 +121,7 @@ interface Player extends StatusHolder {
   id: number; ws: WS | null; name: string; cls: string;
   lvl: number; xp: number; gold: number; pts: number;
   abilityPts: number; abilities: Map<string, number>; // class ability tree: unspent points + node ranks (id -> 1..5)
+  loadout: number[]; // 4 SkillDef.n values equipped to skill-bar slots 1-4
   str: number; dex: number; int: number;
   hp: number; mp: number; x: number; y: number;
   inv: (Item | null)[]; eq: Record<string, Item | null>;
@@ -249,7 +250,7 @@ function serialize(p: Player): string {
     x: p.x, y: p.y, inv: p.inv, eq: p.eq, quests: p.quests,
     partyId: p.partyId,
     visitedZones: p.visitedZones,
-    abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities),
+    abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
   });
 }
 
@@ -367,7 +368,7 @@ function sendYou(p: Player): void {
     arm: d.arm, dmg: [Math.round(d.lo), Math.round(d.hi)],
     crit: Math.round(d.crit * 10) / 10, spd: Math.round(d.spd * 100) / 100,
     inv: p.inv, eq: p.eq, quests: p.quests, visitedZones: p.visitedZones,
-    abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities),
+    abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
   });
   p.dirty = true;
 }
@@ -1244,7 +1245,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
   const p: Player = {
     id: nextEntId++, ws, name, cls,
     lvl: 1, xp: 0, gold: 25, pts: 0,
-    abilityPts: 0, abilities: new Map<string, number>(),
+    abilityPts: 0, abilities: new Map<string, number>(), loadout: [1, 2, 3, 4],
     str: base.str, dex: base.dex, int: base.int,
     hp: 0, mp: 0,
     x: TOWN.x + 0.5 + (Math.random() - 0.5) * 2, y: TOWN.y + 3.5,
@@ -1321,6 +1322,15 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
         if (byId[id]) p.abilities.set(id, Math.min(r, byId[id].max));
         else p.abilityPts = Math.min(LEVEL_CAP, p.abilityPts + r); // nodo eliminado: reembolso
       }
+    }
+    // Loadout: qué SkillDef.n de la clase está equipado en cada slot 1-4 de la
+    // barra. Blobs legados (o corruptos) sin un array válido de 4 números
+    // caen al mapeo fijo original 1-2-3-4 para que la barra nunca quede vacía.
+    if (
+      Array.isArray(d.loadout) && d.loadout.length === 4 &&
+      d.loadout.every((v) => typeof v === "number" && Number.isInteger(v) && SKILLS[cls]?.some((s) => s.n === v))
+    ) {
+      p.loadout = d.loadout as number[];
     }
     const base = CLASS_BASE[cls];
     p.str = clampInt(d.str, base.str, 200, base.str);
@@ -1429,6 +1439,7 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
       t: "welcome", id: player.id, name: player.name, cls: player.cls,
       skills: SKILLS[player.cls].map((s) => ({ n: s.n, name: s.name, desc: s.desc, cost: s.cost, cd: s.cd, unlock: s.unlock, kind: s.kind })),
       abilityTree: TREES[player.cls] ?? [],
+      loadout: player.loadout,
     });
     ws.send(MAP_MSG);
     sendYou(player);
@@ -1563,8 +1574,19 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     case "skill": {
       if (p.dead || stunned) return;
       const n = num(msg.n);
-      if (n == null || n < 1 || n > 4) return;
+      if (n == null || n < 1 || n > (SKILLS[p.cls]?.length ?? 4)) return;
       useSkill(p, n, num(msg.id), num(msg.x), num(msg.y));
+      break;
+    }
+    case "skill_equip": {
+      if (p.dead) return;
+      const slot = num(msg.slot);
+      const n = num(msg.n);
+      if (slot == null || slot < 1 || slot > 4) return;
+      if (n == null || !SKILLS[p.cls]?.some((s) => s.n === n)) return;
+      p.loadout[slot - 1] = n;
+      p.dirty = true;
+      sendYou(p);
       break;
     }
     case "pickup": {

@@ -131,6 +131,8 @@ var I18N = {
     "ability.active": "Activa",
     "ability.passive": "Pasiva",
     "ability.needNode": "Asigna un punto a esta habilidad en el árbol (tecla H)",
+    "ability.baseGate": "Disponible desde el inicio",
+    "ability.equipSlot": (n) => `Equipar en la ranura ${n}`,
   },
   en: {
     "login.subtitle": "Helike · Mythic Greece",
@@ -230,6 +232,8 @@ var I18N = {
     "ability.active": "Active",
     "ability.passive": "Passive",
     "ability.needNode": "Put a point into this skill in your tree (H key)",
+    "ability.baseGate": "Available from the start",
+    "ability.equipSlot": (n) => `Equip to slot ${n}`,
   },
 };
 var LS_LANG = "aot_lang";
@@ -271,6 +275,7 @@ var S = {
   myCls: "",
   skills: [],
   abilityTree: [],
+  loadout: [1, 2, 3, 4],
   map: null,
   you: null,
   pop: 0,
@@ -379,6 +384,7 @@ function handle(m) {
       S.myName = m.name;
       S.myCls = m.cls;
       S.skills = m.skills || [];
+      S.loadout = Array.isArray(m.loadout) && m.loadout.length === 4 ? m.loadout.slice() : [1, 2, 3, 4];
       S.abilityTree = m.abilityTree || [];
       $("mobAbility") && $("mobAbility").classList.toggle("hidden", !S.abilityTree.length);
       S.loggedIn = true;
@@ -420,6 +426,10 @@ function handleWorld(m) {
     case "you": {
       const prevLvl = S.you ? S.you.lvl : 0;
       S.you = m;
+      if (Array.isArray(m.loadout) && m.loadout.length === 4 && m.loadout.some((v, i) => v !== S.loadout[i])) {
+        S.loadout = m.loadout.slice();
+        buildSkillbar();
+      }
       if (Array.isArray(m.visitedZones)) S.you.visitedZones = m.visitedZones;
       // Safety net: if server says hp is gone, force the revive overlay even when
       // the dedicated "dead" packet was missed (disconnect mid-death / reconnect).
@@ -563,7 +573,7 @@ function handleWorld(m) {
       if (S.lastSkill && now() - S.lastSkillT < 600) {
         // Server rejected the cast — restore previous cooldown (don't leave a fake full CD).
         if (S.lastSkillPrevCd != null) S.cds[S.lastSkill] = S.lastSkillPrevCd;
-        const el = document.querySelector(`.skill[data-n="${S.lastSkill}"]`);
+        const el = skillBarEl(S.lastSkill);
         if (el) {
           el.classList.remove("deny");
           el.offsetWidth;
@@ -2717,11 +2727,21 @@ function activeNodeRank(n) {
   if (!node) return 1;
   return (S.you && S.you.abilities && S.you.abilities[node.id]) || 0;
 }
+// Loadout maps skill-bar slots 1-4 -> equipped SkillDef.n; resolve either way
+// since the bar's DOM data-n is now a fixed SLOT, not the skillN itself.
+function slotForSkill(n) {
+  const i = S.loadout.indexOf(n);
+  return i >= 0 ? i + 1 : null;
+}
+function skillBarEl(n) {
+  const slot = slotForSkill(n);
+  return slot ? document.querySelector(`.skill[data-n="${slot}"]`) : null;
+}
 function castSkill(n) {
   const sk = S.skills.find((s) => s.n === n);
   if (!sk || S.dead)
     return;
-  const el = document.querySelector(`.skill[data-n="${n}"]`);
+  const el = skillBarEl(n);
   const t = now();
   const deny = () => {
     if (!el) return;
@@ -2950,9 +2970,11 @@ window.addEventListener("keydown", (e) => {
     case "1":
     case "2":
     case "3":
-    case "4":
-      castSkill(+e.key);
+    case "4": {
+      const n = S.loadout[+e.key - 1];
+      if (n) castSkill(n);
       break;
+    }
     case "i":
     case "I":
       togglePanel("invPanel");
@@ -3365,6 +3387,410 @@ function skillIcon(g, cls, n) {
         g.lineTo(Math.cos(a) * 17, Math.sin(a) * 17);
         g.stroke();
       }
+    },
+    warrior5() {
+      // Embestida: forward lunge thrust with speed lines.
+      g.strokeStyle = "#e8c470";
+      g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(-14, 6);
+      g.lineTo(10, -8);
+      g.stroke();
+      g.fillStyle = "#fff2cc";
+      g.beginPath();
+      g.moveTo(14, -12);
+      g.lineTo(4, -10);
+      g.lineTo(10, -2);
+      g.closePath();
+      g.fill();
+      g.strokeStyle = "rgba(232,196,112,.5)";
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.moveTo(-16, 10);
+      g.lineTo(-6, 2);
+      g.moveTo(-12, 13);
+      g.lineTo(-2, 5);
+      g.stroke();
+    },
+    warrior6() {
+      // Golpe Sísmico: ground-crack half-rings + radiating fractures.
+      g.strokeStyle = "#c8a878";
+      g.lineWidth = 2.5;
+      for (let r = 6; r <= 16; r += 5) {
+        g.beginPath();
+        g.arc(0, 8, r, Math.PI, 0);
+        g.stroke();
+      }
+      g.strokeStyle = "#8a6a3a";
+      g.lineWidth = 1.5;
+      for (let i = 0; i < 5; i++) {
+        const a = Math.PI + i * (Math.PI / 4);
+        g.beginPath();
+        g.moveTo(0, 8);
+        g.lineTo(Math.cos(a) * 15, 8 + Math.sin(a) * 8);
+        g.stroke();
+      }
+    },
+    warrior7() {
+      // Salto de Escudo: round shield with impact spikes.
+      g.strokeStyle = "#cfd6de";
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.arc(0, 0, 13, 0, 7);
+      g.stroke();
+      g.fillStyle = "#8a97a6";
+      g.beginPath();
+      g.arc(0, 0, 5, 0, 7);
+      g.fill();
+      g.strokeStyle = "#fff6d8";
+      g.lineWidth = 1.5;
+      for (let i = 0; i < 6; i++) {
+        const a = i * 1.047;
+        g.beginPath();
+        g.moveTo(Math.cos(a) * 13, Math.sin(a) * 13);
+        g.lineTo(Math.cos(a) * 18, Math.sin(a) * 18);
+        g.stroke();
+      }
+    },
+    warrior8() {
+      // Avatar de Ares: radiant war-god aura with a crown flame.
+      const grad = g.createRadialGradient(0, 2, 1, 0, 2, 18);
+      grad.addColorStop(0, "#fff2cc");
+      grad.addColorStop(0.5, "#ff6a2a");
+      grad.addColorStop(1, "rgba(255,60,20,0)");
+      g.fillStyle = grad;
+      g.beginPath();
+      g.arc(0, 2, 18, 0, 7);
+      g.fill();
+      g.strokeStyle = "#ffb060";
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(0, -16);
+      g.lineTo(-4, -2);
+      g.lineTo(4, -2);
+      g.closePath();
+      g.stroke();
+    },
+    warrior9() {
+      // Grito Ancestral: deep crimson warcry rings.
+      g.strokeStyle = "#c83a3a";
+      g.lineWidth = 2;
+      for (let r = 4; r <= 18; r += 4.5) {
+        g.beginPath();
+        g.arc(0, 0, r, -1.1, 1.1);
+        g.stroke();
+      }
+      g.fillStyle = "#ffd0c0";
+      g.beginPath();
+      g.arc(-9, 0, 3, 0, 7);
+      g.fill();
+    },
+    hunter5() {
+      // Flecha Rápida: twin fast streak + arrowhead.
+      g.strokeStyle = "#b9e08a";
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(-13, 8);
+      g.lineTo(10, -9);
+      g.stroke();
+      g.strokeStyle = "rgba(185,224,138,.45)";
+      g.beginPath();
+      g.moveTo(-15, 3);
+      g.lineTo(5, -12);
+      g.stroke();
+      g.fillStyle = "#e8f0d0";
+      g.beginPath();
+      g.moveTo(13, -11);
+      g.lineTo(5, -8);
+      g.lineTo(10, -3);
+      g.closePath();
+      g.fill();
+    },
+    hunter6() {
+      // Trampa Punzante: bear-trap jaws with teeth.
+      g.strokeStyle = "#8a9c6a";
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.arc(0, 3, 13, Math.PI * 1.15, Math.PI * 1.85);
+      g.stroke();
+      g.beginPath();
+      g.arc(0, 3, 13, -Math.PI * 0.85, -Math.PI * 0.15);
+      g.stroke();
+      g.fillStyle = "#e8f0d0";
+      for (let i = -2; i <= 2; i++) {
+        g.beginPath();
+        g.moveTo(i * 5, -10);
+        g.lineTo(i * 5 - 2, -4);
+        g.lineTo(i * 5 + 2, -4);
+        g.closePath();
+        g.fill();
+        g.beginPath();
+        g.moveTo(i * 5, 16);
+        g.lineTo(i * 5 - 2, 10);
+        g.lineTo(i * 5 + 2, 10);
+        g.closePath();
+        g.fill();
+      }
+    },
+    hunter7() {
+      // Tiro de Halcón: diving wings + arrow.
+      g.strokeStyle = "#e8f0d0";
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(-3, -14);
+      g.quadraticCurveTo(-17, -6, -13, 6);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(3, -14);
+      g.quadraticCurveTo(17, -6, 13, 6);
+      g.stroke();
+      g.strokeStyle = "#b9e08a";
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.moveTo(0, -14);
+      g.lineTo(0, 13);
+      g.stroke();
+      g.fillStyle = "#e8f0d0";
+      g.beginPath();
+      g.moveTo(0, 16);
+      g.lineTo(-4, 8);
+      g.lineTo(4, 8);
+      g.closePath();
+      g.fill();
+    },
+    hunter8() {
+      // Danza de Flechas: rotating spiral of arrows.
+      g.strokeStyle = "#b9e08a";
+      g.lineWidth = 2;
+      for (let i = 0; i < 6; i++) {
+        const a = i * 1.047;
+        const r1 = 6, r2 = 17;
+        g.beginPath();
+        g.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+        g.lineTo(Math.cos(a + 0.6) * r2, Math.sin(a + 0.6) * r2);
+        g.stroke();
+        g.fillStyle = "#e8f0d0";
+        const tx = Math.cos(a + 0.6) * r2, ty = Math.sin(a + 0.6) * r2;
+        g.beginPath();
+        g.moveTo(tx, ty);
+        g.lineTo(tx - Math.cos(a + 0.9) * 5, ty - Math.sin(a + 0.9) * 5);
+        g.lineTo(tx - Math.cos(a + 0.3) * 5, ty - Math.sin(a + 0.3) * 5);
+        g.closePath();
+        g.fill();
+      }
+    },
+    hunter9() {
+      // Ojo de Águila: eye with crosshair.
+      g.strokeStyle = "#e8f0d0";
+      g.lineWidth = 2;
+      g.beginPath();
+      g.ellipse(0, 0, 15, 8, 0, 0, 7);
+      g.stroke();
+      g.fillStyle = "#8a5a2a";
+      g.beginPath();
+      g.arc(0, 0, 6, 0, 7);
+      g.fill();
+      g.fillStyle = "#1d160c";
+      g.beginPath();
+      g.arc(0, 0, 3, 0, 7);
+      g.fill();
+      g.strokeStyle = "#b9e08a";
+      g.lineWidth = 1.2;
+      g.beginPath();
+      g.moveTo(-19, 0);
+      g.lineTo(-9, 0);
+      g.moveTo(9, 0);
+      g.lineTo(19, 0);
+      g.moveTo(0, -13);
+      g.lineTo(0, -9);
+      g.moveTo(0, 9);
+      g.lineTo(0, 13);
+      g.stroke();
+    },
+    mage5() {
+      // Chispa Arcana: small spark with radiating filaments.
+      g.fillStyle = "#ff8a2a";
+      g.beginPath();
+      g.arc(0, 0, 5, 0, 7);
+      g.fill();
+      g.strokeStyle = "#ffe08a";
+      g.lineWidth = 1.5;
+      for (let i = 0; i < 6; i++) {
+        const a = i * 1.047;
+        g.beginPath();
+        g.moveTo(Math.cos(a) * 7, Math.sin(a) * 7);
+        g.lineTo(Math.cos(a) * 15, Math.sin(a) * 15);
+        g.stroke();
+      }
+    },
+    mage6() {
+      // Cadena de Rayos: jagged branching bolt.
+      g.strokeStyle = "#8ad4ff";
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.moveTo(-14, -10);
+      g.lineTo(-4, -2);
+      g.lineTo(-8, 4);
+      g.lineTo(2, 10);
+      g.lineTo(-2, 14);
+      g.stroke();
+      g.strokeStyle = "#c8ecff";
+      g.lineWidth = 1.3;
+      g.beginPath();
+      g.moveTo(-4, -2);
+      g.lineTo(8, -8);
+      g.moveTo(2, 10);
+      g.lineTo(12, 6);
+      g.stroke();
+    },
+    mage7() {
+      // Muro Ígneo: row of flame tongues.
+      for (let i = -2; i <= 2; i++) {
+        const x = i * 7;
+        g.fillStyle = i % 2 === 0 ? "#ff8a2a" : "#ff7a30";
+        g.beginPath();
+        g.moveTo(x, 14);
+        g.quadraticCurveTo(x - 5, 0, x, -14);
+        g.quadraticCurveTo(x + 5, 0, x, 14);
+        g.fill();
+      }
+      g.fillStyle = "#ffe08a";
+      for (let i = -2; i <= 2; i++) {
+        g.beginPath();
+        g.arc(i * 7, 2, 2, 0, 7);
+        g.fill();
+      }
+    },
+    mage8() {
+      // Ira de Zeus: radiant burst with jagged bolts.
+      const grad = g.createRadialGradient(0, 0, 1, 0, 0, 17);
+      grad.addColorStop(0, "#ffffff");
+      grad.addColorStop(0.4, "#fff2b0");
+      grad.addColorStop(1, "rgba(255,226,138,0)");
+      g.fillStyle = grad;
+      g.beginPath();
+      g.arc(0, 0, 17, 0, 7);
+      g.fill();
+      g.strokeStyle = "#ffe28a";
+      g.lineWidth = 2;
+      for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + i * (Math.PI * 2 / 5);
+        g.beginPath();
+        g.moveTo(Math.cos(a) * 5, Math.sin(a) * 5);
+        g.lineTo(Math.cos(a + 0.15) * 11, Math.sin(a + 0.15) * 11);
+        g.lineTo(Math.cos(a - 0.1) * 17, Math.sin(a - 0.1) * 17);
+        g.stroke();
+      }
+    },
+    mage9() {
+      // Colapso Estelar: converging rings around a stellar core.
+      g.strokeStyle = "#c9d8ff";
+      g.lineWidth = 1.5;
+      for (let r = 16; r >= 4; r -= 4) {
+        g.beginPath();
+        g.arc(0, 0, r, 0, 7);
+        g.stroke();
+      }
+      g.fillStyle = "#ffffff";
+      g.beginPath();
+      g.arc(0, 0, 3, 0, 7);
+      g.fill();
+      g.strokeStyle = "rgba(200,216,255,.6)";
+      g.lineWidth = 1;
+      for (let i = 0; i < 8; i++) {
+        const a = i * 0.785;
+        g.beginPath();
+        g.moveTo(Math.cos(a) * 4, Math.sin(a) * 4);
+        g.lineTo(Math.cos(a) * 16, Math.sin(a) * 16);
+        g.stroke();
+      }
+    },
+    cleric5() {
+      // Luz Menor: small light cross.
+      g.strokeStyle = "#fff8d0";
+      g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(0, -10);
+      g.lineTo(0, 10);
+      g.moveTo(-8, 0);
+      g.lineTo(8, 0);
+      g.stroke();
+      g.strokeStyle = "rgba(240,230,168,.4)";
+      g.lineWidth = 1;
+      g.beginPath();
+      g.arc(0, 0, 13, 0, 7);
+      g.stroke();
+    },
+    cleric6() {
+      // Vendaje de Higía: crossed bandage bands.
+      g.strokeStyle = "#e8dcae";
+      g.lineWidth = 4;
+      g.beginPath();
+      g.moveTo(-13, -10);
+      g.lineTo(13, 10);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(13, -10);
+      g.lineTo(-13, 10);
+      g.stroke();
+      g.fillStyle = "#fff8d0";
+      g.beginPath();
+      g.arc(0, 0, 4, 0, 7);
+      g.fill();
+    },
+    cleric7() {
+      // Llama Purificadora: sacred flame with a small cross.
+      g.fillStyle = "#ff8a2a";
+      g.beginPath();
+      g.moveTo(0, 14);
+      g.quadraticCurveTo(-8, 0, 0, -14);
+      g.quadraticCurveTo(8, 0, 0, 14);
+      g.fill();
+      g.strokeStyle = "#fff8d0";
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(0, -3);
+      g.lineTo(0, 6);
+      g.moveTo(-4, 1.5);
+      g.lineTo(4, 1.5);
+      g.stroke();
+    },
+    cleric8() {
+      // Renacer de Asclepio: rod of Asclepius (staff + coiling serpent).
+      g.strokeStyle = "#fff8d0";
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.moveTo(0, -15);
+      g.lineTo(0, 15);
+      g.stroke();
+      g.strokeStyle = "#8ad46a";
+      g.lineWidth = 2;
+      g.beginPath();
+      for (let t = -14; t <= 14; t += 1) {
+        const x = Math.sin(t * 0.5) * 7;
+        if (t === -14) g.moveTo(x, t); else g.lineTo(x, t);
+      }
+      g.stroke();
+      g.fillStyle = "#fff8d0";
+      g.beginPath();
+      g.arc(0, -15, 3, 0, 7);
+      g.fill();
+    },
+    cleric9() {
+      // Ira Divina: golden radiant burst (pure damage, no heal glyph).
+      g.strokeStyle = "#ffe28a";
+      g.lineWidth = 2.5;
+      for (let i = 0; i < 7; i++) {
+        const a = i * 0.9;
+        g.beginPath();
+        g.moveTo(Math.cos(a) * 4, Math.sin(a) * 4);
+        g.lineTo(Math.cos(a) * 17, Math.sin(a) * 17);
+        g.stroke();
+      }
+      g.fillStyle = "#fff4c0";
+      g.beginPath();
+      g.arc(0, 0, 5, 0, 7);
+      g.fill();
     }
   };
   (G[key] || (() => {}))();
@@ -3372,7 +3798,8 @@ function skillIcon(g, cls, n) {
 }
 function buildSkillbar() {
   document.querySelectorAll(".skill").forEach((el) => {
-    const n = +el.dataset.n;
+    const slot = +el.dataset.n;
+    const n = S.loadout[slot - 1];
     const sk = S.skills.find((s) => s.n === n);
     const cv = el.querySelector("canvas");
     if (!sk) {
@@ -3392,18 +3819,19 @@ function refreshSkillLocks() {
   if (!S.you)
     return;
   document.querySelectorAll(".skill").forEach((el) => {
-    const sk = S.skills.find((s) => s.n === +el.dataset.n);
+    const n = S.loadout[+el.dataset.n - 1];
+    const sk = S.skills.find((s) => s.n === n);
     if (!sk)
       return;
     const locked = S.you.lvl < sk.unlock;
-    const noNode = !locked && activeNodeRank(+el.dataset.n) < 1;
+    const noNode = !locked && activeNodeRank(n) < 1;
     el.classList.toggle("locked", locked || noNode);
     el.querySelector(".lock").textContent = locked ? `Lv ${sk.unlock}` : noNode ? "H" : "";
   });
 }
 function drawSkillCooldowns(t) {
   document.querySelectorAll(".skill").forEach((el) => {
-    const n = +el.dataset.n;
+    const n = S.loadout[+el.dataset.n - 1];
     const sk = S.skills.find((s) => s.n === n);
     if (!sk)
       return;
@@ -4220,37 +4648,79 @@ function renderAbilities() {
   const avail = (y && y.abilityPts) || 0;
   pts.textContent = t("ability.points", avail);
   const tierReq = (tier) => tier === 1 ? 0 : tier === 2 ? 5 : 12;
-  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
-  let html = "";
-  let curTier = 0;
-  for (const a of S.abilityTree) {
-    if (a.tier !== curTier) {
-      curTier = a.tier;
-      if (curTier > 1)
-        html += `<div class="ability-tier-label">${t("ability.tier", curTier)} · ${t("ability.needMore", tierReq(curTier))}</div>`;
-    }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const byTier = { 1: [], 2: [], 3: [] };
+  for (const a of S.abilityTree) (byTier[a.tier] || (byTier[a.tier] = [])).push(a);
+
+  // Circular node card: active nodes show their real skill-bar art (scaled onto
+  // a smaller canvas), passives show a plain rank badge. Full name/desc/perRank
+  // lives in the tooltip so the tree stays readable at a glance.
+  const nodeHtml = (a) => {
     const rank = ranks[a.id] || 0;
     const max = a.max || 5;
     const locked = rank === 0 && spent < tierReq(a.tier);
     const canUp = !locked && rank < max && avail > 0 && spent >= tierReq(a.tier);
     let pips = "";
     for (let i = 1; i <= max; i++) pips += `<span class="pip${i <= rank ? " on" : ""}"></span>`;
-    html += `<div class="ability-card${rank > 0 ? " owned" : ""}${locked ? " locked" : ""}">
-      <div class="ability-name">${esc(a.name)}
-        <span class="ability-kind ${a.kind}">${t(a.kind === "active" ? "ability.active" : "ability.passive")}</span>
-        <span class="ability-rank">${rank}/${max}</span></div>
-      <div class="ability-pips">${pips}</div>
-      <div class="ability-desc">${esc(a.desc)} <span class="ability-perrank">${esc(a.perRankDesc || "")}</span></div>
+    const icon = a.kind === "active"
+      ? `<canvas class="node-canvas" width="44" height="44" data-skill-n="${a.skillN}"></canvas>`
+      : `<div class="node-passive-badge">${rank}/${max}</div>`;
+    let equip = "";
+    if (a.kind === "active") {
+      let btns = "";
+      for (let slot = 1; slot <= 4; slot++) {
+        const on = S.loadout[slot - 1] === a.skillN;
+        btns += `<button type="button" class="equip-btn${on ? " active" : ""}" title="${esc(t("ability.equipSlot", slot))}" data-slot="${slot}" data-n="${a.skillN}" ${rank < 1 ? "disabled" : ""}>${slot}</button>`;
+      }
+      equip = `<div class="node-equip">${btns}</div>`;
+    }
+    const tip = `${a.name} — ${a.desc} ${a.perRankDesc || ""}`;
+    return `<div class="ability-node ${a.kind}${rank > 0 ? " owned" : ""}${locked ? " locked" : ""}" title="${esc(tip)}">
+      <div class="node-circle">${icon}<span class="node-rank">${rank}/${max}</span></div>
+      <div class="node-pips">${pips}</div>
+      <div class="node-name">${esc(a.name)}<span class="ability-kind ${a.kind}">${t(a.kind === "active" ? "ability.active" : "ability.passive")}</span></div>
       ${locked
         ? `<div class="ability-req">${t("ability.needMore", tierReq(a.tier))}</div>`
         : rank >= max
           ? `<div class="ability-max">${t("ability.maxed")}</div>`
           : `<button type="button" class="btn ability-btn" data-id="${a.id}" ${canUp ? "" : "disabled"}>${rank === 0 ? t("ability.unlock") : t("ability.upgrade")} (${rank}→${rank + 1})</button>`}
+      ${equip}
     </div>`;
+  };
+
+  // Tier rows stack bottom-to-top: tier 3 (top) first in DOM, tier 1 (bottom)
+  // last, each pair of rows separated by the point-gate that unlocks the row
+  // above it; a root marker caps the bottom (tier 1 needs 0 points).
+  let html = '<div class="ability-tree">';
+  for (const tier of [3, 2, 1]) {
+    const nodes = byTier[tier] || [];
+    if (!nodes.length) continue;
+    html += `<div class="ability-tier-row" data-tier="${tier}">${nodes.map(nodeHtml).join("")}</div>`;
+    if (tier > 1) html += `<div class="ability-gate">${t("ability.tier", tier)} · ${t("ability.needMore", tierReq(tier))}</div>`;
   }
+  html += `<div class="ability-gate ability-root">${t("ability.tier", 1)} · ${t("ability.baseGate")}</div>`;
+  html += "</div>";
   b.innerHTML = html;
+
+  b.querySelectorAll(".node-canvas").forEach((cv) => {
+    const n = +cv.dataset.skillN;
+    const g = cv.getContext("2d");
+    g.save();
+    g.scale(cv.width / 52, cv.height / 52);
+    skillIcon(g, S.myCls, n);
+    g.restore();
+  });
   b.querySelectorAll(".ability-btn").forEach((btn) => btn.addEventListener("click", () => {
     send({ t: "ability_alloc", id: btn.dataset.id });
+  }));
+  b.querySelectorAll(".equip-btn").forEach((btn) => btn.addEventListener("click", () => {
+    if (btn.disabled) return;
+    const slot = +btn.dataset.slot, n = +btn.dataset.n;
+    if (S.loadout[slot - 1] === n) return;
+    S.loadout[slot - 1] = n;
+    send({ t: "skill_equip", slot, n });
+    buildSkillbar();
+    renderAbilities();
   }));
 }
 function renderQuests() {
