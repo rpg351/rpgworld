@@ -65,11 +65,13 @@ export const SKILLS: Record<string, SkillDef[]> = {
     { n: 1, name: "Disparo perforante", desc: "Una flecha precisa. Daño según tu Destreza, tu arco y el rango del nodo.", cost: 8, cd: 4000, unlock: 1, kind: "target", base: 5, perRank: 4, coeff: 0.9, weaponShare: 0.5, fx: { k: "proj", style: "arrow" } },
     { n: 2, name: "Ráfaga", desc: "Las flechas cubren un área e hieren a todos los enemigos dentro.", cost: 14, cd: 9000, unlock: 4, kind: "point", base: 3, perRank: 4, coeff: 0.6, weaponShare: 0.5, radius: 2.5, fx: { k: "aoe", style: "volley" } },
     { n: 3, name: "Lluvia de flechas", desc: "Una tormenta de flechas castiga un área amplia.", cost: 22, cd: 14000, unlock: 8, kind: "point", base: 16, perRank: 12, coeff: 1.25, weaponShare: 0.5, radius: 3, fx: { k: "aoe", style: "volley" } },
+    { n: 4, name: "Tormenta de Ártemis", desc: "ULTIMATE: invocas la tormenta de Ártemis — una lluvia de flechas letales castiga un área amplia y ralentiza a los enemigos.", cost: 26, cd: 18000, unlock: 12, kind: "point", base: 48, perRank: 29, coeff: 2.0, weaponShare: 0.5, radius: 3.3, slow: { pct: 0.4, ms: 2500 }, fx: { k: "aoe", style: "volley" } },
   ],
   mage: [
     { n: 1, name: "Descarga ígnea", desc: "Lanza fuego a un objetivo. Daño según tu Inteligencia y el rango del nodo.", cost: 7, cd: 3000, unlock: 1, kind: "target", base: 6, perRank: 4, coeff: 1.0, fx: { k: "proj", style: "fire" } },
     { n: 2, name: "Nova de escarcha", desc: "Estallido helado: daño en área y 50% de lentitud por 3s.", cost: 14, cd: 10000, unlock: 4, kind: "self", base: 4, perRank: 4, coeff: 0.8, radius: 3, slow: { pct: 0.5, ms: 3000 }, fx: { k: "aoe", style: "nova" } },
     { n: 3, name: "Meteoro", desc: "Invoca un meteoro que arrasa un área amplia.", cost: 24, cd: 15000, unlock: 8, kind: "point", base: 19, perRank: 15, coeff: 1.7, radius: 3, fx: { k: "aoe", style: "meteor" } },
+    { n: 4, name: "Supernova Arcana", desc: "ULTIMATE: liberas toda tu energía arcana en una explosión devastadora a tu alrededor.", cost: 26, cd: 18000, unlock: 12, kind: "self", base: 57, perRank: 37, coeff: 2.7, radius: 3.8, fx: { k: "aoe", style: "meteor" } },
   ],
   cleric: [
     { n: 1, name: "Oración", desc: "Invocas la luz de Asclepio: te curas a ti y al compañero de grupo más herido cercano. La cura crece con tu Inteligencia y el rango.", cost: 10, cd: 6000, unlock: 1, kind: "self", base: 0, perRank: 0, coeff: 0, heal: { base: 20, perRank: 8, coeff: 1.2 }, radius: 12, healMostHurt: true, fx: { k: "heal" } },
@@ -119,6 +121,7 @@ export const TREES: Record<string, AbilityDef[]> = {
     { id: "h_punta", name: "Puntas de Hierro", desc: "Forjas puntas que perforan cualquier pellejo.", tier: 2, max: 5, kind: "passive", perRankDesc: "+2 de daño de habilidades por rango" },
     { id: "h_veloz", name: "Viento del Monte", desc: "Corres como el viento de las cumbres.", tier: 3, max: 5, kind: "passive", perRankDesc: "+1% de velocidad de movimiento por rango" },
     { id: "h_aliento", name: "Aliento Salvaje", desc: "La vida agreste templa tu cuerpo.", tier: 3, max: 5, kind: "passive", perRankDesc: "+8 de vida máxima por rango" },
+    { id: "tormenta_artemisa", name: "Tormenta de Ártemis", desc: "ULTIMATE: lluvia de flechas letales en área amplia con lentitud.", tier: 3, max: 5, kind: "active", skillN: 4, perRankDesc: "+29 de daño por rango" },
   ],
   mage: [
     { id: "descarga", name: "Descarga ígnea", desc: "Proyectil de fuego a un objetivo. Rango 1 la desbloquea (siempre disponible).", tier: 1, max: 5, kind: "active", skillN: 1, perRankDesc: "+4 de daño por rango" },
@@ -130,6 +133,7 @@ export const TREES: Record<string, AbilityDef[]> = {
     { id: "m_regen", name: "Flujo Etéreo", desc: "El maná fluye hacia ti sin cesar.", tier: 2, max: 5, kind: "passive", perRankDesc: "+0.2%/s de regeneración de maná por rango" },
     { id: "m_crit", name: "Chispa de Hécate", desc: "Tus hechizos estallan con violencia inesperada.", tier: 3, max: 5, kind: "passive", perRankDesc: "+1% de crítico por rango" },
     { id: "m_celeridad", name: "Tiempo Robado", desc: "Doblas el tiempo a tu favor.", tier: 3, max: 5, kind: "passive", perRankDesc: "-3% de enfriamiento por rango" },
+    { id: "supernova", name: "Supernova Arcana", desc: "ULTIMATE: explosión arcana devastadora a tu alrededor.", tier: 3, max: 5, kind: "active", skillN: 4, perRankDesc: "+37 de daño por rango" },
   ],
   cleric: [
     { id: "oracion", name: "Oración", desc: "Cura a ti y al aliado más herido. Rango 1 la desbloquea (siempre disponible).", tier: 1, max: 5, kind: "active", skillN: 1, perRankDesc: "+8 de curación por rango" },

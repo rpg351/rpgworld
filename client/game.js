@@ -3320,6 +3320,51 @@ function skillIcon(g, cls, n) {
         g.lineTo(Math.cos(a) * 15, Math.sin(a) * 15);
         g.stroke();
       }
+    },
+    hunter4() {
+      // Ártemis storm: converging arrows + wind rings
+      g.strokeStyle = "rgba(150,220,190,.6)";
+      g.lineWidth = 1.5;
+      for (let r = 6; r <= 16; r += 5) {
+        g.beginPath();
+        g.arc(0, 0, r, 0, 7);
+        g.stroke();
+      }
+      g.strokeStyle = "#e8f0d8";
+      g.lineWidth = 2.2;
+      for (let i = 0; i < 5; i++) {
+        const a = -1.9 + i * 0.95;
+        g.beginPath();
+        g.moveTo(Math.cos(a) * 16, Math.sin(a) * 16);
+        g.lineTo(0, 3);
+        g.stroke();
+        g.beginPath();
+        g.moveTo(0, 3);
+        g.lineTo(Math.cos(a - 0.25) * 4 + Math.cos(a) * 8, Math.sin(a - 0.25) * 4 + Math.sin(a) * 8);
+        g.moveTo(0, 3);
+        g.lineTo(Math.cos(a + 0.25) * 4 + Math.cos(a) * 8, Math.sin(a + 0.25) * 4 + Math.sin(a) * 8);
+        g.stroke();
+      }
+    },
+    mage4() {
+      // Arcane supernova: radiant burst core + shockwave rings
+      const grad = g.createRadialGradient(0, 0, 1, 0, 0, 16);
+      grad.addColorStop(0, "#ffffff");
+      grad.addColorStop(0.4, "#c9a8ff");
+      grad.addColorStop(1, "rgba(140,80,220,0)");
+      g.fillStyle = grad;
+      g.beginPath();
+      g.arc(0, 0, 16, 0, 7);
+      g.fill();
+      g.strokeStyle = "rgba(230,200,255,.85)";
+      g.lineWidth = 1.5;
+      for (let i = 0; i < 8; i++) {
+        const a = i * 0.785;
+        g.beginPath();
+        g.moveTo(Math.cos(a) * 5, Math.sin(a) * 5);
+        g.lineTo(Math.cos(a) * 17, Math.sin(a) * 17);
+        g.stroke();
+      }
     }
   };
   (G[key] || (() => {}))();
