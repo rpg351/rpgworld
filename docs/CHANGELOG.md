@@ -1,3 +1,19 @@
+## 2026-07-19 — Afinación A432, volumen y HUD
+
+- **Audio — afinación "healing" A432**: todo el catálogo (17 pistas) se re-afinó de A440 a
+  A432 (referencia Verdi/"healing") multiplicando cada raíz por 432/440; los intervalos de
+  escala no cambian. Se agregaron 3 pistas nuevas en Mi menor (Aeolian) — misma familia
+  modal que "Sombra de Circe" (Mi frigio) pero timbre/registro distintos, no una réplica:
+  Manantial de Mnemósine, Susurro de las Náyades, Vela de los Dioscuros (20 pistas en total).
+- **Audio — volumen**: música y efectos ~50% más fuertes por defecto (`musicGain` 0.28→0.42,
+  `sfxGain` 0.85→1.275); se agregó un limitador (`DynamicsCompressorNode`) en el bus maestro
+  para evitar recorte cuando se acumulan varias voces a este nivel más alto. Los sliders de
+  volumen del menú siguen permitiendo bajarlo.
+- **HUD**: Vida/Maná en el panel de Personaje ahora se redondean para mostrar (antes salían
+  con decimales); la barra de HP/MP y el HUD principal ya redondeaban correctamente.
+- Cache bust `?v=20260810`.
+
+
 ## 2026-07-19 — Árbol de habilidades del clérigo, moderación del tablón, venta masiva
 
 - **Árbol de habilidades (clérigo)**: 10 pasivas en 3 tiers, 1 punto de habilidad por

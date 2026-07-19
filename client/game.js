@@ -3951,8 +3951,8 @@ function renderChar() {
     <div class="stat-row"><span>Daño</span><b>${y.dmg[0]}–${y.dmg[1]}</b></div>
     <div class="stat-row"><span>Prob. de crítico</span><b>${(+y.crit).toFixed(1)}%</b></div>
     <div class="stat-row"><span>Armadura</span><b>${y.arm}</b></div>
-    <div class="stat-row"><span>Vida</span><b>${y.hp} / ${y.mhp}</b></div>
-    <div class="stat-row"><span>Maná</span><b>${y.mp} / ${y.mmp}</b></div>
+    <div class="stat-row"><span>Vida</span><b>${Math.max(0, Math.round(y.hp))} / ${Math.round(y.mhp)}</b></div>
+    <div class="stat-row"><span>Maná</span><b>${Math.max(0, Math.round(y.mp))} / ${Math.round(y.mmp)}</b></div>
     <div class="stat-row"><span>Velocidad</span><b>${y.spd}</b></div>
     <div class="stat-row"><span>Oro</span><b>${y.gold}</b></div>
   </div>`;
