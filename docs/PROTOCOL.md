@@ -16,8 +16,8 @@ Server: Bun + WebSocket, authoritative. Client: vanilla JS canvas, zero assets (
 
 1. Client → `{t:"login", name, pass, cls?}`. `name` 3–16 chars `[A-Za-z0-9_]`, `pass` ≥ 4 chars. New account requires `cls` ∈ `warrior|hunter|mage|cleric`; existing account ignores `cls`. Password hashed with `Bun.password`. Second login for same account kicks the older socket (`{t:"err",msg:"…logged in elsewhere"}` + close).
 2. Server → on failure `{t:"err", msg}` (socket stays open, may retry). On success, in order:
-   - `{t:"welcome", id, name, cls, skills:[{n,name,desc,cost,cd,unlock,kind}]}` — `n`∈1..4, `cost` mana, `cd` ms, `unlock` level, `kind`∈`"target"|"point"|"self"` (targeting mode for the client).
-   - `{t:"map", w:160, h:160, tiles:[…160 strings of 160 chars…], town:{x,y}, zones:[{name,x0,y0,x1,y1,lvl:"1-2"}]}`
+   - `{t:"welcome", id, name, cls, skills:[{n,name,desc,cost,cd,unlock,kind}], abilityTree:[{id,name,desc,tier,max,kind,skillN?,perRankDesc}]}` — `n`∈1..4, `cost` mana, `cd` ms, `unlock` level, `kind`∈`"target"|"point"|"self"` (targeting mode for the client). `abilityTree` = árbol de la clase (todas las clases): nodos `kind:"active"` (referencian su habilidad vía `skillN`; rango 1 la desbloquea, salvo la habilidad 1 que siempre está disponible) y `kind:"passive"` (bono por rango, `perRankDesc`), `tier`∈1..3, `max:5`.
+   - `{t:"map", w:224, h:224, tiles:[…224 strings of 224 chars…], town:{x,y}, zones:[{name,x0,y0,x1,y1,lvl:"1-2"}]}`
    - `{t:"you", …}` (full private state, see below)
    - snapshots begin.
 
@@ -42,6 +42,7 @@ Client renders 32 px/tile, may add procedural per-tile decoration seeded by `(x,
 - `{t:"unequip", eslot}` — `eslot` ∈ `weapon|armor|helm|ring` (needs free inv space).
 - `{t:"use", slot}` — consume potion.
 - `{t:"allot", stat}` — spend 1 stat point, `stat` ∈ `str|dex|int`.
+- `{t:"ability_alloc", id}` — spend 1 ability point: +1 rango (máx 5) al nodo `id` del árbol de tu clase. Validaciones: vivo, puntos > 0, nodo existe para la clase, rango < 5, y puerta de tier por puntos TOTALES gastados en el árbol (tier1=0, tier2=5, tier3=12). Rechazos → `toast`.
 - `{t:"party_invite", id}` — invite player (entity id) to your party (max 10). Opens from the client's player-click menu.
 - `{t:"party_accept", from}` / `{t:"party_decline", from}` — answer a pending invite (`from` = inviter name, invites expire after 30 s).
 - `{t:"party_leave"}` — leave; a party of 1 disbands.
@@ -56,7 +57,7 @@ Server replies to invalid/denied actions with `{t:"toast", msg}` (short human st
 - `{t:"st", pop, ents:[…], gone:[ids], loot:[{i,x,y,name,rarity,icon}]}` — 10 Hz snapshot of AOI. `pop` = players online.
   - ent: `{i, k, x, y, h, H, l}` (+`n` name for players/NPCs/boss, +`m`,`M` mana on YOUR ent only, +`s` bitflags: 1=moving, 2=attacking, 4=slowed, 8=stunned, +`d` facing: 0 right / 1 left).
   - `gone` lists ids that left AOI or despawned. `loot` is the full current AOI ground-loot set each snapshot.
-- `{t:"you", lvl, xp, xpNext, gold, pts, str, dex, int, hp, mhp, mp, mmp, arm, dmg:[lo,hi], crit, spd, inv:[item|null ×24], eq:{weapon,armor,helm,ring}, quests:{qid:{n,done,turned}}}` — sent on any private-state change (loot, buy, equip, xp, quest progress…). Item instance:
+- `{t:"you", lvl, xp, xpNext, gold, pts, str, dex, int, hp, mhp, mp, mmp, arm, dmg:[lo,hi], crit, spd, inv:[item|null ×24], eq:{weapon,armor,helm,ring}, quests:{qid:{n,done,turned}}, abilityPts, abilities:{id:rank}}` — sent on any private-state change (loot, buy, equip, xp, quest progress…). `abilities` es un objeto id→rango 1..5 (antes era un array de ids; el servidor migra el formato viejo al cargar). Item instance:
   `{id, base, name, slot, icon, tier, rarity, lvl, dmg?:[lo,hi], arm?, mods?:{str?,dex?,int?,hp?,mp?,arm?,dmgp?,crit?}, val, qty?}`
   - `slot` ∈ `weapon|armor|helm|ring|potion|quest`; `icon` ∈ `sword|axe|bow|staff|armor|helm|ring|potion_hp|potion_mp|horn|eye`; `rarity` ∈ `common|magic|rare` (client colors: white/#7fb3ff/#ffcf40).
 - `{t:"dmg", i, a, c?}` — damage number on entity `i`, `c:1` = crit (client: floating text).
@@ -77,11 +78,11 @@ Server replies to invalid/denied actions with `{t:"toast", msg}` (short human st
 
 Players: `warrior`, `hunter`, `mage`, `cleric`.
 NPCs (static, in town): `elder` (Nikandros — quests), `merchant` (Kora — potions/rings), `smith` (Bront — weapons/armor).
-Monsters: `boar` (lvl 1–2), `satyr` (3–5), `skeleton` (6–8), `harpy` (8–10, ranged), `gorgon` (11–13, ranged+slow), `cyclops` (15, boss "Polifemo", named, big).
+Monsters: `boar` (lvl 1–2), `satyr` (3–5), `skeleton` (6–8), `harpy` (8–10, ranged), `gorgon` (11–13, ranged+slow), `cyclops` (15, boss "Polifemo", named, big), `shade` (16–18), `fury` (18–20, ranged), `minotaur` (20, boss "Asterión"), `lizardman` (21–23), `wisp` (23–25, ranged), `hydra` (25, boss "Hidra de Lerna", named, big).
 
 ## World layout (server-authored, deterministic)
 
-160×160. Town **Helike** plaza (`p` tiles) centered near (30, 80) with the 3 NPCs; safe zone = no monster spawns/aggro within town rect, players can't be hit there. Dirt paths lead east. Zones (west→east, with `zones[]` rects in map msg): Olive Groves (boar/satyr), Ruins of Argos (skeleton/harpy, ruin walls + floor tiles), Gorgon's Hollow (gorgon, rocks), Cyclops Lair (boss arena, far east), Campos Asfódelos (shades/furies + Minotaur labyrinth, north-east, lvl 16–20). Water borders map edges/south; trees/rocks scattered as obstacles but zones stay traversable. ~120 monster spawn points, respawn 20 s (boss 180 s). Monsters: aggro radius 6 (boss 10), chase speed slightly below player, leash 15 tiles from spawn then walk home (no heal / no invuln; hitting them re-aggros). Melee monsters hit at 1.5; harpy/gorgon shoot at range 6 (gorgon applies 40% slow 2 s).
+224×224. Town **Helike** plaza (`p` tiles) centered near (30, 80) with the 3 NPCs; safe zone = no monster spawns/aggro within town rect, players can't be hit there. Dirt paths lead east. Zones (west→east, with `zones[]` rects in map msg): Olive Groves (boar/satyr), Ruins of Argos (skeleton/harpy, ruin walls + floor tiles), Gorgon's Hollow (gorgon, rocks), Cyclops Lair (boss arena, far east), Campos Asfódelos (shades/furies + Minotaur labyrinth, north-east, lvl 16–20), **Pantano de la Hidra** (lizardman/wisp + Hydra lair, eastern frontier x≥160, lvl 21–25, conectado por dos vados: la vía principal ~y79 y el ramal del laberinto ~y29). Water borders map edges/south; trees/rocks scattered as obstacles but zones stay traversable. ~113 monster spawn points — separación mínima 6 casillas entre spawns y nunca a <2 casillas de un camino (`d`) — respawn 20 s (bosses 180 s). Monsters: aggro radius 6 (boss 10–12), chase speed slightly below player, leash 15 tiles from spawn then walk home (no heal / no invuln).
 
 ## Stats & combat (server-side)
 
@@ -95,17 +96,21 @@ Monsters: `boar` (lvl 1–2), `satyr` (3–5), `skeleton` (6–8), `harpy` (8–
 - Death: monster kills award XP+gold to the killer (last hitter). Player death → `dead`, waits for `respawn`.
 - Kill credit updates kill-quests; collect-quests track quest items in inventory.
 
-## Skills (unlock lvl 1/4/8/12)
+## Skills & ability trees (unlock lvl 1/4/8/12 + nodo activo rango ≥ 1)
 
-Warrior: **Cleave** (160% wpn, radius 2.2 around self, 8 mp, 5 s) · **War Cry** (100% + 1.5 s stun, radius 3 self, 12 mp, 10 s) · **Whirlwind** (220%, radius 2.5 self, 20 mp, 12 s) · **Cólera titánica** ULTIMATE (350% + 1 s stun, radius 3.5 self, 28 mp, 20 s, unlock 12) — all kind:"self".
-Hunter: **Piercing Shot** (180% target, 8 mp, 4 s, kind:"target") · **Volley** (120% radius 2.5 at point, 14 mp, 9 s, kind:"point") · **Rain of Arrows** (250% radius 3 at point, 22 mp, 14 s, kind:"point").
-Mage: **Firebolt** (170% target, 7 mp, 3 s, kind:"target") · **Frost Nova** (130% + 50% slow 3 s, radius 3 self, 14 mp, 10 s, kind:"self") · **Meteor** (280% radius 3 at point, 24 mp, 15 s, kind:"point").
-Cleric: **Oración** (heal self + most-hurt party ally within 12 tiles, **70% of missing HP** each, `healMissing`, 10 mp, 6 s, kind:"self") · **Himno sagrado** (heal 30% max HP self + party in radius 5, 14 mp, 10 s, kind:"self", unlock 4) · **Círculo sagrado** (heal 30% self+party **and** 150% holy damage to enemies in radius 4, 20 mp, 14 s, unlock 8) · **Juicio de Zeus** ULTIMATE (320% holy AoE radius 3.2 self, 26 mp, 18 s, unlock 12).
+**Modelo de daño plano** (reemplaza el antiguo % de daño de arma): `dmg = base + perRank·(rango−1) + coeff·stat` con stat primario guerrero=str, cazador=dex, mago=int, clérigo=int; las habilidades con arma (guerrero/cazador) suman además `0.5·daño rodado del arma`; luego el pipeline de siempre: pasivo de daño de habilidades, `dmgp%` del equipo, crítico ×1.6 y armadura. Curas: `base + perRank·(rango−1) + coeff·INT del lanzador` (× poder de curación pasivo).
+
+Warrior: **Hendidura** (base 5 +0.8·str +4/rango, radius 2.2 self, 8 mp, 5 s) · **Grito de guerra** (base 2 +0.5·str +3/rango + 1.5 s stun, radius 3, 12 mp, 10 s) · **Torbellino** (base 15 +1.1·str +11/rango, radius 2.5, 20 mp, 12 s) · **Cólera titánica** ULTIMATE (base 45 +1.75·str +27/rango + 1 s stun, radius 3.5, 28 mp, 20 s, unlock 12) — all kind:"self", todas con 50% del arma.
+Hunter: **Disparo perforante** (base 5 +0.9·dex +4/rango, target, 8 mp, 4 s) · **Ráfaga** (base 3 +0.6·dex +4/rango, radius 2.5 point, 14 mp, 9 s) · **Lluvia de flechas** (base 16 +1.25·dex +12/rango, radius 3 point, 22 mp, 14 s) — todas con 50% del arco.
+Mage: **Descarga ígnea** (base 6 +1.0·int +4/rango, target, 7 mp, 3 s) · **Nova de escarcha** (base 4 +0.8·int +4/rango + 50% slow 3 s, radius 3 self, 14 mp, 10 s) · **Meteoro** (base 19 +1.7·int +15/rango, radius 3 point, 24 mp, 15 s) — hechizos puros, sin parte de arma.
+Cleric: **Oración** (cura 20 +1.2·int +8/rango a ti y al aliado más herido a ≤12, 10 mp, 6 s) · **Himno sagrado** (cura 15 +1.2·int +7/rango a grupo en radio 5, 14 mp, 10 s, unlock 4) · **Círculo sagrado** (cura 20 +1.5·int +9/rango **y** daño 10 +0.9·int +8/rango en radio 4, 20 mp, 14 s, unlock 8) · **Juicio de Zeus** ULTIMATE (daño 39 +1.9·int +24/rango, radio 3.6 self, 26 mp, 18 s, unlock 12).
+
+**Árboles**: 1 punto de habilidad por nivel (`abilityPts`), nodos de rango 1..5 (1 punto por rango), tiers por puntos gastados 0/5/12. Cada clase tiene 9–12 nodos: sus activos (la habilidad 1 es lanzable sin nodo; su nodo solo sube el daño) + pasivos por rango — guerrero: vida, armadura, daño de habilidades, crítico, -cd, fuerza; cazador: destreza, armadura, crítico, daño, velocidad, vida; mago: int, maná, daño, regen maná, crítico, -cd; clérigo: vida/maná, armadura, crítico, poder de curación, regen, -cd, radio fuente, radio curación grupal.
 
 ## Items & shops
 
-- Weapon bases: sword/axe (melee), bow (ranged), staff (spell) — tiers 1–4, level req 1/5/9/13. Armor/helm/ring tiers 1–4 (armor value; ring = mods only).
-- Rarity roll on monster drops: common 70% / magic 25% (1–2 mods) / rare 5% (3–4 mods). Mod pool: `str,dex,int,hp,mp,arm,dmgp,crit`, magnitude scales with tier. Magic = "<Prefix> <Base>", rare gets an epic generated name. Drop chance ~35% per kill + gold (auto-granted to killer); boss always drops 2 rares. Loot despawns 60 s.
+- Weapon bases: sword/axe (melee), bow (ranged), staff (spell) — tiers 1–5, level req 1/5/9/13/17 (`TIER_LVL = [1,5,9,13,17,21]`). Armor/helm/ring tiers 1–5 (armor value; ring = mods only). T5: Espada de Cronos / Hacha del Tártaro / Arco solar de Apolo / Bastón del Éter / Coraza del Tártaro / Yelmo de la Hidra / Sello de Cronos.
+- Rarity roll on monster drops: common 70% / magic 25% (1–2 mods) / rare 5% (3–4 mods). Mod pool: `str,dex,int,hp,mp,arm,dmgp,crit`, magnitude scales with tier (t5 incluido). Magic = "<Prefix> <Base>", rare gets an epic generated name. Drop chance ~35% per kill + gold (auto-granted to killer); drop tier por nivel del bicho: ≥21→t5, ≥13→t4, ≥9→t3, ≥5→t2. Polifemo 2 rares t4, Asterión 3 rares t4, Hidra 3 rares **t5**. Loot despawns 60 s.
 - Potions: HP/MP small (t1) & large (t3), stack to 10, `use` heals 40%/70% (instant), 3 s shared potion cooldown.
 - Kora (merchant): potions (infinite) + a few t1–2 rings/magic items. Bront (smith): weapons/armor t1–3, restocked every 5 min with fresh rolls. Buy at `price = val`; sell anywhere near a merchant at `floor(val/4)`.
 

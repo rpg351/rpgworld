@@ -1,3 +1,38 @@
+## 2026-07-19 — Árboles de rango para todas las clases, daño plano, Pantano de la Hidra
+
+- **Nuevo modelo de daño de habilidades (plano)**: se abandonó el % del daño del arma.
+  Ahora `daño = base + porRango·(rango−1) + coef·stat primario` (guerrero=FUE,
+  cazador=DES, mago/clérigo=INT); las habilidades con arma (guerrero/cazador) suman
+  además el 50% del daño rodado del arma; los hechizos puros no. Crítico, armadura y
+  el mod `dmgp%` del equipo funcionan igual que antes. Las curas del clérigo también
+  pasan a valores planos que escalan con INT y el rango. Valores de rango 1 ajustados
+  para igualar la salida del modelo anterior al nivel de desbloqueo (tabla en data.ts).
+- **Árboles de habilidades con rangos para las 4 clases**: nodos de rango 1..5
+  (1 punto por rango, 1 punto por subida de nivel), tiers desbloqueados por puntos
+  TOTALES gastados (tier 1: 0, tier 2: 5, tier 3: 12). Los nodos activos desbloquean
+  su habilidad en rango 1 (la habilidad 1 de cada clase siempre está disponible) y
+  suben su daño/curación por rango; los pasivos dan bonos por rango (vida, armadura,
+  crítico, daño, velocidad, regeneración, -enfriamiento...). El árbol del clérigo se
+  reescribió a este modelo conservando sus temas; los clérigos existentes migran sus
+  habilidades a rango 1 y reciben reembolso por los nodos eliminados. TODAS las
+  clases reciben puntos retroactivos (1 por nivel ya ganado); nivel/oro/inventario/
+  posición intactos. Panel H renovado: pips de rango, insignia Activa/Pasiva y botón
+  de mejora por nodo; la barra de habilidades marca con "H" las que faltan por asignar.
+- **El mundo crece a 224×224 — Pantano de la Hidra (nivel 21-25)**: nueva frontera al
+  este cruzando dos vados sobre la vieja orilla (la vía principal y el ramal del
+  laberinto). Hombres lagarto (21-23) y fuegos fatuos (23-25), y en lo hondo la jefa
+  **Hidra de Lerna** (nivel 25, ~1.5x la vida de Asterión, 3 raros de tier 5).
+  Equipo de **tier 5** (nivel 17+): Espada de Cronos, Hacha del Tártaro, Arco solar
+  de Apolo, Bastón del Éter, Coraza del Tártaro, Yelmo de la Hidra y Sello de Cronos.
+  Nuevo portal "Pantano de la Hidra" al visitarlo (o retroactivo a nivel 21+).
+  El mapa clásico 160×160 no cambia ni una casilla (mismo SEED y orden de generación).
+- **Monstruos mucho más repartidos**: separación mínima entre puntos de aparición
+  2 → 6 casillas, y nunca a menos de 2 casillas de un camino — viajar por los caminos
+  vuelve a ser seguro. Cantidades por zona reajustadas para caber con el nuevo espaciado
+  (~113 puntos en total, +30 en el pantano).
+- Cache bust `?v=20260814`.
+
+
 ## 2026-07-19 — Ayuda completa: cómo funciona el juego + controles faltantes
 
 - **Panel de Ayuda (menú Esc) reescrito**: nueva sección "Cómo funciona" con 4 párrafos que
