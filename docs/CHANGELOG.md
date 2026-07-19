@@ -1,3 +1,20 @@
+## 2026-07-19 — Ayuda completa: cómo funciona el juego + controles faltantes
+
+- **Panel de Ayuda (menú Esc) reescrito**: nueva sección "Cómo funciona" con 4 párrafos que
+  explican el bucle del juego (elegir clase, subir de nivel, árbol de habilidades desde
+  nivel 4), los NPCs del pueblo (Anciano/misiones, herrero-Circe/tienda, piedra de
+  tránsito/portales, tablón de peticiones), muerte/revivir (30s automático o botón
+  "Resucitar", santuario junto a la fuente) y grupos (invitar con clic, "Seguir" al líder,
+  XP de caza compartida).
+- **Controles que faltaban en la ayuda**: clic en otro jugador (invitar a grupo), botón
+  "Seguir" del panel de grupo, clic en un NPC (hablar/comprar/portal/tablón), clic en la
+  barra de XP (activar/desactivar ataque automático), arrastrar objeto fuera del inventario
+  (tirarlo), clic en objeto con la tienda abierta + botones de venta masiva por rareza,
+  joystick táctil en móvil. Ahora organizados en secciones: Movimiento, Combate y objetos,
+  Paneles, Pueblo y grupo.
+- Cache bust `?v=20260813`.
+
+
 ## 2026-07-19 — Afinación científica (C=256/512 Hz) en toda la audio
 
 - **Audio — afinación "scientific pitch"**: se reemplazó A432 por el estándar de "afinación

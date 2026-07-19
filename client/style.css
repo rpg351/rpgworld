@@ -175,6 +175,11 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--ink);
 .menu-tab-body.hidden{display:none}
 .menu-help-row{font-size:12px;color:var(--ink);margin:6px 0;line-height:1.4}
 .menu-help-row b{color:var(--bronze-bright);font-weight:normal}
+.menu-help-h{font:12px Georgia,serif;letter-spacing:1px;text-transform:uppercase;
+  color:var(--bronze-bright);border-bottom:1px solid var(--edge);
+  margin:16px 0 8px;padding-bottom:3px}
+.menu-help-h:first-child{margin-top:0}
+.menu-help-p{font-size:12px;color:var(--ink-dim);line-height:1.5;margin:0 0 8px}
 .menu-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;
   font-size:13px;color:var(--ink);margin:10px 0}
 .menu-opt input[type=range]{width:140px;accent-color:var(--bronze)}

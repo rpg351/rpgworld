@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>La Era de los Titanes — Ideitas</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a140c'/%3E%3Cpath d='M6 8h20v4h-7v14h-6V12H6z' fill='%23c8933b'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=20260811">
+<link rel="stylesheet" href="style.css?v=20260813">
 </head>
 <body>
 
@@ -164,17 +164,37 @@
       <button type="button" class="menu-tab" data-tab="menuOptions"><span data-i18n="menu.options">Opciones</span></button>
     </div>
     <div id="menuHelp" class="menu-tab-body">
+      <div class="menu-help-h" data-i18n="help.h.about">Cómo funciona</div>
+      <p class="menu-help-p" data-i18n="help.about1">Sos un héroe en Helike, un pueblo de la Grecia mítica. Elegís una clase (guerrero, cazador, mago o clérigo) y salís a matar monstruos por el mapa para ganar experiencia, oro y objetos. Cada nivel te da puntos de estadística y, desde el nivel 4, un punto de habilidad para tu árbol de clase.</p>
+      <p class="menu-help-p" data-i18n="help.about2">En el pueblo hay NPCs útiles: el Anciano da misiones, el herrero/Circe compran y venden objetos, la piedra de tránsito te teleporta a otras zonas ya visitadas, y el tablón de peticiones deja que cualquiera escriba ideas para el juego.</p>
+      <p class="menu-help-p" data-i18n="help.about3">Si morís, tu personaje queda caído: revive solo a los 30s, o apretá el botón "Resucitar" para volver antes a Helike. Cerca de la fuente de la plaza (zona santuario) la vida y el maná regeneran mucho más rápido, y no llega daño de fuera.</p>
+      <p class="menu-help-p" data-i18n="help.about4">Podés agruparte con otros jugadores: invitalos haciendo clic en ellos, y usá "Seguir" en el panel de grupo para que tu personaje camine solo detrás del líder. La experiencia de las misiones de caza se comparte entre los miembros cercanos.</p>
+
+      <div class="menu-help-h" data-i18n="help.h.move">Movimiento</div>
       <div class="menu-help-row"><b>WASD / ↑↓←→</b> — <span data-i18n="help.move">Mover al personaje</span></div>
+      <div class="menu-help-row"><b data-i18n="help.joystickKey">Arrastrar en el mapa (móvil)</b> — <span data-i18n="help.joystick">Joystick táctil — aparece bajo el dedo</span></div>
+
+      <div class="menu-help-h" data-i18n="help.h.combat">Combate y objetos</div>
       <div class="menu-help-row"><b data-i18n="help.clickKey">Clic izquierdo</b> — <span data-i18n="help.click">Atacar, hablar, recoger objetos del suelo</span></div>
       <div class="menu-help-row"><b>1–4</b> — <span data-i18n="help.skills">Usar habilidad</span></div>
+      <div class="menu-help-row"><b data-i18n="help.xpbarKey">Clic en la barra de XP</b> — <span data-i18n="help.xpbar">Activar/desactivar ataque automático</span></div>
+      <div class="menu-help-row"><b>Q / E</b> — <span data-i18n="help.potion">Poción de vida / maná</span></div>
+      <div class="menu-help-row"><b data-i18n="help.dragKey">Arrastrar objeto fuera del inventario</b> — <span data-i18n="help.drag">Tirarlo al suelo</span></div>
+      <div class="menu-help-row"><b data-i18n="help.sellKey">Clic en objeto (con la tienda abierta)</b> — <span data-i18n="help.sell">Venderlo — o usá "Vender comunes/mágicos/raros" para vender todo de una rareza</span></div>
+
+      <div class="menu-help-h" data-i18n="help.h.panels">Paneles</div>
       <div class="menu-help-row"><b>I</b> — <span data-i18n="help.inv">Inventario</span></div>
       <div class="menu-help-row"><b>C</b> — <span data-i18n="help.char">Personaje</span></div>
       <div class="menu-help-row"><b>L</b> — <span data-i18n="help.quest">Diario de misiones</span></div>
       <div class="menu-help-row"><b>H</b> — <span data-i18n="help.ability">Árbol de habilidades</span></div>
-      <div class="menu-help-row"><b>Q / E</b> — <span data-i18n="help.potion">Poción de vida / maná</span></div>
+      <div class="menu-help-row"><b>Esc</b> — <span data-i18n="help.menu">Abrir/cerrar este menú, cerrar paneles abiertos</span></div>
+
+      <div class="menu-help-h" data-i18n="help.h.social">Pueblo y grupo</div>
       <div class="menu-help-row"><b>B</b> — <span data-i18n="help.recall">Volver a Helike (recall)</span></div>
       <div class="menu-help-row"><b data-i18n="help.enterKey">Enter</b> — <span data-i18n="help.chat">Escribir en el chat</span></div>
-      <div class="menu-help-row"><b>Esc</b> — <span data-i18n="help.menu">Abrir/cerrar este menú, cerrar paneles abiertos</span></div>
+      <div class="menu-help-row"><b data-i18n="help.playerKey">Clic en otro jugador</b> — <span data-i18n="help.player">Invitarlo a tu grupo</span></div>
+      <div class="menu-help-row"><b data-i18n="help.followKey">"Seguir" (panel de grupo)</b> — <span data-i18n="help.follow">Tu personaje camina solo hacia el líder del grupo</span></div>
+      <div class="menu-help-row"><b data-i18n="help.npcKey">Clic en un NPC</b> — <span data-i18n="help.npc">Hablar, comprar, teleportarte o escribir en el tablón de peticiones, según el NPC</span></div>
     </div>
     <div id="menuOptions" class="menu-tab-body hidden">
       <label class="menu-opt"><span data-i18n="opt.music">Música</span> <input type="range" id="volMusic" min="0" max="100"></label>
@@ -231,7 +251,7 @@ if (!document.getElementById("respawnBtn") && !location.search.includes("v=")) {
   location.replace(location.pathname + "?v=" + Date.now());
 }
 </script>
-<script src="audio.js?v=20260811"></script>
-<script src="game.js?v=20260811"></script>
+<script src="audio.js?v=20260813"></script>
+<script src="game.js?v=20260813"></script>
 </body>
 </html>
