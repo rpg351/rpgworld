@@ -6,12 +6,12 @@ import { dirname } from "node:path";
 import type { ServerWebSocket } from "bun";
 import {
   CLASS_BASE, CLASS_WEAPON, MOB_DEFS, NPC_LINES, POTION_DEFS, QUESTS, QUEST_ORDER,
-  SKILLS, WEAPON_SCALING, freshItemId, makePotion, makeQuestItem, mobStats,
+  SKILLS, TREES, WEAPON_SCALING, freshItemId, makePotion, makeQuestItem, mobStats,
   rollItem, rollRarity,
 } from "./data";
-import type { Item, SkillDef } from "./data";
+import type { AbilityDef, Item, SkillDef } from "./data";
 import {
-  BOSS2_POS, BOSS_POS, FOUNTAIN, NPC_DEFS, PORTAL_WAYPOINTS, TOWN, TOWN_RECT, W, ZONES, ZONE_PORTAL_ID, astar, buildWorld, inRect,
+  BOSS2_POS, BOSS3_POS, BOSS_POS, FOUNTAIN, NPC_DEFS, PORTAL_WAYPOINTS, TOWN, TOWN_RECT, W, ZONES, ZONE_PORTAL_ID, astar, buildWorld, inRect,
 } from "./world";
 
 const PORT = Number(process.env.PORT) || 8792;
@@ -120,7 +120,7 @@ interface StatusHolder {
 interface Player extends StatusHolder {
   id: number; ws: WS | null; name: string; cls: string;
   lvl: number; xp: number; gold: number; pts: number;
-  abilityPts: number; abilities: Set<string>; // cleric ability tree: unspent points + unlocked ability ids
+  abilityPts: number; abilities: Map<string, number>; // class ability tree: unspent points + node ranks (id -> 1..5)
   str: number; dex: number; int: number;
   hp: number; mp: number; x: number; y: number;
   inv: (Item | null)[]; eq: Record<string, Item | null>;
@@ -157,27 +157,29 @@ interface Npc { id: number; kind: string; name: string; x: number; y: number }
 interface Loot { id: number; x: number; y: number; item: Item; exp: number }
 
 // ---------------------------------------------------------------------------
-// Cleric ability tree — passive bonuses, 1 point earned per level-up (see
-// addXp), spent via {t:"ability_alloc", id}. Deliberately scoped to class
-// "cleric" only for now; other classes' trees are a separate future task.
+// Árboles de habilidades por clase (defs en data.ts TREES). Nodos con rango
+// 1..5, 1 punto de habilidad por subida de nivel (ver addXp), gastado vía
+// {t:"ability_alloc", id}. Los activos desbloquean/suben la habilidad skillN;
+// los pasivos dan bonos por rango aplicados en derive()/useSkill()/simTick().
 // ---------------------------------------------------------------------------
-interface AbilityDef { id: string; name: string; desc: string; tier: 1 | 2 | 3 }
-const CLERIC_TREE: AbilityDef[] = [
-  { id: "vital", name: "Bendición Vital", desc: "+5% de vida máxima.", tier: 1 },
-  { id: "reserva", name: "Reserva Sagrada", desc: "+5% de maná máximo.", tier: 1 },
-  { id: "escudo", name: "Escudo de Fe", desc: "+3 de armadura.", tier: 1 },
-  { id: "resistencia", name: "Resistencia Divina", desc: "+3% de probabilidad de crítico.", tier: 1 },
-  { id: "manos", name: "Manos Curativas", desc: "+8% de poder de curación.", tier: 2 },
-  { id: "oracion_rapida", name: "Oración Rápida", desc: "-10% de enfriamiento de habilidades.", tier: 2 },
-  { id: "vigilia", name: "Vigilia", desc: "-15% de enfriamiento de pociones.", tier: 2 },
-  { id: "toque_asclepio", name: "Toque de Asclepio", desc: "+1%/s de regeneración de vida fuera de combate.", tier: 2 },
-  { id: "aura_fuente", name: "Aura de la Fuente", desc: "+2 de radio de regeneración junto a la fuente.", tier: 3 },
-  { id: "comunion", name: "Comunión", desc: "+1 de radio en las curaciones de grupo.", tier: 3 },
-];
-const CLERIC_TREE_BY_ID: Record<string, AbilityDef> = Object.fromEntries(CLERIC_TREE.map((a) => [a.id, a]));
-/** Total abilities already unlocked required before a tier becomes spendable. */
-function tierReq(tier: number): number { return tier === 1 ? 0 : tier === 2 ? 2 : 5; }
-function hasAbility(p: Player, id: string): boolean { return p.cls === "cleric" && p.abilities.has(id); }
+const TREE_BY_ID: Record<string, Record<string, AbilityDef>> = Object.fromEntries(
+  Object.entries(TREES).map(([cls, nodes]) => [cls, Object.fromEntries(nodes.map((a) => [a.id, a]))]),
+);
+/** Total points already SPENT in the tree required before a tier opens: t1=0, t2=5, t3=12. */
+function tierReq(tier: number): number { return tier === 1 ? 0 : tier === 2 ? 5 : 12; }
+/** Node rank (0 = not allocated). Ids are unique per class, so no cls check needed. */
+function abilityRank(p: Player, id: string): number { return p.abilities.get(id) ?? 0; }
+function spentPoints(p: Player): number {
+  let s = 0;
+  for (const r of p.abilities.values()) s += r;
+  return s;
+}
+/** Cooldown multiplier from the class cd-reduction passives (floored at 50%). */
+function cdMult(p: Player): number {
+  return Math.max(0.5, 1
+    - 0.03 * (abilityRank(p, "w_celeridad") + abilityRank(p, "m_celeridad"))
+    - 0.02 * abilityRank(p, "oracion_rapida"));
+}
 
 let nextEntId = 1;
 const players = new Map<string, Player>(); // online players by account name
@@ -194,7 +196,7 @@ for (const s of world.spawns) {
   const st = mobStats(s.kind, s.lvl);
   mobs.push({
     id: nextEntId++, kind: s.kind, lvl: s.lvl,
-    name: s.kind === "cyclops" ? "Polifemo" : s.kind === "minotaur" ? "Asterión" : undefined,
+    name: s.kind === "cyclops" ? "Polifemo" : s.kind === "minotaur" ? "Asterión" : s.kind === "hydra" ? "Hidra de Lerna" : undefined,
     x: s.x, y: s.y, hp: st.mhp, mhp: st.mhp, lo: st.lo, hi: st.hi, arm: st.arm,
     xp: st.xp, gold: st.gold, spawn: { x: s.x, y: s.y },
     state: "idle", target: null, nextAtk: 0, nextScan: 0, slamAt: 0,
@@ -247,7 +249,7 @@ function serialize(p: Player): string {
     x: p.x, y: p.y, inv: p.inv, eq: p.eq, quests: p.quests,
     partyId: p.partyId,
     visitedZones: p.visitedZones,
-    abilityPts: p.abilityPts, abilities: [...p.abilities],
+    abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities),
   });
 }
 
@@ -303,6 +305,7 @@ function inTown(x: number, y: number): boolean {
 interface Derived {
   str: number; dex: number; int: number; arm: number;
   mhp: number; mmp: number; lo: number; hi: number; crit: number;
+  dmgp: number; spd: number;
 }
 
 function derive(p: Player): Derived {
@@ -318,23 +321,28 @@ function derive(p: Player): Derived {
       hpB += it.mods.hp || 0; mpB += it.mods.mp || 0;
     }
   }
+  // Pasivos del árbol (por rango; ids únicos por clase, ranks 0 si no es tu clase).
+  str += abilityRank(p, "w_fuerza");
+  dex += abilityRank(p, "h_dex");
+  int_ += abilityRank(p, "m_int");
+  arm += 2 * (abilityRank(p, "w_piel") + abilityRank(p, "h_evasion") + abilityRank(p, "escudo"));
+  crit += abilityRank(p, "w_crit") + abilityRank(p, "h_crit") + abilityRank(p, "m_crit") + abilityRank(p, "resistencia");
+  hpB += 8 * (abilityRank(p, "w_vigor") + abilityRank(p, "h_aliento")) + 6 * abilityRank(p, "vital");
+  mpB += 6 * abilityRank(p, "m_mana") + 4 * abilityRank(p, "vital");
   const w = p.eq.weapon;
   const [lo0, hi0] = w?.dmg ?? [1, 3];
   const [stat, mult] = WEAPON_SCALING[w?.icon ?? "sword"] ?? ["str", 0.5];
   const sv = stat === "str" ? str : stat === "dex" ? dex : int_;
   const bonus = sv * mult;
   const dm = 1 + dmgp / 100;
-  if (hasAbility(p, "escudo")) arm += 3;
-  if (hasAbility(p, "resistencia")) crit += 3;
-  let mhp = 40 + 12 * p.lvl + 3 * str + hpB;
-  let mmp = 20 + 4 * p.lvl + 3 * int_ + mpB;
-  if (hasAbility(p, "vital")) mhp *= 1.05;
-  if (hasAbility(p, "reserva")) mmp *= 1.05;
   return {
     str, dex, int: int_, arm,
-    mhp, mmp,
+    mhp: 40 + 12 * p.lvl + 3 * str + hpB,
+    mmp: 20 + 4 * p.lvl + 3 * int_ + mpB,
     lo: (lo0 + bonus) * dm, hi: (hi0 + bonus) * dm,
     crit: 5 + 0.15 * dex + crit,
+    dmgp,
+    spd: PLAYER_SPD * (1 + 0.01 * abilityRank(p, "h_veloz")),
   };
 }
 
@@ -357,9 +365,9 @@ function sendYou(p: Player): void {
     str: d.str, dex: d.dex, int: d.int,
     hp: Math.round(p.hp), mhp: d.mhp, mp: Math.round(p.mp), mmp: d.mmp,
     arm: d.arm, dmg: [Math.round(d.lo), Math.round(d.hi)],
-    crit: Math.round(d.crit * 10) / 10, spd: PLAYER_SPD,
+    crit: Math.round(d.crit * 10) / 10, spd: Math.round(d.spd * 100) / 100,
     inv: p.inv, eq: p.eq, quests: p.quests, visitedZones: p.visitedZones,
-    abilityPts: p.abilityPts, abilities: [...p.abilities],
+    abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities),
   });
   p.dirty = true;
 }
@@ -452,12 +460,19 @@ function rollDrops(m: Mob, killer: Player): void {
       dropItem(m.x, m.y, rollItem(slots[Math.floor(Math.random() * slots.length)], 4, "rare"));
     return;
   }
+  if (m.kind === "hydra") {
+    // Swamp boss: 3 tier-5 rares.
+    const slots = ["weapon", "armor", "helm", "ring"];
+    for (let i = 0; i < 3; i++)
+      dropItem(m.x, m.y, rollItem(slots[Math.floor(Math.random() * slots.length)], 5, "rare"));
+    return;
+  }
   // Satyr Horn: 60% while q2 is active and the killer still needs horns.
   const q2 = killer.quests.q2;
   if (m.kind === "satyr" && q2 && !q2.turned && hornCount(killer) < QUESTS.q2.count && Math.random() < 0.6)
     dropItem(m.x, m.y, makeQuestItem("horn"));
   if (Math.random() >= 0.35) return;
-  const tier = m.lvl >= 13 ? 4 : m.lvl >= 9 ? 3 : m.lvl >= 5 ? 2 : 1;
+  const tier = m.lvl >= 21 ? 5 : m.lvl >= 13 ? 4 : m.lvl >= 9 ? 3 : m.lvl >= 5 ? 2 : 1;
   if (Math.random() < 0.25) {
     const key = (m.lvl >= 9 ? ["hp3", "mp3"] : ["hp1", "mp1"])[Math.random() < 0.5 ? 0 : 1];
     dropItem(m.x, m.y, makePotion(key));
@@ -495,7 +510,7 @@ function addXp(p: Player, amount: number): void {
 function mobDie(m: Mob, killer: Player): void {
   m.dead = true;
   m.target = null;
-  m.respawnAt = Date.now() + (m.kind === "cyclops" || m.kind === "minotaur" ? 180000 : 20000);
+  m.respawnAt = Date.now() + (m.kind === "cyclops" || m.kind === "minotaur" || m.kind === "hydra" ? 180000 : 20000);
   // XP compartida: miembros del grupo vivos y conectados a ≤PARTY_XP_RANGE casillas
   // se reparten la XP con un bono del 15% por miembro extra. Oro solo al que mata.
   const sharers = killer.party
@@ -530,6 +545,7 @@ function mobDie(m: Mob, killer: Player): void {
     for (const q of sharers) unlockPortal(q, "asfodelos", true);
   }
   if (m.kind === "minotaur") sysChat(`¡${killer.name} ha derrotado a Asterión en el laberinto de los Asfódelos!`);
+  if (m.kind === "hydra") sysChat(`¡${killer.name} ha decapitado a la Hidra de Lerna en lo hondo del pantano!`);
 }
 
 function playerDie(p: Player): void {
@@ -909,11 +925,10 @@ function mitigate(raw: number, arm: number): number {
   return Math.max(1, Math.round(raw * (1 - mit)));
 }
 
-/** Player damages a mob (basic attack or skill at pct of weapon damage). */
-function playerHit(p: Player, m: Mob, pct: number): void {
+/** Player damages a mob. `raw` = pre-rolled damage before crit/armor (dmgp% already included). */
+function playerHit(p: Player, m: Mob, raw: number): void {
   if (m.dead) return;
   const d = derive(p);
-  let raw = (d.lo + Math.random() * (d.hi - d.lo)) * pct;
   const crit = Math.random() * 100 < d.crit;
   if (crit) raw *= 1.6;
   const dmg = mitigate(raw, m.arm);
@@ -974,9 +989,16 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
   const def = SKILLS[p.cls]?.find((s) => s.n === n);
   if (!def) return;
   const now = Date.now();
+  // Nodo activo del árbol: rango >= 1 desbloquea la habilidad (n=1 siempre
+  // disponible como habilidad básica); los rangos 2-5 suben daño/curación.
+  const node = TREES[p.cls]?.find((a) => a.kind === "active" && a.skillN === n) ?? null;
+  const rank = node ? abilityRank(p, node.id) : 0;
+  if (n !== 1 && rank < 1) return toast(p, "Asigna un punto a esta habilidad en tu árbol (tecla H)");
   if (p.lvl < def.unlock) return toast(p, `Se desbloquea al nivel ${def.unlock}`);
   if (now < p.skillCds[n]) return toast(p, `${def.name} está en enfriamiento`);
   if (p.mp < def.cost) return toast(p, "No tienes suficiente maná");
+  const effRank = Math.max(1, rank);
+  const d = derive(p);
 
   const hits: Mob[] = [];
   let fxMsg: Record<string, unknown> | null = null;
@@ -995,7 +1017,7 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
     if (def.kind === "point" && dist(p.x, p.y, cx, cy) > CAST_RANGE + 0.5) return toast(p, "Fuera de alcance");
     const r = def.radius ?? 2;
     // Pure support heals skip the mob sweep; damaging self/point skills still hit.
-    if (def.pct > 0) {
+    if (def.base > 0) {
       for (const m of mobs)
         if (!m.dead && dist(m.x, m.y, cx, cy) <= r) hits.push(m);
     }
@@ -1004,20 +1026,20 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
   }
 
   p.mp -= def.cost;
-  p.skillCds[n] = now + def.cd * (hasAbility(p, "oracion_rapida") ? 0.9 : 1);
-  if (def.pct > 0 || hits.length) p.combatUntil = now + COMBAT_MS;
+  p.skillCds[n] = now + def.cd * cdMult(p);
+  if (def.base > 0 || hits.length) p.combatUntil = now + COMBAT_MS;
   if (fxMsg) bcastAt(p.x, p.y, fxMsg);
 
-  // Healing (cleric Oración / Círculo sagrado): always self, then optional party modes.
-  if (def.heal && def.heal > 0) {
+  // Healing (cleric): flat amount from the CASTER's int + node rank, boosted
+  // by the Manos Curativas passive; always self, then optional party modes.
+  if (def.heal) {
+    const amount = (def.heal.base + def.heal.perRank * (effRank - 1) + def.heal.coeff * d.int)
+      * (1 + 0.03 * abilityRank(p, "manos"));
     const applyHeal = (pl: Player) => {
       if (pl.dead || !pl.ws) return;
-      const d = derive(pl);
+      const dm = derive(pl);
       const before = pl.hp;
-      const amount = (def.healMissing
-        ? Math.max(0, d.mhp - pl.hp) * def.heal!
-        : d.mhp * def.heal!) * (hasAbility(p, "manos") ? 1.08 : 1);
-      pl.hp = Math.min(d.mhp, pl.hp + amount);
+      pl.hp = Math.min(dm.mhp, pl.hp + amount);
       if (pl.hp > before) {
         bcastAt(pl.x, pl.y, { t: "fx", k: "heal", i: pl.id });
         sendYou(pl);
@@ -1025,7 +1047,7 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
     };
     applyHeal(p);
     if (p.party) {
-      const r = (def.radius ?? 4) + (hasAbility(p, "comunion") ? 1 : 0);
+      const r = (def.radius ?? 4) + 0.3 * abilityRank(p, "comunion");
       if (def.healMostHurt) {
         // Oración: also heal the single most damaged living ally in range.
         let best: Player | null = null;
@@ -1050,10 +1072,21 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
     }
   }
 
+  // Daño plano: base + perRank·(rango−1) + coeff·stat primario (+ 50% del
+  // daño rodado del arma en habilidades con arma) + pasivo de daño de
+  // habilidades; luego dmgp% del equipo y el pipeline crítico/armadura de siempre.
+  const stat = p.cls === "warrior" ? d.str : p.cls === "hunter" ? d.dex : d.int;
+  const flatPassive = 2 * (abilityRank(p, "w_filo") + abilityRank(p, "h_punta") + abilityRank(p, "m_poder"));
+  const [wLo, wHi] = p.eq.weapon?.dmg ?? [1, 3];
   for (const m of hits) {
     if (def.stun) m.stunUntil = Math.max(m.stunUntil, now + def.stun);
     if (def.slow) applySlow(m, def.slow.pct, def.slow.ms);
-    if (def.pct > 0) playerHit(p, m, def.pct);
+    if (def.base > 0) {
+      const weaponRoll = (def.weaponShare ?? 0) * (wLo + Math.random() * (wHi - wLo));
+      const raw = (def.base + def.perRank * (effRank - 1) + def.coeff * stat + weaponRoll + flatPassive)
+        * (1 + d.dmgp / 100);
+      playerHit(p, m, raw);
+    }
   }
   sendYou(p);
 }
@@ -1134,6 +1167,7 @@ function retroUnlockPortals(p: Player): void {
   if (p.lvl >= 11) unlockPortal(p, "gorgona", true);
   if (p.lvl >= 15 || p.quests.q6?.done || p.quests.q6?.turned) unlockPortal(p, "ciclope", true);
   if (p.quests.q6?.done || p.quests.q6?.turned || p.quests.q7) unlockPortal(p, "asfodelos", true);
+  if (p.lvl >= 21) unlockPortal(p, "hidra", true);
 }
 
 function unlockPortal(p: Player, id: string, silent = false): void {
@@ -1210,7 +1244,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
   const p: Player = {
     id: nextEntId++, ws, name, cls,
     lvl: 1, xp: 0, gold: 25, pts: 0,
-    abilityPts: 0, abilities: new Set<string>(),
+    abilityPts: 0, abilities: new Map<string, number>(),
     str: base.str, dex: base.dex, int: base.int,
     hp: 0, mp: 0,
     x: TOWN.x + 0.5 + (Math.random() - 0.5) * 2, y: TOWN.y + 3.5,
@@ -1238,8 +1272,8 @@ function sanitizeItem(v: unknown): Item | null {
   const it: Item = {
     id: freshItemId(), base: o.base, name: String(o.name).slice(0, 48),
     slot: String(o.slot), icon: typeof o.icon === "string" ? o.icon : "sword",
-    tier: clampInt(o.tier, 1, 4, 1), rarity: typeof o.rarity === "string" ? o.rarity : "common",
-    lvl: clampInt(o.lvl, 1, 13, 1), val: clampInt(o.val, 0, 100000, 0),
+    tier: clampInt(o.tier, 1, 5, 1), rarity: typeof o.rarity === "string" ? o.rarity : "common",
+    lvl: clampInt(o.lvl, 1, 21, 1), val: clampInt(o.val, 0, 100000, 0),
   };
   if (Array.isArray(o.dmg) && o.dmg.length === 2)
     it.dmg = [clampInt(o.dmg[0], 1, 999, 1), clampInt(o.dmg[1], 1, 999, 3)];
@@ -1266,13 +1300,28 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
     p.xp = clampInt(d.xp, 0, 10000000, 0);
     p.gold = clampInt(d.gold, 0, 100000000, 0);
     p.pts = clampInt(d.pts, 0, 3 * LEVEL_CAP, 0);
-    // Migration: legacy blobs (pre-ability-tree) have no abilityPts field —
-    // backfill retroactively (1 per level already earned) so existing
-    // clerics aren't left with an empty tree. Reset here means allocation
-    // only; p.lvl/xp/gold/inventory above are untouched.
-    p.abilityPts = clampInt(d.abilityPts ?? (cls === "cleric" ? p.lvl - 1 : 0), 0, LEVEL_CAP, 0);
-    if (Array.isArray(d.abilities))
-      for (const id of d.abilities) if (typeof id === "string" && CLERIC_TREE_BY_ID[id]) p.abilities.add(id);
+    // Migración: blobs antiguos (pre-árbol) no traen abilityPts — se rellenan
+    // retroactivamente para TODAS las clases (1 por nivel ya ganado). Los
+    // `abilities` legados de clérigo eran un array de ids: cada id que siga
+    // existiendo en el árbol nuevo pasa a rango 1; los eliminados devuelven
+    // su punto. El formato nuevo es un objeto {id: rango}. Nivel/xp/oro/
+    // inventario/posición no se tocan.
+    p.abilityPts = clampInt(d.abilityPts ?? (p.lvl - 1), 0, LEVEL_CAP, 0);
+    const byId = TREE_BY_ID[cls] ?? {};
+    if (Array.isArray(d.abilities)) {
+      for (const id of d.abilities) {
+        if (typeof id !== "string") continue;
+        if (byId[id]) p.abilities.set(id, 1);
+        else p.abilityPts = Math.min(LEVEL_CAP, p.abilityPts + 1); // nodo eliminado: reembolso
+      }
+    } else if (d.abilities && typeof d.abilities === "object") {
+      for (const [id, rv] of Object.entries(d.abilities as Record<string, unknown>)) {
+        const r = clampInt(rv, 0, 5, 0);
+        if (r < 1) continue;
+        if (byId[id]) p.abilities.set(id, Math.min(r, byId[id].max));
+        else p.abilityPts = Math.min(LEVEL_CAP, p.abilityPts + r); // nodo eliminado: reembolso
+      }
+    }
     const base = CLASS_BASE[cls];
     p.str = clampInt(d.str, base.str, 200, base.str);
     p.dex = clampInt(d.dex, base.dex, 200, base.dex);
@@ -1379,7 +1428,7 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
     send(ws, {
       t: "welcome", id: player.id, name: player.name, cls: player.cls,
       skills: SKILLS[player.cls].map((s) => ({ n: s.n, name: s.name, desc: s.desc, cost: s.cost, cd: s.cd, unlock: s.unlock, kind: s.kind })),
-      abilityTree: player.cls === "cleric" ? CLERIC_TREE : [],
+      abilityTree: TREES[player.cls] ?? [],
     });
     ws.send(MAP_MSG);
     sendYou(player);
@@ -1585,14 +1634,15 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "ability_alloc": {
       if (p.dead) return;
-      if (p.cls !== "cleric") return toast(p, "Tu clase aún no tiene árbol de habilidades");
       const id = typeof msg.id === "string" ? msg.id : "";
-      const def = CLERIC_TREE_BY_ID[id];
+      const def = TREE_BY_ID[p.cls]?.[id];
       if (!def) return;
-      if (p.abilities.has(id)) return toast(p, "Ya tienes esa habilidad");
+      const cur = abilityRank(p, id);
+      if (cur >= def.max) return toast(p, "Ese nodo ya está al rango máximo");
       if (p.abilityPts < 1) return toast(p, "No tienes puntos de habilidad");
-      if (p.abilities.size < tierReq(def.tier)) return toast(p, "Necesitas desbloquear más habilidades antes");
-      p.abilities.add(id);
+      if (spentPoints(p) < tierReq(def.tier))
+        return toast(p, `Necesitas ${tierReq(def.tier)} puntos gastados en el árbol`);
+      p.abilities.set(id, cur + 1);
       p.abilityPts -= 1;
       sendYou(p);
       break;
@@ -1712,7 +1762,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const d = derive(p);
       if (def.pool === "hp") p.hp = Math.min(d.mhp, p.hp + d.mhp * def.heal);
       else p.mp = Math.min(d.mmp, p.mp + d.mmp * def.heal);
-      p.potCdUntil = now + POTION_CD * (hasAbility(p, "vigilia") ? 0.85 : 1);
+      p.potCdUntil = now + POTION_CD;
       it.qty = (it.qty ?? 1) - 1;
       if (it.qty <= 0) p.inv[slot] = null;
       bcastAt(p.x, p.y, { t: "fx", k: "heal", i: p.id });
@@ -1975,18 +2025,19 @@ function simTick(): void {
     // damage) both rates jump to a fast blanket regen regardless of combat.
     const d = derive(p);
     const inCombat = now < p.combatUntil;
-    const nearFountain = dist(p.x, p.y, FOUNTAIN.x, FOUNTAIN.y) <= FOUNTAIN_REGEN_R + (hasAbility(p, "aura_fuente") ? 2 : 0);
+    const nearFountain = dist(p.x, p.y, FOUNTAIN.x, FOUNTAIN.y) <= FOUNTAIN_REGEN_R + 0.5 * abilityRank(p, "aura_fuente");
     if (nearFountain) {
       if (p.hp < d.mhp) p.hp = Math.min(d.mhp, p.hp + d.mhp * FOUNTAIN_HP_REGEN * dt);
       if (p.mp < d.mmp) p.mp = Math.min(d.mmp, p.mp + d.mmp * FOUNTAIN_MP_REGEN * dt);
     } else {
-      const hpRegenPct = 0.02 + (hasAbility(p, "toque_asclepio") ? 0.01 : 0);
+      const hpRegenPct = 0.02 + 0.004 * abilityRank(p, "toque_asclepio");
+      const mpRegenPct = (inCombat ? 0.01 : 0.03) + 0.002 * abilityRank(p, "m_regen");
       if (!inCombat && p.hp < d.mhp) p.hp = Math.min(d.mhp, p.hp + d.mhp * hpRegenPct * dt);
-      if (p.mp < d.mmp) p.mp = Math.min(d.mmp, p.mp + d.mmp * (inCombat ? 0.01 : 0.03) * dt);
+      if (p.mp < d.mmp) p.mp = Math.min(d.mmp, p.mp + d.mmp * mpRegenPct * dt);
     }
 
     if (now < p.stunUntil) continue;
-    const speed = PLAYER_SPD * (now < p.slowUntil ? 1 - p.slowPct : 1);
+    const speed = d.spd * (now < p.slowUntil ? 1 - p.slowPct : 1);
 
     // Modo "seguir": si no tengo blanco propio vivo, heredo el del líder de grupo.
     // Self-healing: si el líder ya no está en mi grupo, limpio followId aquí mismo.
@@ -2032,7 +2083,7 @@ function simTick(): void {
               bcastAt(p.x, p.y, { t: "fx", k: "proj", from: { x: r2(p.x), y: r2(p.y) }, to: { x: r2(m.x), y: r2(m.y) }, style: icon === "bow" ? "arrow" : "fire" });
             else
               bcastAt(p.x, p.y, { t: "fx", k: "slash", x: r2(p.x), y: r2(p.y), tx: r2(m.x), ty: r2(m.y) });
-            playerHit(p, m, 1);
+            playerHit(p, m, d.lo + Math.random() * (d.hi - d.lo));
           }
         } else if (!p.vel) {
           if (now >= p.repathAt) {
@@ -2214,7 +2265,7 @@ function simTick(): void {
       m.d = t.x < m.x ? 1 : 0;
       if (now >= m.nextAtk) {
         m.nextAtk = now + def.cd;
-        if ((m.kind === "cyclops" || m.kind === "minotaur") && now >= m.slamAt) {
+        if ((m.kind === "cyclops" || m.kind === "minotaur" || m.kind === "hydra") && now >= m.slamAt) {
           // Boss AoE slam at the target's feet.
           m.slamAt = now + 7000 + Math.random() * 4000;
           const sx = t.x, sy = t.y, r = 3;

@@ -17,41 +17,133 @@ export interface SkillDef {
   desc: string;
   cost: number; // mana
   cd: number; // ms
-  unlock: number; // level
+  unlock: number; // level (floor; active tree node rank >= 1 also required for n > 1)
   kind: "target" | "point" | "self";
-  pct: number; // weapon-damage multiplier (0 = pure support)
+  // Flat damage model: dmg = base + perRank·(rank−1) + coeff·statPrimario
+  // (+ weaponShare·daño rodado del arma para habilidades con arma). base 0 = puro apoyo.
+  base: number;
+  perRank: number;
+  coeff: number;
+  weaponShare?: number; // fraction of the weapon's rolled damage added (warrior/hunter)
   radius?: number; // aoe radius (self: around caster, point: around x,y)
   stun?: number; // ms
   slow?: { pct: number; ms: number };
-  heal?: number; // heal strength: fraction of max HP, or of missing HP if healMissing
-  healMissing?: boolean; // if true, heal restores (missingHP * heal) instead of (mhp * heal)
+  // Flat healing model: cura = base + perRank·(rank−1) + coeff·INT del lanzador.
+  heal?: { base: number; perRank: number; coeff: number };
   healParty?: boolean; // also heal living party mates inside radius
   healMostHurt?: boolean; // also heal the single lowest-HP% living party mate in range
   fx: { k: "proj"; style: string } | { k: "aoe"; style: string } | { k: "heal" };
 }
 
+// ---------------------------------------------------------------------------
+// Tabla de ajuste (rank 1 ≈ salida del antiguo modelo pct al nivel de
+// desbloqueo con equipo típico: pct·(daño medio del arma del tier + stat·mult
+// de WEAPON_SCALING); stat primario estimado = base + 2·(nivel−1)):
+//   guerrero  s1 160% @1  (esp t1 4.5, str 10) ≈ 15 → base 5  + 0.8·str  + 0.5·arma
+//             s2 100% @4  (esp t1 4.5, str 16) ≈ 13 → base 2  + 0.5·str  + 0.5·arma
+//             s3 220% @8  (esp t2 9,   str 24) ≈ 46 → base 15 + 1.1·str  + 0.5·arma
+//             s4 350% @12 (esp t3 15,  str 32) ≈109 → base 45 + 1.75·str + 0.5·arma
+//   cazador   s1 180% @1  (arco t1 4,  dex 10) ≈ 16 → base 5  + 0.9·dex  + 0.5·arma
+//             s2 120% @4  (arco t1 4,  dex 16) ≈ 14 → base 3  + 0.6·dex  + 0.5·arma
+//             s3 250% @8  (arco t2 8,  dex 24) ≈ 50 → base 16 + 1.25·dex + 0.5·arma
+//   mago      s1 170% @1  (bastón t1 3.5, int 10) ≈ 16 → base 6  + 1.0·int
+//             s2 130% @4  (bastón t1 3.5, int 16) ≈ 17 → base 4  + 0.8·int
+//             s3 280% @8  (bastón t2 7,   int 24) ≈ 60 → base 19 + 1.7·int
+//   clérigo   s3 150% @8  (bastón t2 7,   int 23) ≈ 31 → base 10 + 0.9·int
+//             s4 320% @12 (bastón t3 12,  int 31) ≈ 98 → base 39 + 1.9·int
+// perRank ≈ 25% del daño de rank 1 (rank 5 ≈ ×2). Curas: mismas fórmulas con
+// valores ajustados al mhp de la franja de nivel de cada hechizo.
+// ---------------------------------------------------------------------------
 export const SKILLS: Record<string, SkillDef[]> = {
   warrior: [
-    { n: 1, name: "Hendidura", desc: "Barre con tu arma en un arco e inflige 160% de daño.", cost: 8, cd: 5000, unlock: 1, kind: "self", pct: 1.6, radius: 2.2, fx: { k: "aoe", style: "cleave" } },
-    { n: 2, name: "Grito de guerra", desc: "Aterroriza a los enemigos cercanos: 100% de daño y 1.5s de aturdimiento.", cost: 12, cd: 10000, unlock: 4, kind: "self", pct: 1.0, radius: 3, stun: 1500, fx: { k: "aoe", style: "cry" } },
-    { n: 3, name: "Torbellino", desc: "Gira en un círculo mortal e inflige 220% de daño.", cost: 20, cd: 12000, unlock: 8, kind: "self", pct: 2.2, radius: 2.5, fx: { k: "aoe", style: "cleave" } },
-    { n: 4, name: "Cólera titánica", desc: "ULTIMATE: desatas la furia de Ares — 350% de daño en área y 1s de aturdimiento.", cost: 28, cd: 20000, unlock: 12, kind: "self", pct: 3.5, radius: 3.5, stun: 1000, fx: { k: "aoe", style: "titan" } },
+    { n: 1, name: "Hendidura", desc: "Barre con tu arma en un arco. Daño según tu Fuerza, tu arma y el rango del nodo.", cost: 8, cd: 5000, unlock: 1, kind: "self", base: 5, perRank: 4, coeff: 0.8, weaponShare: 0.5, radius: 2.2, fx: { k: "aoe", style: "cleave" } },
+    { n: 2, name: "Grito de guerra", desc: "Aterroriza a los enemigos cercanos: daño en área y 1.5s de aturdimiento.", cost: 12, cd: 10000, unlock: 4, kind: "self", base: 2, perRank: 3, coeff: 0.5, weaponShare: 0.5, radius: 3, stun: 1500, fx: { k: "aoe", style: "cry" } },
+    { n: 3, name: "Torbellino", desc: "Gira en un círculo mortal e inflige un gran daño con tu arma.", cost: 20, cd: 12000, unlock: 8, kind: "self", base: 15, perRank: 11, coeff: 1.1, weaponShare: 0.5, radius: 2.5, fx: { k: "aoe", style: "cleave" } },
+    { n: 4, name: "Cólera titánica", desc: "ULTIMATE: desatas la furia de Ares — daño masivo en área y 1s de aturdimiento.", cost: 28, cd: 20000, unlock: 12, kind: "self", base: 45, perRank: 27, coeff: 1.75, weaponShare: 0.5, radius: 3.5, stun: 1000, fx: { k: "aoe", style: "titan" } },
   ],
   hunter: [
-    { n: 1, name: "Disparo perforante", desc: "Una flecha precisa que inflige 180% de daño.", cost: 8, cd: 4000, unlock: 1, kind: "target", pct: 1.8, fx: { k: "proj", style: "arrow" } },
-    { n: 2, name: "Ráfaga", desc: "Las flechas cubren un área e infligen 120% de daño.", cost: 14, cd: 9000, unlock: 4, kind: "point", pct: 1.2, radius: 2.5, fx: { k: "aoe", style: "volley" } },
-    { n: 3, name: "Lluvia de flechas", desc: "Una tormenta de flechas: 250% de daño en un área amplia.", cost: 22, cd: 14000, unlock: 8, kind: "point", pct: 2.5, radius: 3, fx: { k: "aoe", style: "volley" } },
+    { n: 1, name: "Disparo perforante", desc: "Una flecha precisa. Daño según tu Destreza, tu arco y el rango del nodo.", cost: 8, cd: 4000, unlock: 1, kind: "target", base: 5, perRank: 4, coeff: 0.9, weaponShare: 0.5, fx: { k: "proj", style: "arrow" } },
+    { n: 2, name: "Ráfaga", desc: "Las flechas cubren un área e hieren a todos los enemigos dentro.", cost: 14, cd: 9000, unlock: 4, kind: "point", base: 3, perRank: 4, coeff: 0.6, weaponShare: 0.5, radius: 2.5, fx: { k: "aoe", style: "volley" } },
+    { n: 3, name: "Lluvia de flechas", desc: "Una tormenta de flechas castiga un área amplia.", cost: 22, cd: 14000, unlock: 8, kind: "point", base: 16, perRank: 12, coeff: 1.25, weaponShare: 0.5, radius: 3, fx: { k: "aoe", style: "volley" } },
   ],
   mage: [
-    { n: 1, name: "Descarga ígnea", desc: "Lanza fuego a un objetivo e inflige 170% de daño.", cost: 7, cd: 3000, unlock: 1, kind: "target", pct: 1.7, fx: { k: "proj", style: "fire" } },
-    { n: 2, name: "Nova de escarcha", desc: "Estallido helado: 130% de daño y 50% de lentitud por 3s.", cost: 14, cd: 10000, unlock: 4, kind: "self", pct: 1.3, radius: 3, slow: { pct: 0.5, ms: 3000 }, fx: { k: "aoe", style: "nova" } },
-    { n: 3, name: "Meteoro", desc: "Invoca un meteoro: 280% de daño en un área amplia.", cost: 24, cd: 15000, unlock: 8, kind: "point", pct: 2.8, radius: 3, fx: { k: "aoe", style: "meteor" } },
+    { n: 1, name: "Descarga ígnea", desc: "Lanza fuego a un objetivo. Daño según tu Inteligencia y el rango del nodo.", cost: 7, cd: 3000, unlock: 1, kind: "target", base: 6, perRank: 4, coeff: 1.0, fx: { k: "proj", style: "fire" } },
+    { n: 2, name: "Nova de escarcha", desc: "Estallido helado: daño en área y 50% de lentitud por 3s.", cost: 14, cd: 10000, unlock: 4, kind: "self", base: 4, perRank: 4, coeff: 0.8, radius: 3, slow: { pct: 0.5, ms: 3000 }, fx: { k: "aoe", style: "nova" } },
+    { n: 3, name: "Meteoro", desc: "Invoca un meteoro que arrasa un área amplia.", cost: 24, cd: 15000, unlock: 8, kind: "point", base: 19, perRank: 15, coeff: 1.7, radius: 3, fx: { k: "aoe", style: "meteor" } },
   ],
   cleric: [
-    { n: 1, name: "Oración", desc: "Invocas la luz de Asclepio: curas el 70% de la vida perdida a ti y al compañero de grupo más herido cercano.", cost: 10, cd: 6000, unlock: 1, kind: "self", pct: 0, heal: 0.7, healMissing: true, radius: 12, healMostHurt: true, fx: { k: "heal" } },
-    { n: 2, name: "Himno sagrado", desc: "Un himno de Asclepio: curas 30% de vida a ti y a tus compañeros de grupo cercanos.", cost: 14, cd: 10000, unlock: 4, kind: "self", pct: 0, radius: 5, heal: 0.3, healParty: true, fx: { k: "aoe", style: "holy" } },
-    { n: 3, name: "Círculo sagrado", desc: "Bendices el suelo: curas 30% a ti y al grupo cercano e infliges 150% de daño sagrado a los enemigos.", cost: 20, cd: 14000, unlock: 8, kind: "self", pct: 1.5, radius: 4, heal: 0.3, healParty: true, fx: { k: "aoe", style: "holy" } },
-    { n: 4, name: "Juicio de Zeus", desc: "ULTIMATE: rayos de Zeus caen a tu alrededor — 320% de daño sagrado a todos los enemigos cercanos (no apunta).", cost: 26, cd: 18000, unlock: 12, kind: "self", pct: 3.2, radius: 3.6, fx: { k: "aoe", style: "judgment" } },
+    { n: 1, name: "Oración", desc: "Invocas la luz de Asclepio: te curas a ti y al compañero de grupo más herido cercano. La cura crece con tu Inteligencia y el rango.", cost: 10, cd: 6000, unlock: 1, kind: "self", base: 0, perRank: 0, coeff: 0, heal: { base: 20, perRank: 8, coeff: 1.2 }, radius: 12, healMostHurt: true, fx: { k: "heal" } },
+    { n: 2, name: "Himno sagrado", desc: "Un himno de Asclepio: curas a ti y a tus compañeros de grupo cercanos.", cost: 14, cd: 10000, unlock: 4, kind: "self", base: 0, perRank: 0, coeff: 0, radius: 5, heal: { base: 15, perRank: 7, coeff: 1.2 }, healParty: true, fx: { k: "aoe", style: "holy" } },
+    { n: 3, name: "Círculo sagrado", desc: "Bendices el suelo: curas al grupo cercano e infliges daño sagrado a los enemigos.", cost: 20, cd: 14000, unlock: 8, kind: "self", base: 10, perRank: 8, coeff: 0.9, radius: 4, heal: { base: 20, perRank: 9, coeff: 1.5 }, healParty: true, fx: { k: "aoe", style: "holy" } },
+    { n: 4, name: "Juicio de Zeus", desc: "ULTIMATE: rayos de Zeus caen a tu alrededor — daño sagrado a todos los enemigos cercanos (no apunta).", cost: 26, cd: 18000, unlock: 12, kind: "self", base: 39, perRank: 24, coeff: 1.9, radius: 3.6, fx: { k: "aoe", style: "judgment" } },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Árboles de habilidades por clase — nodos con rango 1..5 (1 punto por rango).
+// Activos: rango 1 desbloquea la habilidad (skillN), rangos 2-5 suben su
+// daño/curación (perRank de SKILLS). Pasivos: bono de stats por rango
+// (aplicado server-side). Puertas por puntos TOTALES gastados: t1=0, t2=5, t3=12.
+// ---------------------------------------------------------------------------
+export interface AbilityDef {
+  id: string;
+  name: string;
+  desc: string;
+  tier: 1 | 2 | 3;
+  max: 5;
+  kind: "active" | "passive";
+  skillN?: number; // active nodes: SKILLS[cls] entry this node unlocks/ranks
+  perRankDesc: string;
+}
+
+export const TREES: Record<string, AbilityDef[]> = {
+  warrior: [
+    { id: "hendidura", name: "Hendidura", desc: "Barrido en arco con tu arma. Rango 1 la desbloquea (siempre disponible).", tier: 1, max: 5, kind: "active", skillN: 1, perRankDesc: "+4 de daño por rango" },
+    { id: "grito", name: "Grito de guerra", desc: "Daño en área y aturdimiento de 1.5s.", tier: 1, max: 5, kind: "active", skillN: 2, perRankDesc: "+3 de daño por rango" },
+    { id: "w_vigor", name: "Vigor Espartano", desc: "Entrenamiento brutal del cuerpo.", tier: 1, max: 5, kind: "passive", perRankDesc: "+8 de vida máxima por rango" },
+    { id: "w_piel", name: "Piel de Bronce", desc: "Tu piel se endurece como el escudo de Aquiles.", tier: 1, max: 5, kind: "passive", perRankDesc: "+2 de armadura por rango" },
+    { id: "torbellino", name: "Torbellino", desc: "Giro mortal que golpea todo a tu alrededor.", tier: 2, max: 5, kind: "active", skillN: 3, perRankDesc: "+11 de daño por rango" },
+    { id: "w_filo", name: "Filo Implacable", desc: "Cada golpe de tus habilidades muerde más hondo.", tier: 2, max: 5, kind: "passive", perRankDesc: "+2 de daño de habilidades por rango" },
+    { id: "w_crit", name: "Ojo de Ares", desc: "Detectas el punto débil del enemigo.", tier: 2, max: 5, kind: "passive", perRankDesc: "+1% de crítico por rango" },
+    { id: "colera", name: "Cólera titánica", desc: "ULTIMATE: la furia de Ares desatada.", tier: 3, max: 5, kind: "active", skillN: 4, perRankDesc: "+27 de daño por rango" },
+    { id: "w_celeridad", name: "Ímpetu de Batalla", desc: "Tus habilidades se recuperan antes.", tier: 3, max: 5, kind: "passive", perRankDesc: "-3% de enfriamiento por rango" },
+    { id: "w_fuerza", name: "Sangre de Heracles", desc: "La fuerza de los héroes corre por tus venas.", tier: 3, max: 5, kind: "passive", perRankDesc: "+1 de fuerza por rango" },
+  ],
+  hunter: [
+    { id: "disparo", name: "Disparo perforante", desc: "Flecha precisa a un objetivo. Rango 1 la desbloquea (siempre disponible).", tier: 1, max: 5, kind: "active", skillN: 1, perRankDesc: "+4 de daño por rango" },
+    { id: "rafaga", name: "Ráfaga", desc: "Lluvia corta de flechas sobre un punto.", tier: 1, max: 5, kind: "active", skillN: 2, perRankDesc: "+4 de daño por rango" },
+    { id: "h_dex", name: "Gracia de Artemisa", desc: "Tus manos se vuelven más rápidas y firmes.", tier: 1, max: 5, kind: "passive", perRankDesc: "+1 de destreza por rango" },
+    { id: "h_evasion", name: "Paso del Ciervo", desc: "Esquivas lo que a otros los mata.", tier: 1, max: 5, kind: "passive", perRankDesc: "+2 de armadura por rango" },
+    { id: "lluvia", name: "Lluvia de flechas", desc: "Tormenta de flechas en un área amplia.", tier: 2, max: 5, kind: "active", skillN: 3, perRankDesc: "+12 de daño por rango" },
+    { id: "h_crit", name: "Tiro Certero", desc: "Apuntas a la garganta, no al torso.", tier: 2, max: 5, kind: "passive", perRankDesc: "+1% de crítico por rango" },
+    { id: "h_punta", name: "Puntas de Hierro", desc: "Forjas puntas que perforan cualquier pellejo.", tier: 2, max: 5, kind: "passive", perRankDesc: "+2 de daño de habilidades por rango" },
+    { id: "h_veloz", name: "Viento del Monte", desc: "Corres como el viento de las cumbres.", tier: 3, max: 5, kind: "passive", perRankDesc: "+1% de velocidad de movimiento por rango" },
+    { id: "h_aliento", name: "Aliento Salvaje", desc: "La vida agreste templa tu cuerpo.", tier: 3, max: 5, kind: "passive", perRankDesc: "+8 de vida máxima por rango" },
+  ],
+  mage: [
+    { id: "descarga", name: "Descarga ígnea", desc: "Proyectil de fuego a un objetivo. Rango 1 la desbloquea (siempre disponible).", tier: 1, max: 5, kind: "active", skillN: 1, perRankDesc: "+4 de daño por rango" },
+    { id: "nova", name: "Nova de escarcha", desc: "Estallido helado que frena a los enemigos.", tier: 1, max: 5, kind: "active", skillN: 2, perRankDesc: "+4 de daño por rango" },
+    { id: "m_int", name: "Mente de Atenea", desc: "Estudias los arcanos con disciplina.", tier: 1, max: 5, kind: "passive", perRankDesc: "+1 de inteligencia por rango" },
+    { id: "m_mana", name: "Pozo del Éter", desc: "Tu reserva de maná se ensancha.", tier: 1, max: 5, kind: "passive", perRankDesc: "+6 de maná máximo por rango" },
+    { id: "meteoro", name: "Meteoro", desc: "Invoca un meteoro devastador.", tier: 2, max: 5, kind: "active", skillN: 3, perRankDesc: "+15 de daño por rango" },
+    { id: "m_poder", name: "Poder Arcano", desc: "Tus hechizos golpean con más fuerza.", tier: 2, max: 5, kind: "passive", perRankDesc: "+2 de daño de hechizos por rango" },
+    { id: "m_regen", name: "Flujo Etéreo", desc: "El maná fluye hacia ti sin cesar.", tier: 2, max: 5, kind: "passive", perRankDesc: "+0.2%/s de regeneración de maná por rango" },
+    { id: "m_crit", name: "Chispa de Hécate", desc: "Tus hechizos estallan con violencia inesperada.", tier: 3, max: 5, kind: "passive", perRankDesc: "+1% de crítico por rango" },
+    { id: "m_celeridad", name: "Tiempo Robado", desc: "Doblas el tiempo a tu favor.", tier: 3, max: 5, kind: "passive", perRankDesc: "-3% de enfriamiento por rango" },
+  ],
+  cleric: [
+    { id: "oracion", name: "Oración", desc: "Cura a ti y al aliado más herido. Rango 1 la desbloquea (siempre disponible).", tier: 1, max: 5, kind: "active", skillN: 1, perRankDesc: "+8 de curación por rango" },
+    { id: "himno", name: "Himno sagrado", desc: "Cura de grupo alrededor tuyo.", tier: 1, max: 5, kind: "active", skillN: 2, perRankDesc: "+7 de curación por rango" },
+    { id: "vital", name: "Bendición Vital", desc: "Asclepio fortalece tu cuerpo y espíritu.", tier: 1, max: 5, kind: "passive", perRankDesc: "+6 de vida y +4 de maná máximos por rango" },
+    { id: "escudo", name: "Escudo de Fe", desc: "Tu fe desvía los golpes.", tier: 1, max: 5, kind: "passive", perRankDesc: "+2 de armadura por rango" },
+    { id: "circulo", name: "Círculo sagrado", desc: "Suelo bendito: cura aliados y quema enemigos.", tier: 2, max: 5, kind: "active", skillN: 3, perRankDesc: "+8 de daño y +9 de curación por rango" },
+    { id: "resistencia", name: "Resistencia Divina", desc: "El favor de los dioses agudiza tus golpes.", tier: 2, max: 5, kind: "passive", perRankDesc: "+1% de crítico por rango" },
+    { id: "manos", name: "Manos Curativas", desc: "Tus curaciones canalizan más luz.", tier: 2, max: 5, kind: "passive", perRankDesc: "+3% de poder de curación por rango" },
+    { id: "toque_asclepio", name: "Toque de Asclepio", desc: "Tu vida se restaura sola fuera de combate.", tier: 2, max: 5, kind: "passive", perRankDesc: "+0.4%/s de regeneración de vida por rango" },
+    { id: "juicio", name: "Juicio de Zeus", desc: "ULTIMATE: rayos divinos a tu alrededor.", tier: 3, max: 5, kind: "active", skillN: 4, perRankDesc: "+24 de daño por rango" },
+    { id: "oracion_rapida", name: "Oración Rápida", desc: "Tus plegarias llegan antes al Olimpo.", tier: 3, max: 5, kind: "passive", perRankDesc: "-2% de enfriamiento por rango" },
+    { id: "aura_fuente", name: "Aura de la Fuente", desc: "La fuente sagrada de Helike te alcanza más lejos.", tier: 3, max: 5, kind: "passive", perRankDesc: "+0.5 de radio de regeneración junto a la fuente por rango" },
+    { id: "comunion", name: "Comunión", desc: "Tu luz abraza a más compañeros.", tier: 3, max: 5, kind: "passive", perRankDesc: "+0.3 de radio en curaciones de grupo por rango" },
   ],
 };
 export interface MobDef {
@@ -75,6 +167,9 @@ export const MOB_DEFS: Record<string, MobDef> = {
   shade: { spd: 4.0, aggro: 7, range: 1.5, cd: 1400, hpM: 1.2, dmgM: 1.15 },
   fury: { spd: 4.2, aggro: 7, range: 6.5, cd: 1700, ranged: "spit", hpM: 1.05, dmgM: 1.2 },
   minotaur: { spd: 4.1, aggro: 11, range: 1.8, cd: 2000, hpM: 1, dmgM: 1 },
+  lizardman: { spd: 4.0, aggro: 7, range: 1.5, cd: 1400, hpM: 1.3, dmgM: 1.25 },
+  wisp: { spd: 4.3, aggro: 7, range: 6.5, cd: 1600, ranged: "spit", hpM: 1.1, dmgM: 1.3 },
+  hydra: { spd: 4.0, aggro: 12, range: 2.0, cd: 1900, hpM: 1, dmgM: 1 },
 };
 
 /** Derived monster combat stats by kind+level. */
@@ -84,6 +179,9 @@ export function mobStats(kind: string, lvl: number) {
     return { mhp: 3200, lo: 26, hi: 38, arm: 40, xp: 900, gold: () => 120 + Math.floor(Math.random() * 80) };
   if (kind === "minotaur")
     return { mhp: 5200, lo: 34, hi: 48, arm: 52, xp: 1600, gold: () => 220 + Math.floor(Math.random() * 120) };
+  if (kind === "hydra")
+    // Jefe del pantano (nivel 25): ~1.5x la vida del minotauro, golpea más fuerte.
+    return { mhp: 7800, lo: 46, hi: 66, arm: 66, xp: 2600, gold: () => 320 + Math.floor(Math.random() * 180) };
   const mhp = Math.round((16 + 13 * lvl) * d.hpM);
   const lo = Math.round((2 + 1.7 * lvl) * d.dmgM);
   return {
@@ -115,7 +213,7 @@ export interface Item {
   qty?: number;
 }
 
-export const TIER_LVL = [1, 5, 9, 13, 17];
+export const TIER_LVL = [1, 5, 9, 13, 17, 21];
 
 interface WeaponBase {
   icon: string;
@@ -124,10 +222,10 @@ interface WeaponBase {
   val: number[];
 }
 export const WEAPON_TYPES: Record<string, WeaponBase> = {
-  sword: { icon: "sword", names: ["Espada de bronce", "Xifos hoplita", "Kopis de acero", "Hoja de titán"], dmg: [[3, 6], [7, 11], [12, 18], [18, 27]], val: [30, 90, 220, 520] },
-  axe: { icon: "axe", names: ["Hacha de mano", "Hacha barbada", "Labrys de guerra", "Labrys olímpica"], dmg: [[2, 8], [6, 14], [10, 22], [15, 32]], val: [30, 90, 220, 520] },
-  bow: { icon: "bow", names: ["Arco corto", "Arco de cazador", "Arco compuesto", "Arco largo de Artemisa"], dmg: [[3, 5], [6, 10], [11, 16], [17, 24]], val: [30, 90, 220, 520] },
-  staff: { icon: "staff", names: ["Bastón de fresno", "Bastón de roble", "Bastón rúnico", "Bastón de las tormentas"], dmg: [[2, 5], [5, 9], [9, 15], [14, 23]], val: [30, 90, 220, 520] },
+  sword: { icon: "sword", names: ["Espada de bronce", "Xifos hoplita", "Kopis de acero", "Hoja de titán", "Espada de Cronos"], dmg: [[3, 6], [7, 11], [12, 18], [18, 27], [25, 37]], val: [30, 90, 220, 520, 1150] },
+  axe: { icon: "axe", names: ["Hacha de mano", "Hacha barbada", "Labrys de guerra", "Labrys olímpica", "Hacha del Tártaro"], dmg: [[2, 8], [6, 14], [10, 22], [15, 32], [21, 44]], val: [30, 90, 220, 520, 1150] },
+  bow: { icon: "bow", names: ["Arco corto", "Arco de cazador", "Arco compuesto", "Arco largo de Artemisa", "Arco solar de Apolo"], dmg: [[3, 5], [6, 10], [11, 16], [17, 24], [23, 33]], val: [30, 90, 220, 520, 1150] },
+  staff: { icon: "staff", names: ["Bastón de fresno", "Bastón de roble", "Bastón rúnico", "Bastón de las tormentas", "Bastón del Éter"], dmg: [[2, 5], [5, 9], [9, 15], [14, 23], [19, 31]], val: [30, 90, 220, 520, 1150] },
 };
 /** Stat scaling per weapon icon: [stat, multiplier]. Unarmed behaves as sword. */
 export const WEAPON_SCALING: Record<string, [string, number]> = {
@@ -138,9 +236,9 @@ export const WEAPON_SCALING: Record<string, [string, number]> = {
 };
 
 export const ARMOR_TYPES: Record<string, { icon: string; names: string[]; arm: number[]; val: number[] }> = {
-  armor: { icon: "armor", names: ["Túnica de lino", "Coraza de cuero", "Coraza de bronce", "Placas de titán"], arm: [5, 12, 22, 34], val: [25, 80, 200, 480] },
-  helm: { icon: "helm", names: ["Gorro de cuero", "Yelmo de bronce", "Yelmo hoplita", "Yelmo corintio"], arm: [3, 8, 14, 22], val: [18, 60, 150, 360] },
-  ring: { icon: "ring", names: ["Anillo de cobre", "Anillo de plata", "Anillo de oro", "Sello del Olimpo"], arm: [0, 0, 0, 0], val: [40, 110, 260, 600] },
+  armor: { icon: "armor", names: ["Túnica de lino", "Coraza de cuero", "Coraza de bronce", "Placas de titán", "Coraza del Tártaro"], arm: [5, 12, 22, 34, 48], val: [25, 80, 200, 480, 1050] },
+  helm: { icon: "helm", names: ["Gorro de cuero", "Yelmo de bronce", "Yelmo hoplita", "Yelmo corintio", "Yelmo de la Hidra"], arm: [3, 8, 14, 22, 32], val: [18, 60, 150, 360, 800] },
+  ring: { icon: "ring", names: ["Anillo de cobre", "Anillo de plata", "Anillo de oro", "Sello del Olimpo", "Sello de Cronos"], arm: [0, 0, 0, 0, 0], val: [40, 110, 260, 600, 1350] },
 };
 
 export const POTION_DEFS: Record<string, { name: string; icon: string; tier: number; heal: number; pool: "hp" | "mp"; val: number }> = {
@@ -210,7 +308,7 @@ export function rollRarity(): string {
  * specific weapon class (sword/axe/bow/staff), otherwise random.
  */
 export function rollItem(slotType: string, tier: number, rarity: string, wtype?: string): Item {
-  tier = Math.max(1, Math.min(4, tier));
+  tier = Math.max(1, Math.min(5, tier));
   const ti = tier - 1;
   let base: string, icon: string, name: string, dmg: [number, number] | undefined, arm: number | undefined, val: number;
   if (slotType === "weapon") {
