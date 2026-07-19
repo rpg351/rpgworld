@@ -1,3 +1,20 @@
+## 2026-07-19 — Auto-revive, marco de objetivo y música renovada
+
+- **Auto-revive (servidor)**: al morir, el jugador revive solo a los 30s (`REVIVE_MS`) sin
+  tocar nada; el botón **Resucitar** sigue funcionando para saltarse la espera. `deadAt` +
+  `reviveAt` viajan en el paquete `{t:"dead"}`, incluido en el reenvío de reconexión.
+- **UI cliente**: overlay de muerte muestra cuenta regresiva ("Revives automáticamente en Ns").
+  Nuevo `#targetFrame` arriba-centro con nombre/nivel/barra de vida del enemigo seleccionado
+  (`S.targetId`), oculto si no hay objetivo válido.
+- **Audio**: se encontró y corrigió `setMuted()` con una línea corrupta (`__omp_shell(...)`)
+  que rompía el toggle de silencio — ahora `this.muted = m`. Se rehicieron 4 pistas que
+  sonaban infantiles (escalas planas / rebote pentatónico rápido) con motivos sincopados,
+  silencios y saltos de octava: Himno de la Fuente, Cacería de Artemisa, Luz de Asclepio,
+  Descanso del Héroe. Se agregaron 6 pistas nuevas (18 en total): Sombra de Circe, Forja de
+  Hefesto, Lamento de las Nereidas, Trueno de Zeus, Umbral del Inframundo, Coro de las Musas.
+  Nombre de la pista actual visible junto al botón 🔊 (`#songLabel`).
+- Cache bust `?v=20260802`.
+
 
 ## 2026-07-19 — Diario de misiones: progreso de kills/colección
 
