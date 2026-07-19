@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>La Era de los Titanes — Ideitas</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a140c'/%3E%3Cpath d='M6 8h20v4h-7v14h-6V12H6z' fill='%23c8933b'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=20260802">
+<link rel="stylesheet" href="style.css?v=20260808">
 </head>
 <body>
 
@@ -14,36 +14,36 @@
 <div id="login" class="screen">
   <div class="login-box">
     <h1 class="title">LA ERA <span class="of">de los Titanes</span></h1>
-    <div class="subtitle">Helike · Grecia mítica</div>
+    <div class="subtitle" data-i18n="login.subtitle">Helike · Grecia mítica</div>
     <div class="meander"></div>
 
     <form id="loginForm" autocomplete="on">
-      <label for="nameInput">Nombre del héroe</label>
+      <label for="nameInput" data-i18n="login.name">Nombre del héroe</label>
       <input id="nameInput" name="username" type="text" maxlength="16" autocomplete="username" required>
 
-      <label for="passInput">Contraseña</label>
+      <label for="passInput" data-i18n="login.pass">Contraseña</label>
       <input id="passInput" name="password" type="password" maxlength="64" autocomplete="current-password" required>
 
       <div id="clsRow" class="cls-row">
         <div class="cls-card sel" data-cls="warrior">
           <canvas width="72" height="88"></canvas>
-          <div class="cls-name">Guerrero</div>
-          <div class="cls-desc">Fuerza y armadura. Combate cuerpo a cuerpo.</div>
+          <div class="cls-name" data-i18n="cls.warrior.name">Guerrero</div>
+          <div class="cls-desc" data-i18n="cls.warrior.desc">Fuerza y armadura. Combate cuerpo a cuerpo.</div>
         </div>
         <div class="cls-card" data-cls="hunter">
           <canvas width="72" height="88"></canvas>
-          <div class="cls-name">Cazador</div>
-          <div class="cls-desc">Destreza y arco. Ataque a distancia.</div>
+          <div class="cls-name" data-i18n="cls.hunter.name">Cazador</div>
+          <div class="cls-desc" data-i18n="cls.hunter.desc">Destreza y arco. Ataque a distancia.</div>
         </div>
         <div class="cls-card" data-cls="mage">
           <canvas width="72" height="88"></canvas>
-          <div class="cls-name">Mago</div>
-          <div class="cls-desc">Inteligencia y hechizos elementales.</div>
+          <div class="cls-name" data-i18n="cls.mage.name">Mago</div>
+          <div class="cls-desc" data-i18n="cls.mage.desc">Inteligencia y hechizos elementales.</div>
         </div>
         <div class="cls-card" data-cls="cleric">
           <canvas width="72" height="88"></canvas>
-          <div class="cls-name">Clérigo</div>
-          <div class="cls-desc">Sanación sagrada y magia divina.</div>
+          <div class="cls-name" data-i18n="cls.cleric.name">Clérigo</div>
+          <div class="cls-desc" data-i18n="cls.cleric.desc">Sanación sagrada y magia divina.</div>
         </div>
       </div>
 
@@ -52,10 +52,10 @@
     </form>
 
     <div class="mode-toggle">
-      <a href="#" id="toLogin" class="mode-link">¿Ya tienes cuenta? Iniciar sesión</a>
-      <a href="#" id="toRegister" class="mode-link hidden">¿No tienes héroe? Crear cuenta</a>
+      <a href="#" id="toLogin" class="mode-link" data-i18n="login.toLogin">¿Ya tienes cuenta? Iniciar sesión</a>
+      <a href="#" id="toRegister" class="mode-link hidden" data-i18n="login.toRegister">¿No tienes héroe? Crear cuenta</a>
     </div>
-    <p class="hint">WASD mover · 1–4 habilidades · I inventario · C atacar · J diario</p>
+    <p class="hint" data-i18n="login.hint">WASD mover · 1–4 habilidades · I inventario · C atacar · J diario</p>
   </div>
 </div>
 
@@ -63,6 +63,8 @@
 <div id="game" class="screen hidden">
   <canvas id="world"></canvas>
   <canvas id="minimap" width="152" height="152"></canvas>
+  <span id="zoneHud"></span>
+  <span id="popHud"></span>
   <div id="zoneBanner"></div>
   <div id="targetFrame" class="hidden">
     <div id="targetName"></div>
@@ -81,7 +83,7 @@
       <div id="hpLabel" class="orb-label"></div>
     </div>
     <div id="hudCenter">
-      <div id="xpBar"><div id="xpFill"></div><div id="lvlNum"></div></div>
+      <div id="xpBar" role="button" tabindex="0" aria-pressed="false"><div id="xpFill"></div><div id="lvlNum"></div></div>
       <div id="skillRow">
         <div class="skill" data-n="1"><canvas width="52" height="52"></canvas><span class="key">1</span><span class="cost"></span><span class="lock"></span></div>
         <div class="skill" data-n="2"><canvas width="52" height="52"></canvas><span class="key">2</span><span class="cost"></span><span class="lock"></span></div>
@@ -89,10 +91,7 @@
         <div class="skill" data-n="4"><canvas width="52" height="52"></canvas><span class="key">4</span><span class="cost"></span><span class="lock"></span></div>
       </div>
       <div id="hudInfo">
-        <span id="zoneHud"></span>
         <span id="goldHud"></span>
-        <span id="popHud"></span>
-        <button id="autoAtkBtn" type="button" aria-pressed="false">⚔ AUTO</button>
         <button id="muteBtn" type="button" title="Silenciar audio">🔇</button>
         <span id="songLabel" title="Pista actual"></span>
       </div>
@@ -104,21 +103,32 @@
   </div>
 
   <div id="invPanel" class="panel hidden">
-    <div class="panel-title">Inventario <span class="panel-x" data-close="invPanel">✕</span></div>
+    <div class="panel-title"><span data-i18n="panel.inv">Inventario</span> <span class="panel-x" data-close="invPanel">✕</span></div>
     <div id="eqGrid"></div>
     <div id="invGrid"></div>
     <div id="invGold"></div>
-    <div id="dropHint">Arrastra un objeto fuera del inventario para tirarlo al suelo.</div>
-    <div id="sellHint" class="hidden">Clic en un objeto para venderlo al mercader.</div>
+    <div id="dropHint" data-i18n="panel.dropHint">Arrastra un objeto fuera del inventario para tirarlo al suelo.</div>
+    <div id="sellHint" class="hidden" data-i18n="panel.sellHint">Clic en un objeto para venderlo al mercader.</div>
+    <div id="sellAllRow" class="hidden sell-all-row">
+      <button type="button" class="btn ghost" id="sellAllCommon" data-i18n="sell.all.common">Vender comunes</button>
+      <button type="button" class="btn ghost" id="sellAllMagic" data-i18n="sell.all.magic">Vender mágicos</button>
+      <button type="button" class="btn ghost" id="sellAllRare" data-i18n="sell.all.rare">Vender raros</button>
+    </div>
   </div>
 
   <div id="charPanel" class="panel hidden">
-    <div class="panel-title">Personaje <span class="panel-x" data-close="charPanel">✕</span></div>
+    <div class="panel-title"><span data-i18n="panel.char">Personaje</span> <span class="panel-x" data-close="charPanel">✕</span></div>
     <div id="charBody"></div>
   </div>
 
+  <div id="abilityPanel" class="panel hidden">
+    <div class="panel-title"><span data-i18n="panel.ability">Árbol de habilidades</span> <span class="panel-x" data-close="abilityPanel">✕</span></div>
+    <div id="abilityPts" class="ability-pts"></div>
+    <div id="abilityBody"></div>
+  </div>
+
   <div id="questPanel" class="panel hidden">
-    <div class="panel-title">Diario de misiones <span class="panel-x" data-close="questPanel">✕</span></div>
+    <div class="panel-title"><span data-i18n="panel.quest">Diario de misiones</span> <span class="panel-x" data-close="questPanel">✕</span></div>
     <div id="questBody"></div>
   </div>
 
@@ -133,6 +143,57 @@
     <div id="shopGold"></div>
   </div>
 
+  <div id="boardPanel" class="panel hidden">
+    <div id="boardName" class="panel-title"><span data-i18n="board.title">Tablón de peticiones</span> <span class="panel-x" data-close="boardPanel">✕</span></div>
+    <p class="board-hint" data-i18n="board.hint">Escribe qué te gustaría ver añadido o cambiado en el juego.</p>
+    <div id="boardBody"></div>
+    <div id="boardStatus" class="board-status"></div>
+    <form id="boardForm">
+      <textarea id="boardInput" maxlength="240" rows="3" data-i18n-ph="board.placeholder" placeholder="Escribe tu petición…"></textarea>
+      <div class="board-form-row">
+        <span id="boardCount">0/240</span>
+        <button type="submit" class="btn" data-i18n="board.submit">Publicar</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="menuPanel" class="panel hidden">
+    <div class="panel-title"><span data-i18n="menu.title">Menú</span> <span class="panel-x" data-close="menuPanel">✕</span></div>
+    <div class="menu-tabs">
+      <button type="button" class="menu-tab sel" data-tab="menuHelp"><span data-i18n="menu.help">Ayuda</span></button>
+      <button type="button" class="menu-tab" data-tab="menuOptions"><span data-i18n="menu.options">Opciones</span></button>
+    </div>
+    <div id="menuHelp" class="menu-tab-body">
+      <div class="menu-help-row"><b>WASD / ↑↓←→</b> — <span data-i18n="help.move">Mover al personaje</span></div>
+      <div class="menu-help-row"><b data-i18n="help.clickKey">Clic izquierdo</b> — <span data-i18n="help.click">Atacar, hablar, recoger objetos del suelo</span></div>
+      <div class="menu-help-row"><b>1–4</b> — <span data-i18n="help.skills">Usar habilidad</span></div>
+      <div class="menu-help-row"><b>I</b> — <span data-i18n="help.inv">Inventario</span></div>
+      <div class="menu-help-row"><b>C</b> — <span data-i18n="help.char">Personaje</span></div>
+      <div class="menu-help-row"><b>L</b> — <span data-i18n="help.quest">Diario de misiones</span></div>
+      <div class="menu-help-row"><b>H</b> — <span data-i18n="help.ability">Árbol de habilidades</span></div>
+      <div class="menu-help-row"><b>Q / E</b> — <span data-i18n="help.potion">Poción de vida / maná</span></div>
+      <div class="menu-help-row"><b>B</b> — <span data-i18n="help.recall">Volver a Helike (recall)</span></div>
+      <div class="menu-help-row"><b data-i18n="help.enterKey">Enter</b> — <span data-i18n="help.chat">Escribir en el chat</span></div>
+      <div class="menu-help-row"><b>Esc</b> — <span data-i18n="help.menu">Abrir/cerrar este menú, cerrar paneles abiertos</span></div>
+    </div>
+    <div id="menuOptions" class="menu-tab-body hidden">
+      <label class="menu-opt"><span data-i18n="opt.music">Música</span> <input type="range" id="volMusic" min="0" max="100"></label>
+      <label class="menu-opt"><span data-i18n="opt.fx">Efectos</span> <input type="range" id="volFx" min="0" max="100"></label>
+      <label class="menu-opt"><span data-i18n="opt.autoloot">Auto-recogida</span>
+        <select id="autoLootSelect">
+          <option value="off" data-i18n="opt.autoloot.off">Desactivada</option>
+          <option value="all" data-i18n="opt.autoloot.all">Todo</option>
+          <option value="magic" data-i18n="opt.autoloot.magic">Mágico o mejor</option>
+          <option value="rare" data-i18n="opt.autoloot.rare">Solo raro</option>
+        </select>
+      </label>
+      <label class="menu-opt"><span data-i18n="opt.lang">Idioma</span>
+        <select id="langSelect"><option value="es">Español</option><option value="en">English</option></select>
+      </label>
+    </div>
+    <button type="button" id="logoutBtn" class="btn menu-logout" data-i18n="menu.logout">Cerrar sesión</button>
+  </div>
+
   <div id="tooltip" class="hidden"></div>
 
 
@@ -142,10 +203,11 @@
       <div id="joyKnob"></div>
     </div>
     <div id="mobileBtns">
-      <button type="button" id="mobChat" class="mob-btn">Chat</button>
-      <button type="button" id="mobInv" class="mob-btn">Inv</button>
-      <button type="button" id="mobQuest" class="mob-btn">Misiones</button>
-      <button type="button" id="mobChar" class="mob-btn">Héroe</button>
+      <button type="button" id="mobChat" class="mob-btn" data-i18n="mob.chat">Chat</button>
+      <button type="button" id="mobInv" class="mob-btn" data-i18n="mob.inv">Inv</button>
+      <button type="button" id="mobQuest" class="mob-btn" data-i18n="mob.quest">Misiones</button>
+      <button type="button" id="mobChar" class="mob-btn" data-i18n="mob.char">Héroe</button>
+      <button type="button" id="mobAbility" class="mob-btn hidden" data-i18n="mob.ability">Hab.</button>
     </div>
   </div>
 
@@ -154,13 +216,13 @@
   <div id="inviteBox" class="hidden"></div>
 
   <div id="deathOverlay" class="overlay hidden">
-    <div class="overlay-title">Has caído</div>
+    <div class="overlay-title" data-i18n="death.title">Has caído</div>
     <div id="reviveCountdown" class="revive-countdown"></div>
-    <button id="respawnBtn" type="button">Resucitar en Helike</button>
+    <button id="respawnBtn" type="button" data-i18n="death.respawn">Resucitar en Helike</button>
   </div>
 
   <div id="reconnect" class="overlay hidden">
-    <div class="overlay-title small">Reconectando…</div>
+    <div class="overlay-title small" data-i18n="reconnect.title">Reconectando…</div>
   </div>
 </div>
 
@@ -169,7 +231,7 @@ if (!document.getElementById("respawnBtn") && !location.search.includes("v=")) {
   location.replace(location.pathname + "?v=" + Date.now());
 }
 </script>
-<script src="audio.js?v=20260802"></script>
-<script src="game.js?v=20260802"></script>
+<script src="audio.js?v=20260808"></script>
+<script src="game.js?v=20260808"></script>
 </body>
 </html>

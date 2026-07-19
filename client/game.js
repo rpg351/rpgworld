@@ -26,6 +26,184 @@ var RARITY_COLOR = { common: "#e8e0d0", magic: "#7fb3ff", rare: "#ffcf40" };
 var MOD_NAMES = { str: "Fuerza", dex: "Destreza", int: "Inteligencia", hp: "Vida", mp: "Maná", arm: "Armadura", dmgp: "% Daño", crit: "% Crítico" };
 var RARITY_ES = { common: "común", magic: "mágico", rare: "raro" };
 var SLOT_ES = { weapon: "arma", armor: "armadura", helm: "yelmo", ring: "anillo", potion: "poción", quest: "misión" };
+// ---------------------------------------------------------------------------
+// i18n — client-side UI-chrome only (menus, buttons, static labels). Content
+// that comes from the server (item/quest/npc text, chat, zone names) stays in
+// Spanish since it's authored server-side; translating that is a separate,
+// much larger content-localization task.
+// ---------------------------------------------------------------------------
+var I18N = {
+  es: {
+    "login.subtitle": "Helike · Grecia mítica",
+    "login.name": "Nombre del héroe",
+    "login.pass": "Contraseña",
+    "login.toLogin": "¿Ya tienes cuenta? Iniciar sesión",
+    "login.toRegister": "¿No tienes héroe? Crear cuenta",
+    "login.hint": "WASD mover · 1–4 habilidades · I inventario · C atacar · J diario",
+    "login.enterRegister": "Crear héroe",
+    "login.enterLogin": "Entrar al mundo",
+    "cls.warrior.name": "Guerrero", "cls.warrior.desc": "Fuerza y armadura. Combate cuerpo a cuerpo.",
+    "cls.hunter.name": "Cazador", "cls.hunter.desc": "Destreza y arco. Ataque a distancia.",
+    "cls.mage.name": "Mago", "cls.mage.desc": "Inteligencia y hechizos elementales.",
+    "cls.cleric.name": "Clérigo", "cls.cleric.desc": "Sanación sagrada y magia divina.",
+    "panel.inv": "Inventario",
+    "panel.dropHint": "Arrastra un objeto fuera del inventario para tirarlo al suelo.",
+    "panel.sellHint": "Clic en un objeto para venderlo al mercader.",
+    "panel.char": "Personaje",
+    "panel.quest": "Diario de misiones",
+    "mob.chat": "Chat", "mob.inv": "Inv", "mob.quest": "Misiones", "mob.char": "Héroe",
+    "death.title": "Has caído",
+    "death.respawn": "Resucitar en Helike",
+    "death.countdown": (s) => `Revives automáticamente en ${s}s`,
+    "death.countdownNow": "Revives en un instante…",
+    "reconnect.title": "Reconectando…",
+    "reconnecting.login": "Reconectando…",
+    "audio.unmute": "Activar sonido",
+    "audio.mute": "Silenciar",
+    "pop.online": (n) => `${n} en línea`,
+    "menu.title": "Menú", "menu.help": "Ayuda", "menu.options": "Opciones", "menu.logout": "Cerrar sesión",
+    "help.move": "Mover al personaje",
+    "help.clickKey": "Clic izquierdo",
+    "help.click": "Atacar, hablar, recoger objetos del suelo",
+    "help.skills": "Usar habilidad",
+    "help.inv": "Inventario",
+    "help.char": "Personaje",
+    "help.quest": "Diario de misiones",
+    "help.ability": "Árbol de habilidades",
+    "help.potion": "Poción de vida / maná",
+    "help.recall": "Volver a Helike (recall)",
+    "help.enterKey": "Enter",
+    "help.chat": "Escribir en el chat",
+    "help.menu": "Abrir/cerrar este menú, cerrar paneles abiertos",
+    "opt.music": "Música", "opt.fx": "Efectos", "opt.lang": "Idioma",
+    "opt.autoloot": "Auto-recogida",
+    "opt.autoloot.off": "Desactivada", "opt.autoloot.all": "Todo",
+    "opt.autoloot.magic": "Mágico o mejor", "opt.autoloot.rare": "Solo raro",
+    "hud.autoatk.on": "Ataque automático ON — ataca al enemigo más cercano (clic para apagar)",
+    "hud.autoatk.off": "Ataque automático OFF — clic para atacar al enemigo más cercano",
+    "board.title": "Tablón de peticiones",
+    "board.hint": "Escribe qué te gustaría ver añadido o cambiado en el juego.",
+    "board.placeholder": "Escribe tu petición…",
+    "board.submit": "Publicar",
+    "board.empty": "Aún no hay peticiones. ¡Sé el primero!",
+    "board.posted": (n, d) => `${n} · ${d}`,
+    "board.hasActive": "Ya tienes una petición activa — espera a que un moderador la resuelva antes de publicar otra.",
+    "board.cooldown": (s) => `Puedes publicar de nuevo en ${s}s.`,
+    "board.edit": "Editar",
+    "board.delete": "Borrar",
+    "board.editPrompt": "Editar petición:",
+    "sell.all.common": "Vender comunes",
+    "sell.all.magic": "Vender mágicos",
+    "sell.all.rare": "Vender raros",
+    "sell.all.confirm": (r) => `¿Vender todos los objetos ${r}?`,
+    "panel.ability": "Árbol de habilidades",
+    "mob.ability": "Hab.",
+    "ability.unavailable": "Tu clase aún no tiene árbol de habilidades.",
+    "ability.points": (n) => `${n} punto${n === 1 ? "" : "s"} de habilidad disponible${n === 1 ? "" : "s"}`,
+    "ability.tier": (n) => `Nivel ${n}`,
+    "ability.needMore": (n) => `Requiere ${n} habilidades desbloqueadas`,
+    "ability.unlock": "Desbloquear",
+  },
+  en: {
+    "login.subtitle": "Helike · Mythic Greece",
+    "login.name": "Hero name",
+    "login.pass": "Password",
+    "login.toLogin": "Already have an account? Log in",
+    "login.toRegister": "No hero yet? Create one",
+    "login.hint": "WASD move · 1–4 skills · I inventory · C character · L quests",
+    "login.enterRegister": "Create hero",
+    "login.enterLogin": "Enter the world",
+    "cls.warrior.name": "Warrior", "cls.warrior.desc": "Strength and armor. Melee combat.",
+    "cls.hunter.name": "Hunter", "cls.hunter.desc": "Dexterity and bow. Ranged attacks.",
+    "cls.mage.name": "Mage", "cls.mage.desc": "Intelligence and elemental spells.",
+    "cls.cleric.name": "Cleric", "cls.cleric.desc": "Holy healing and divine magic.",
+    "panel.inv": "Inventory",
+    "panel.dropHint": "Drag an item out of the inventory to drop it on the ground.",
+    "panel.sellHint": "Click an item to sell it to the merchant.",
+    "panel.char": "Character",
+    "panel.quest": "Quest log",
+    "mob.chat": "Chat", "mob.inv": "Inv", "mob.quest": "Quests", "mob.char": "Hero",
+    "death.title": "You have fallen",
+    "death.respawn": "Revive in Helike",
+    "death.countdown": (s) => `Auto-revives in ${s}s`,
+    "death.countdownNow": "Reviving…",
+    "reconnect.title": "Reconnecting…",
+    "reconnecting.login": "Reconnecting…",
+    "audio.unmute": "Unmute",
+    "audio.mute": "Mute",
+    "pop.online": (n) => `${n} online`,
+    "menu.title": "Menu", "menu.help": "Help", "menu.options": "Options", "menu.logout": "Log out",
+    "help.move": "Move the character",
+    "help.clickKey": "Left click",
+    "help.click": "Attack, talk, pick up items on the ground",
+    "help.skills": "Use skill",
+    "help.inv": "Inventory",
+    "help.char": "Character",
+    "help.quest": "Quest log",
+    "help.ability": "Ability tree",
+    "help.potion": "HP / MP potion",
+    "help.recall": "Return to Helike (recall)",
+    "help.enterKey": "Enter",
+    "help.chat": "Type in chat",
+    "help.menu": "Open/close this menu, close open panels",
+    "opt.music": "Music", "opt.fx": "Effects", "opt.lang": "Language",
+    "opt.autoloot": "Auto-loot",
+    "opt.autoloot.off": "Off", "opt.autoloot.all": "Everything",
+    "opt.autoloot.magic": "Magic or better", "opt.autoloot.rare": "Rare only",
+    "hud.autoatk.on": "Auto-attack ON — attacks the nearest enemy (click to turn off)",
+    "hud.autoatk.off": "Auto-attack OFF — click to attack the nearest enemy",
+    "board.title": "Request board",
+    "board.hint": "Write what you'd like to see added or changed in the game.",
+    "board.placeholder": "Write your request…",
+    "board.submit": "Post",
+    "board.empty": "No requests yet. Be the first!",
+    "board.posted": (n, d) => `${n} · ${d}`,
+    "board.hasActive": "You already have an active request — wait for a moderator to resolve it before posting another.",
+    "board.cooldown": (s) => `You can post again in ${s}s.`,
+    "board.edit": "Edit",
+    "board.delete": "Delete",
+    "board.editPrompt": "Edit request:",
+    "sell.all.common": "Sell common",
+    "sell.all.magic": "Sell magic",
+    "sell.all.rare": "Sell rare",
+    "sell.all.confirm": (r) => `Sell all ${r} items?`,
+    "panel.ability": "Ability tree",
+    "mob.ability": "Skills",
+    "ability.unavailable": "Your class doesn't have an ability tree yet.",
+    "ability.points": (n) => `${n} ability point${n === 1 ? "" : "s"} available`,
+    "ability.tier": (n) => `Tier ${n}`,
+    "ability.needMore": (n) => `Requires ${n} unlocked abilities`,
+    "ability.unlock": "Unlock",
+  },
+};
+var LS_LANG = "aot_lang";
+function getLang() {
+  try { return localStorage.getItem(LS_LANG) === "en" ? "en" : "es"; } catch (e) { return "es"; }
+}
+function t(key, ...args) {
+  const dict = I18N[getLang()] || I18N.es;
+  const v = dict[key] ?? I18N.es[key] ?? key;
+  return typeof v === "function" ? v(...args) : v;
+}
+function applyLang(lang) {
+  try { localStorage.setItem(LS_LANG, lang === "en" ? "en" : "es"); } catch (e) {}
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-ph]").forEach((el) => {
+    el.placeholder = t(el.dataset.i18nPh);
+  });
+  // JS-driven dynamic strings that don't live in the static DOM scan above.
+  setMode(!$("clsRow").classList.contains("hidden"));
+  if (window.AOTAudio) AOTAudio._updateMuteBtn();
+  if (S.pop) $("popHud").textContent = t("pop.online", S.pop);
+  updateReviveCountdown();
+  if (S.boardEntries) { renderBoard(S.boardEntries); updateBoardFormState(); }
+  const xpBarEl = $("xpBar");
+  if (xpBarEl) xpBarEl.title = S.autoAtk ? t("hud.autoatk.on") : t("hud.autoatk.off");
+  const sel = $("langSelect");
+  if (sel) sel.value = getLang();
+}
 var S = {
   ws: null,
   connected: false,
@@ -36,6 +214,7 @@ var S = {
   myName: "",
   myCls: "",
   skills: [],
+  abilityTree: [],
   map: null,
   you: null,
   pop: 0,
@@ -43,6 +222,11 @@ var S = {
   loot: new Map,
   floats: [],
   fx: [],
+  particles: [],
+  boardEntries: null,
+  boardMeta: { isMod: false, hasActive: false, cooldownUntil: 0 },
+  autoLoot: "off",
+  shakeMag: 0,
   targetId: 0,
   autoAtk: false,
   autoAtkAt: 0,
@@ -54,6 +238,7 @@ var S = {
   lastSkill: 0,
   dead: false,
   reviveAt: 0,
+  lootTarget: 0,
   zoneName: "",
   shopOpen: false,
   shopNpc: 0,
@@ -138,12 +323,15 @@ function handle(m) {
       S.myName = m.name;
       S.myCls = m.cls;
       S.skills = m.skills || [];
+      S.abilityTree = m.abilityTree || [];
+      $("mobAbility") && $("mobAbility").classList.toggle("hidden", !S.abilityTree.length);
       S.loggedIn = true;
       S.wantReconnect = true;
       S.ents.clear();
       S.loot.clear();
       S.floats.length = 0;
       S.fx.length = 0;
+      S.particles.length = 0;
       S.dirKeys = Object.create(null);
       S.dir = { x: 0, y: 0 };
       S.followId = null;
@@ -193,6 +381,7 @@ function handleWorld(m) {
       renderInventory();
       renderChar();
       renderQuests();
+      if (!$("abilityPanel").classList.contains("hidden")) renderAbilities();
       if (S.shopOpen)
         renderShop();
       break;
@@ -222,13 +411,14 @@ function handleWorld(m) {
         if (E.buf.length > 12)
           E.buf.splice(0, E.buf.length - 12);
         // Local corpse: mark dieT while hp is 0 so we render faded instead of "alive".
-        if (e.i === S.myId && e.h <= 0 && !E.dieT) E.dieT = t;
+        if (e.i === S.myId && e.h <= 0 && !E.dieT) { E.dieT = t; spawnParticles(E.rx, E.ry - 0.6, 12, { color: "#ff6a5e", spread: 2.4, size: 2.2, life: 550, grav: 1.6 }); }
         if (e.i === S.myId && e.h > 0) E.dieT = 0;
       }
       for (const id of m.gone || []) {
         const E = S.ents.get(id);
         if (E && E.h <= 0 && !E.dieT) {
           E.dieT = t;
+          spawnParticles(E.rx, E.ry - 0.6, 10, { color: "#e8dcc0", spread: 2.2, size: 2, life: 500, grav: 1.6 });
         } else
           S.ents.delete(id);
         if (S.targetId === id)
@@ -237,7 +427,22 @@ function handleWorld(m) {
       S.loot.clear();
       for (const L of m.loot || [])
         S.loot.set(L.i, L);
-      $("popHud").textContent = `${S.pop} en línea`;
+      // Auto-loot: only when not already fetching/fighting, and only items
+      // already within pickup range — never yanks the player off a target.
+      if (S.autoLoot !== "off" && !S.dead && !S.lootTarget && !S.targetId) {
+        const me = S.ents.get(S.myId);
+        if (me) {
+          for (const [id, L] of S.loot) {
+            if (!lootMatchesAutoFilter(L)) continue;
+            if (Math.hypot(me.rx - L.x, me.ry - L.y) <= 1.8) {
+              S.lootTarget = id;
+              send({ t: "pickup", id });
+              break;
+            }
+          }
+        }
+      }
+      $("popHud").textContent = t("pop.online", S.pop);
       break;
     }
     case "dmg": {
@@ -253,6 +458,15 @@ function handleWorld(m) {
           size: m.c ? 22 : 15,
           crit: !!m.c
         });
+        const onMe = m.i === S.myId;
+        spawnParticles(E.rx, E.ry - 0.9, m.c ? 10 : 5, {
+          color: m.c ? "#ffd94a" : onMe ? "#ff6a5e" : "#ffe0c0",
+          spread: m.c ? 2.6 : 1.6,
+          size: m.c ? 2.6 : 1.8,
+          life: 380,
+        });
+        if (m.c) shake(6, 160);
+        else if (onMe) shake(3, 110);
       }
       if (window.AOTAudio) {
         if (m.c) AOTAudio.sfx("crit");
@@ -271,6 +485,9 @@ function handleWorld(m) {
       break;
     case "shop":
       showShop(m);
+      break;
+    case "board":
+      showBoard(m);
       break;
     case "chat":
       addChat(m);
@@ -319,14 +536,31 @@ var pickedCls = "warrior";
 function setMode(register) {
   if (register) {
     $("clsRow").classList.remove("hidden");
-    $("enterBtn").textContent = "Crear héroe";
+    $("enterBtn").textContent = t("login.enterRegister");
     $("toRegister").classList.add("hidden");
     $("toLogin").classList.remove("hidden");
   } else {
     $("clsRow").classList.add("hidden");
-    $("enterBtn").textContent = "Entrar al mundo";
+    $("enterBtn").textContent = t("login.enterLogin");
     $("toLogin").classList.add("hidden");
     $("toRegister").classList.remove("hidden");
+  }
+}
+function performLogin(name, pass, cls, opts) {
+  opts = opts || {};
+  if (window.AOTAudio) AOTAudio.unlock().catch(() => {});
+  saveCreds(name, pass, cls);
+  const doLogin = () => send({ t: "login", name, pass, cls });
+  if (S.connected) {
+    doLogin();
+  } else {
+    S.wantReconnect = false;
+    connect();
+    S.ws.addEventListener("open", doLogin, { once: true });
+    S.ws.addEventListener("close", () => {
+      if (!S.loggedIn)
+        $("loginErr").textContent = opts.silent ? "" : "No se puede conectar con el servidor. Inténtalo de nuevo.";
+    }, { once: true });
   }
 }
 function initLogin() {
@@ -354,14 +588,20 @@ function initLogin() {
   $("muteBtn") && $("muteBtn").addEventListener("click", () => {
     if (window.AOTAudio) { AOTAudio.unlock(); AOTAudio.toggleMute(); AOTAudio.sfx("ui"); }
   });
-  $("autoAtkBtn") && $("autoAtkBtn").addEventListener("click", () => {
-    setAutoAtk(!S.autoAtk);
-    if (window.AOTAudio) { AOTAudio.unlock(); AOTAudio.sfx("ui"); }
-  });
-  try { if (localStorage.getItem("aot_autoatk") === "1") setAutoAtk(true); } catch (_) {}
+  const xpBar = $("xpBar");
+  if (xpBar) {
+    const toggle = () => {
+      setAutoAtk(!S.autoAtk);
+      if (window.AOTAudio) { AOTAudio.unlock(); AOTAudio.sfx("ui"); }
+    };
+    xpBar.addEventListener("click", toggle);
+    xpBar.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+    });
+  }
+  try { setAutoAtk(localStorage.getItem("aot_autoatk") === "1"); } catch (_) { setAutoAtk(false); }
   $("loginForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
-    if (window.AOTAudio) AOTAudio.unlock().catch(() => {});
     const name = $("nameInput").value.trim(), pass = $("passInput").value;
     if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) {
       $("loginErr").textContent = "El nombre debe tener 3–16 letras, dígitos o guion bajo.";
@@ -372,20 +612,15 @@ function initLogin() {
       return;
     }
     $("loginErr").textContent = "";
-    saveCreds(name, pass, pickedCls);
-    const doLogin = () => send({ t: "login", name, pass, cls: pickedCls });
-    if (S.connected)
-      doLogin();
-    else {
-      S.wantReconnect = false;
-      connect();
-      S.ws.addEventListener("open", doLogin, { once: true });
-      S.ws.addEventListener("close", () => {
-        if (!S.loggedIn)
-          $("loginErr").textContent = "No se puede conectar con el servidor. Inténtalo de nuevo.";
-      }, { once: true });
-    }
+    performLogin(name, pass, pickedCls);
   });
+  // Returning with a saved session (page reload / revisit) skips the manual
+  // login step entirely — auto-connect straight into the world. Any failure
+  // (stale creds, server down) silently falls back to the empty login form.
+  if (/^[A-Za-z0-9_]{3,16}$/.test(c.name || "") && (c.pass || "").length >= 4) {
+    $("loginErr").textContent = t("reconnecting.login");
+    performLogin(c.name, c.pass, c.cls || pickedCls, { silent: true });
+  }
 }
 function drawPortrait(cv, cls) {
   const g = cv.getContext("2d");
@@ -464,13 +699,13 @@ function sampleEnt(E, t) {
   E.rx = buf[0].x;
   E.ry = buf[0].y;
 }
-var ZONE_TINT = [
-  "rgba(120,160,60,0.05)",
-  "rgba(140,130,150,0.07)",
-  "rgba(60,120,90,0.08)",
-  "rgba(150,60,40,0.08)",
-  "rgba(90,70,140,0.10)"
-];
+// Ambient tint only for boss zones (Cíclope idx 3, Asfódelos/minotaur idx 4) —
+// the leveling zones (Olivares/Argos/Gorgona) render with their natural tile
+// colors, no color-wash filter.
+var ZONE_TINT = {
+  3: "rgba(150,60,40,0.08)",
+  4: "rgba(90,70,140,0.10)",
+};
 function tileAt(x, y) {
   if (!S.map || x < 0 || y < 0 || x >= S.map.w || y >= S.map.h)
     return "w";
@@ -669,7 +904,7 @@ function drawTiles(t) {
     }
   }
   const z = zoneAt(S.cam.x, S.cam.y);
-  if (z && z.idx >= 0 && ZONE_TINT[z.idx]) {
+  if (z && ZONE_TINT[z.idx]) {
     ctx.fillStyle = ZONE_TINT[z.idx];
     ctx.fillRect(0, 0, VW, VH);
   }
@@ -1221,6 +1456,24 @@ function drawNpc(g, k, bob, t) {
     g.fillStyle = "#8f8f96";
     g.fillRect(8, -13 - bob, 5, 4);
   }
+  if (k === "board") {
+    g.fillStyle = "#4a3620";
+    g.fillRect(-2, -2 - bob, 4, 14);
+    g.fillStyle = "#8a6a3e";
+    g.beginPath();
+    g.moveTo(-11, -6 - bob);
+    g.lineTo(11, -6 - bob);
+    g.lineTo(9, -19 - bob);
+    g.lineTo(-9, -19 - bob);
+    g.closePath();
+    g.fill();
+    g.strokeStyle = "#3a2a16";
+    g.lineWidth = 1.2;
+    g.strokeRect(-9, -18 - bob, 18, 11);
+    g.fillStyle = "#e8dcc0";
+    for (let i = 0; i < 3; i++) g.fillRect(-6, -16 - bob + i * 3, 12, 1.4);
+    return;
+  }
   if (k === "portal") {
     g.fillStyle = "#6a4cff";
     g.beginPath();
@@ -1246,7 +1499,7 @@ function drawNpc(g, k, bob, t) {
   }
 }
 var PLAYER_KINDS = { warrior: 1, hunter: 1, mage: 1, cleric: 1 };
-var NPC_KINDS = { elder: 1, merchant: 1, smith: 1, portal: 1 };
+var NPC_KINDS = { elder: 1, merchant: 1, smith: 1, portal: 1, board: 1 };
 function drawEntity(E, t) {
   const sx = w2sx(E.rx), sy = w2sy(E.ry);
   if (sx < -80 || sy < -100 || sx > VW + 80 || sy > VH + 100)
@@ -1258,6 +1511,16 @@ function drawEntity(E, t) {
   const walk = moving ? 1 : 0;
   ctx.save();
   ctx.translate(sx, sy);
+  if ((E.k === "cyclops" || E.k === "minotaur") && !E.dieT) {
+    const pulse = 0.5 + Math.sin(t / 260) * 0.5;
+    const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, 46 * scale);
+    gr.addColorStop(0, `rgba(255,90,40,${0.16 + pulse * 0.1})`);
+    gr.addColorStop(1, "rgba(255,90,40,0)");
+    ctx.fillStyle = gr;
+    ctx.beginPath();
+    ctx.arc(0, 0, 46 * scale, 0, 7);
+    ctx.fill();
+  }
   if (E.k !== "harpy") {
     ctx.fillStyle = "rgba(0,0,0,.32)";
     ctx.beginPath();
@@ -1627,6 +1890,72 @@ function drawItemIcon(g, icon, rarity, cx, cy, size) {
   }
   g.restore();
 }
+// ---- lightweight particle system: sparks/embers/dust, purely cosmetic ----
+function spawnParticles(wx, wy, n, opts) {
+  opts = opts || {};
+  const color = opts.color || "#fff";
+  const spread = opts.spread ?? 1.4;
+  const life = opts.life ?? 420;
+  const size = opts.size ?? 2.2;
+  const grav = opts.grav ?? 2.2;
+  const riseBias = opts.riseBias ?? 0.6;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const spd = spread * (0.4 + Math.random() * 0.9);
+    S.particles.push({
+      x: wx, y: wy,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd - riseBias,
+      t0: now(),
+      life: life * (0.7 + Math.random() * 0.6),
+      size: size * (0.6 + Math.random() * 0.8),
+      color,
+      grav,
+    });
+  }
+  if (S.particles.length > 260) S.particles.splice(0, S.particles.length - 260);
+}
+function shake(mag) {
+  // Exponential decay each frame (see applyShake in frame()); ms duration
+  // isn't tracked explicitly — stronger hits simply take longer to settle.
+  S.shakeMag = Math.max(S.shakeMag, mag);
+}
+function applyShake() {
+  if (S.shakeMag <= 0.05) {
+    S.shakeMag = 0;
+    return;
+  }
+  const dx = (Math.random() * 2 - 1) * S.shakeMag;
+  const dy = (Math.random() * 2 - 1) * S.shakeMag;
+  ctx.translate(dx, dy);
+  S.shakeMag *= 0.82;
+}
+function updateParticles(t, dt) {
+  for (let i = S.particles.length - 1; i >= 0; i--) {
+    const P = S.particles[i];
+    const age = t - P.t0;
+    if (age >= P.life) {
+      S.particles.splice(i, 1);
+      continue;
+    }
+    P.x += P.vx * dt;
+    P.y += P.vy * dt;
+    P.vy += P.grav * dt;
+  }
+}
+function drawParticles(t) {
+  for (const P of S.particles) {
+    const age = t - P.t0;
+    const p = age / P.life;
+    const sx = w2sx(P.x), sy = w2sy(P.y);
+    ctx.globalAlpha = Math.max(0, 1 - p);
+    ctx.fillStyle = P.color;
+    ctx.beginPath();
+    ctx.arc(sx, sy, Math.max(0.3, P.size * (1 - p * 0.5)), 0, 7);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
 function addFx(m) {
   const t = now();
   if (m.k === "proj") {
@@ -1636,6 +1965,13 @@ function addFx(m) {
     S.fx.push({ k: "slash", x: m.x, y: m.y, tx: m.tx, ty: m.ty, t0: t, dur: 260 });
   } else if (m.k === "aoe") {
     S.fx.push({ k: "aoe", x: m.x, y: m.y, r: m.r, style: m.style, t0: t, dur: m.style === "slam" ? 550 : m.style === "judgment" ? 700 : 450 });
+    if (m.style === "slam" || m.style === "meteor") {
+      shake(m.style === "meteor" ? 10 : 7, m.style === "meteor" ? 260 : 200);
+      spawnParticles(m.x, m.y, 16, { color: "#c8a878", spread: 3.2, size: 2.4, life: 500, grav: 3, riseBias: 1.4 });
+    } else if (m.style === "judgment") {
+      shake(8, 220);
+      spawnParticles(m.x, m.y, 14, { color: "#fff2b0", spread: 3, size: 1.8, life: 420, grav: 0.5, riseBias: 0.2 });
+    }
   } else if (m.k === "heal") {
     const E = S.ents.get(m.i);
     if (E)
@@ -1971,7 +2307,7 @@ function updateReviveCountdown() {
     return;
   }
   const secs = Math.max(0, Math.ceil((S.reviveAt - Date.now()) / 1000));
-  el.textContent = secs > 0 ? `Revives automáticamente en ${secs}s` : "Revives en un instante…";
+  el.textContent = secs > 0 ? t("death.countdown", secs) : t("death.countdownNow");
 }
 
 function updateTargetFrame() {
@@ -2003,13 +2339,11 @@ function nearestEnemy(maxR) {
 function setAutoAtk(on) {
   S.autoAtk = !!on;
   try { localStorage.setItem("aot_autoatk", S.autoAtk ? "1" : "0"); } catch (_) {}
-  const btn = $("autoAtkBtn");
+  const btn = $("xpBar");
   if (btn) {
     btn.classList.toggle("on", S.autoAtk);
     btn.setAttribute("aria-pressed", S.autoAtk ? "true" : "false");
-    btn.title = S.autoAtk
-      ? "Ataque automático ON — ataca al enemigo más cercano (clic para apagar)"
-      : "Ataque automático OFF — clic para atacar al enemigo más cercano";
+    btn.title = S.autoAtk ? t("hud.autoatk.on") : t("hud.autoatk.off");
   }
   if (!S.autoAtk) {
     S.targetId = 0;
@@ -2020,6 +2354,10 @@ function setAutoAtk(on) {
 }
 function tickAutoAtk(t) {
   if (!S.autoAtk || !S.loggedIn || S.dead || !S.map) return;
+  // A pending loot-fetch (click on ground item) must win over auto-attack —
+  // otherwise this retargets onto a nearby enemy every 250ms and the
+  // character never walks over to pick the item up.
+  if (S.lootTarget && S.loot.has(S.lootTarget)) return;
   // Don't fight the WASD cancel — wait until the player stops steering.
   if (S.dir.x || S.dir.y) return;
   if (t - S.autoAtkAt < 250) return;
@@ -2045,6 +2383,8 @@ function tickAutoAtk(t) {
   }
 }
 
+var _lastFrameT = 0;
+var _dustAt = 0;
 function frame() {
   requestAnimationFrame(frame);
   const t = now();
@@ -2052,6 +2392,8 @@ function frame() {
   if (!S.loggedIn || !S.map) {
     return;
   }
+  const dt = Math.min(0.05, Math.max(0, (t - (_lastFrameT || t)) / 1000));
+  _lastFrameT = t;
   tickAutoAtk(t);
   const rt = t - INTERP_DELAY;
   for (const [, E] of S.ents)
@@ -2061,16 +2403,43 @@ function frame() {
     S.cam.x = me.rx;
     S.cam.y = me.ry;
   }
+  applyShake();
+  updateParticles(t, dt);
   ctx.fillStyle = "#12100b";
   ctx.fillRect(0, 0, VW, VH);
   drawTiles(t);
   drawLoot(t);
   drawPortals(t);
+  if (t - _dustAt > 180 && S.particles.length < 260) {
+    _dustAt = t;
+    const dx = S.cam.x + (Math.random() - 0.5) * (VW / TILE + 4);
+    const dy = S.cam.y + (Math.random() - 0.5) * (VH / TILE + 4);
+    S.particles.push({
+      x: dx, y: dy,
+      vx: (Math.random() - 0.5) * 0.15, vy: -0.06 - Math.random() * 0.1,
+      t0: t, life: 3200 + Math.random() * 2200,
+      size: 0.7 + Math.random() * 0.7,
+      color: "rgba(220,208,176,.4)", grav: 0,
+    });
+  }
   const list = [...S.ents.values()].sort((a, b) => a.ry - b.ry);
   for (const E of list)
     drawEntity(E, t);
   drawFx(t);
+  drawParticles(t);
   drawFloats(t);
+  if (me) {
+    // Warm torchlight pool around the local hero — cozier readout in dark zones.
+    const psx = w2sx(me.rx), psy = w2sy(me.ry);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const lg = ctx.createRadialGradient(psx, psy, 0, psx, psy, 160);
+    lg.addColorStop(0, "rgba(255,196,110,.09)");
+    lg.addColorStop(1, "rgba(255,196,110,0)");
+    ctx.fillStyle = lg;
+    ctx.fillRect(psx - 160, psy - 160, 320, 320);
+    ctx.restore();
+  }
   const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * 0.38, VW / 2, VH / 2, Math.max(VW, VH) * 0.72);
   vg.addColorStop(0, "rgba(0,0,0,0)");
   vg.addColorStop(1, "rgba(8,5,2,.55)");
@@ -2211,7 +2580,59 @@ function castSkill(n) {
   // Optimistic CD only for a fresh cast; rolled back if server rejects via toast.
   S.cds[n] = t + sk.cd;
 }
-var PANEL_ORDER = ["dialogPanel", "shopPanel", "invPanel", "charPanel", "questPanel"];
+var LS_AUTOLOOT = "aot_autoloot";
+function loadAutoLoot() {
+  try {
+    const v = localStorage.getItem(LS_AUTOLOOT);
+    S.autoLoot = v === "all" || v === "magic" || v === "rare" ? v : "off";
+  } catch (e) { S.autoLoot = "off"; }
+}
+var RARITY_RANK = { common: 0, magic: 1, rare: 2 };
+function lootMatchesAutoFilter(item) {
+  if (S.autoLoot === "off") return false;
+  if (S.autoLoot === "all") return true;
+  const need = S.autoLoot === "rare" ? RARITY_RANK.rare : RARITY_RANK.magic;
+  return (RARITY_RANK[item.rarity] ?? 0) >= need;
+}
+function syncMenuControls() {
+  const vm = $("volMusic"), vf = $("volFx"), lang = $("langSelect"), al = $("autoLootSelect");
+  if (window.AOTAudio) {
+    if (vm) vm.value = Math.round((AOTAudio.musicVol ?? 1) * 100);
+    if (vf) vf.value = Math.round((AOTAudio.sfxVol ?? 1) * 100);
+  }
+  if (lang) lang.value = getLang();
+  if (al) al.value = S.autoLoot;
+}
+function logout() {
+  try { localStorage.removeItem("aot_creds"); } catch (e) {}
+  S.wantReconnect = false;
+  if (S.ws) { try { S.ws.close(); } catch (e) {} }
+  location.reload();
+}
+function initMenu() {
+  loadAutoLoot();
+  document.querySelectorAll(".menu-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".menu-tab").forEach((b) => b.classList.toggle("sel", b === btn));
+      const target = btn.dataset.tab;
+      ["menuHelp", "menuOptions"].forEach((id) => $(id).classList.toggle("hidden", id !== target));
+    });
+  });
+  const vm = $("volMusic"), vf = $("volFx"), lang = $("langSelect"), logoutBtn = $("logoutBtn"), al = $("autoLootSelect");
+  if (vm) vm.addEventListener("input", () => { if (window.AOTAudio) AOTAudio.setMusicVolume(vm.value / 100); });
+  if (vf) vf.addEventListener("input", () => {
+    if (window.AOTAudio) { AOTAudio.setSfxVolume(vf.value / 100); AOTAudio.sfx("ui"); }
+  });
+  if (lang) lang.addEventListener("change", () => applyLang(lang.value));
+  if (al) al.addEventListener("change", () => {
+    S.autoLoot = al.value;
+    try { localStorage.setItem(LS_AUTOLOOT, S.autoLoot); } catch (e) {}
+  });
+  if (logoutBtn) logoutBtn.addEventListener("click", () => logout());
+  syncMenuControls();
+  applyLang(getLang());
+}
+var PANEL_ORDER = ["dialogPanel", "shopPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel"];
 function closeTopPanel() {
   for (const id of PANEL_ORDER) {
     const el = $(id);
@@ -2234,6 +2655,10 @@ function togglePanel(id) {
     renderChar();
   if (id === "questPanel")
     renderQuests();
+  if (id === "abilityPanel")
+    renderAbilities();
+  if (id === "menuPanel" && !$(id).classList.contains("hidden"))
+    syncMenuControls();
 }
 var MOVE_KEYS = {
   w: [0, -1],
@@ -2293,6 +2718,11 @@ window.addEventListener("keydown", (e) => {
   if (!S.loggedIn)
     return;
   const chatFocused = document.activeElement === $("chatInput");
+  const boardFocused = document.activeElement === $("boardInput");
+  if (boardFocused) {
+    if (e.key === "Escape") $("boardInput").blur();
+    return; // let every other key (typing, Enter for newline, etc.) behave natively
+  }
   if (e.key === "Enter") {
     e.preventDefault();
     const inp = $("chatInput");
@@ -2321,6 +2751,7 @@ window.addEventListener("keydown", (e) => {
     if (!S.dirKeys[mk]) {
       S.dirKeys[mk] = 1;
       S.targetId = 0; // WASD cancels attack lock (server clears atkTarget on dir)
+      S.lootTarget = 0;
       sendDir();
     }
     return;
@@ -2354,17 +2785,28 @@ window.addEventListener("keydown", (e) => {
     case "L":
       togglePanel("questPanel");
       break;
+    case "h":
+    case "H":
+      togglePanel("abilityPanel");
+      break;
     case "b":
     case "B":
       if (!S.dead)
         send({ t: "recall" });
       break;
-    case "Escape":
+    case "Escape": {
+      const anyOpen = PANEL_ORDER.some((id) => !$(id).classList.contains("hidden"))
+        || !$("playerMenu").classList.contains("hidden")
+        || !$("tooltip").classList.contains("hidden")
+        || (isMobileUi() && $("chat").classList.contains("open"));
       closePlayerMenu();
       closeTopPanel();
       hideTooltip();
       setChatOpen(false);
+      if (!anyOpen)
+        togglePanel("menuPanel");
       break;
+    }
   }
 });
 ["invPanel", "shopPanel"].forEach((id) => {
@@ -2909,7 +3351,7 @@ function initMobileUi() {
   const setJoyVec = (x, y, force) => {
     S.joy = { x, y };
     if (knob) knob.style.transform = `translate(calc(-50% + ${x * maxR}px), calc(-50% + ${y * maxR}px))`;
-    if (x || y) S.targetId = 0;
+    if (x || y) { S.targetId = 0; S.lootTarget = 0; }
     sendDir(!!force);
   };
   const hideJoy = () => {
@@ -3029,6 +3471,8 @@ function initMobileUi() {
   if (mobQuest) mobQuest.addEventListener("click", () => { setChatOpen(false); togglePanel("questPanel"); });
   const mobChar = $("mobChar");
   if (mobChar) mobChar.addEventListener("click", () => { setChatOpen(false); togglePanel("charPanel"); });
+  const mobAbility = $("mobAbility");
+  if (mobAbility) mobAbility.addEventListener("click", () => { setChatOpen(false); togglePanel("abilityPanel"); });
 }
 function handleWorldPointer(clientX, clientY) {
   if (!S.loggedIn || S.dead) return;
@@ -3038,6 +3482,7 @@ function handleWorldPointer(clientX, clientY) {
   const p = pickAt(wx, wy);
   if (p.loot) {
     S.targetId = 0;
+    S.lootTarget = p.loot;
     send({ t: "pickup", id: p.loot });
     const me = S.ents.get(S.myId);
     const L = S.loot.get(p.loot);
@@ -3062,10 +3507,12 @@ function handleWorldPointer(clientX, clientY) {
       return;
     }
     S.targetId = p.ent;
+    S.lootTarget = 0;
     send({ t: "attack", id: p.ent });
     return;
   }
   S.targetId = 0;
+  S.lootTarget = 0;
   send({ t: "attack", id: 0 });
   closePlayerMenu();
   closeTopPanel();
@@ -3425,6 +3872,8 @@ function renderInventory() {
   }
   $("invGold").textContent = `Oro: ${y.gold}`;
   $("sellHint").classList.toggle("hidden", !S.shopOpen);
+  const sar = $("sellAllRow");
+  if (sar) sar.classList.toggle("hidden", !S.shopOpen);
   const dh = $("dropHint");
   if (dh) dh.classList.toggle("hidden", !!S.shopOpen);
   refreshHoverTooltip();
@@ -3521,6 +3970,43 @@ var QUEST_META = {
   q8: { name: "Alas de venganza", goal: "Derriba 10 furias", count: 10 },
   q9: { name: "El laberinto de Asterión", goal: "Derrota al Minotauro", count: 1 }
 };
+function renderAbilities() {
+  const pts = $("abilityPts"), b = $("abilityBody");
+  const y = S.you;
+  if (!S.abilityTree.length) {
+    pts.textContent = "";
+    b.innerHTML = `<p class="ability-empty">${t("ability.unavailable")}</p>`;
+    return;
+  }
+  const owned = new Set((y && y.abilities) || []);
+  const ownedCount = owned.size;
+  const avail = (y && y.abilityPts) || 0;
+  pts.textContent = t("ability.points", avail);
+  const tierReq = (tier) => tier === 1 ? 0 : tier === 2 ? 2 : 5;
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  let html = "";
+  let curTier = 0;
+  for (const a of S.abilityTree) {
+    if (a.tier !== curTier) {
+      curTier = a.tier;
+      if (curTier > 1) html += `<div class="ability-tier-label">${t("ability.tier", curTier)}</div>`;
+    }
+    const has = owned.has(a.id);
+    const locked = !has && ownedCount < tierReq(a.tier);
+    const affordable = !has && !locked && avail > 0;
+    html += `<div class="ability-card${has ? " owned" : ""}${locked ? " locked" : ""}">
+      <div class="ability-name">${esc(a.name)}${has ? " ✓" : ""}</div>
+      <div class="ability-desc">${esc(a.desc)}</div>
+      ${has ? "" : locked
+        ? `<div class="ability-req">${t("ability.needMore", tierReq(a.tier))}</div>`
+        : `<button type="button" class="btn ability-btn" data-id="${a.id}" ${affordable ? "" : "disabled"}>${t("ability.unlock")}</button>`}
+    </div>`;
+  }
+  b.innerHTML = html;
+  b.querySelectorAll(".ability-btn").forEach((btn) => btn.addEventListener("click", () => {
+    send({ t: "ability_alloc", id: btn.dataset.id });
+  }));
+}
 function renderQuests() {
   const y = S.you;
   if (!y)
@@ -3594,6 +4080,92 @@ function showDialog(m) {
   }
   p.classList.remove("hidden");
 }
+var _boardTick = null;
+function updateBoardFormState() {
+  const form = $("boardForm"), input = $("boardInput"), status = $("boardStatus");
+  if (!form || !status) return;
+  const meta = S.boardMeta;
+  const now = Date.now();
+  if (meta.isMod) {
+    // Moderators always get a slot free (they can also clean up others').
+    form.classList.remove("hidden");
+    input.disabled = false;
+    status.textContent = "";
+    return;
+  }
+  if (meta.hasActive) {
+    form.classList.add("hidden");
+    status.textContent = t("board.hasActive");
+    return;
+  }
+  if (meta.cooldownUntil > now) {
+    form.classList.add("hidden");
+    status.textContent = t("board.cooldown", Math.ceil((meta.cooldownUntil - now) / 1000));
+    return;
+  }
+  form.classList.remove("hidden");
+  input.disabled = false;
+  status.textContent = "";
+}
+function initBoard() {
+  const form = $("boardForm"), input = $("boardInput"), count = $("boardCount");
+  if (!form || !input) return;
+  const updateCount = () => { if (count) count.textContent = `${input.value.length}/240`; };
+  input.addEventListener("input", updateCount);
+  updateCount();
+  form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    send({ t: "board_post", text });
+    input.value = "";
+    updateCount();
+  });
+  // Live-refresh the cooldown countdown / re-enable the form once it elapses,
+  // without waiting for the next server push — only ticks while the panel is open.
+  _boardTick = setInterval(() => {
+    if (!$("boardPanel").classList.contains("hidden")) updateBoardFormState();
+  }, 1000);
+}
+function showBoard(m) {
+  S.boardEntries = m.entries || [];
+  S.boardMeta = { isMod: !!m.isMod, hasActive: !!m.hasActive, cooldownUntil: m.cooldownUntil || 0 };
+  $("boardPanel").classList.remove("hidden");
+  renderBoard(S.boardEntries);
+  updateBoardFormState();
+}
+function renderBoard(entries) {
+  const b = $("boardBody");
+  if (!entries.length) {
+    b.innerHTML = `<p class="board-empty">${t("board.empty")}</p>`;
+    return;
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const mod = S.boardMeta.isMod;
+  b.innerHTML = entries.map((e) => {
+    const d = new Date(e.ts);
+    const stamp = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const modBtns = mod
+      ? `<div class="board-mod-btns">
+           <button type="button" class="board-mod-btn" data-act="edit" data-id="${e.id}">${t("board.edit")}</button>
+           <button type="button" class="board-mod-btn danger" data-act="delete" data-id="${e.id}">${t("board.delete")}</button>
+         </div>`
+      : "";
+    return `<div class="board-row"><div class="board-meta">${t("board.posted", esc(e.author), stamp)}</div><div class="board-text">${esc(e.text)}</div>${modBtns}</div>`;
+  }).join("");
+  if (mod) {
+    b.querySelectorAll(".board-mod-btn").forEach((btn) => btn.addEventListener("click", () => {
+      const id = +btn.dataset.id;
+      if (btn.dataset.act === "delete") {
+        send({ t: "board_delete", id });
+      } else {
+        const entry = entries.find((e) => e.id === id);
+        const next = prompt(t("board.editPrompt"), entry ? entry.text : "");
+        if (next != null && next.trim()) send({ t: "board_edit", id, text: next.trim().slice(0, 240) });
+      }
+    }));
+  }
+}
 function showShop(m) {
   S.shopOpen = true;
   S.shopNpc = m.npc;
@@ -3647,6 +4219,21 @@ function renderShop() {
 }
 requireDom();
 initLogin();
+initMenu();
+function initShopSellAll() {
+  const map = { sellAllCommon: "common", sellAllMagic: "magic", sellAllRare: "rare" };
+  for (const [id, rarity] of Object.entries(map)) {
+    const btn = $(id);
+    if (!btn) continue;
+    btn.addEventListener("click", () => {
+      const label = RARITY_ES[rarity] || rarity;
+      if (!confirm(t("sell.all.confirm", label))) return;
+      send({ t: "sell_all", rarity });
+    });
+  }
+}
+initBoard();
+initShopSellAll();
 initMobileUi();
 resize();
 window.addEventListener("resize", () => { initMobileUi(); resize(); });

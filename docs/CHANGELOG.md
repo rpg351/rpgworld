@@ -1,3 +1,22 @@
+## 2026-07-19 — Árbol de habilidades del clérigo, moderación del tablón, venta masiva
+
+- **Árbol de habilidades (clérigo)**: 10 pasivas en 3 tiers, 1 punto de habilidad por
+  subida de nivel (`abilityPts`). Panel nuevo con tecla **H** (+ botón rápido en móvil).
+  Bonos server-side: mhp/mmp, armadura, % crítico, potencia de curación, reducción de
+  cooldowns, regeneración pasiva, radio de la fuente y radio de curación de grupo.
+  Personajes clérigo existentes migrados con puntos retroactivos (1 por nivel ya ganado);
+  stats/nivel/oro/inventario intactos.
+- **Tablón de peticiones — moderación**: cada cuenta solo puede tener **una** petición
+  activa a la vez (bloqueado con aviso claro en el panel, no solo un toast); el cooldown
+  entre publicaciones se muestra con cuenta regresiva en vivo y deshabilita el formulario.
+  Las cuentas `cansao`/`cansao2` pueden editar o borrar cualquier petición del tablón.
+- **Barra de XP**: ahora hace doble función como interruptor de ataque automático — se quitó
+  el botón `#autoAtkBtn` por separado, misma funcionalidad con menos UI.
+- **Tienda**: botones de venta masiva por rareza (comunes / mágicos / raros) para no tener
+  que confirmar la venta ítem por ítem.
+- Cache bust `?v=20260808`.
+
+
 ## 2026-07-19 — Auto-revive, marco de objetivo y música renovada
 
 - **Auto-revive (servidor)**: al morir, el jugador revive solo a los 30s (`REVIVE_MS`) sin

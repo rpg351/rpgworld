@@ -33,6 +33,7 @@ const COMBAT_MS = 5000;
 const POTION_CD = 3000;
 const RECALL_CD = 15000;
 const REVIVE_MS = 30000; // auto-revive delay after death (manual "Resucitar" button skips this)
+const BOARD_POST_CD = 30000; // per-player cooldown between request-board posts
 const FOUNTAIN_REGEN_R = 5; // tiles from the fountain that count as "near"
 const FOUNTAIN_HP_REGEN = 0.10; // 10%/s hp — 5x the normal 2%/s
 const FOUNTAIN_MP_REGEN = 0.12; // 12%/s mp — 4x the normal 3%/s
@@ -119,6 +120,7 @@ interface StatusHolder {
 interface Player extends StatusHolder {
   id: number; ws: WS | null; name: string; cls: string;
   lvl: number; xp: number; gold: number; pts: number;
+  abilityPts: number; abilities: Set<string>; // cleric ability tree: unspent points + unlocked ability ids
   str: number; dex: number; int: number;
   hp: number; mp: number; x: number; y: number;
   inv: (Item | null)[]; eq: Record<string, Item | null>;
@@ -154,14 +156,39 @@ interface Mob extends StatusHolder {
 interface Npc { id: number; kind: string; name: string; x: number; y: number }
 interface Loot { id: number; x: number; y: number; item: Item; exp: number }
 
+// ---------------------------------------------------------------------------
+// Cleric ability tree — passive bonuses, 1 point earned per level-up (see
+// addXp), spent via {t:"ability_alloc", id}. Deliberately scoped to class
+// "cleric" only for now; other classes' trees are a separate future task.
+// ---------------------------------------------------------------------------
+interface AbilityDef { id: string; name: string; desc: string; tier: 1 | 2 | 3 }
+const CLERIC_TREE: AbilityDef[] = [
+  { id: "vital", name: "Bendición Vital", desc: "+5% de vida máxima.", tier: 1 },
+  { id: "reserva", name: "Reserva Sagrada", desc: "+5% de maná máximo.", tier: 1 },
+  { id: "escudo", name: "Escudo de Fe", desc: "+3 de armadura.", tier: 1 },
+  { id: "resistencia", name: "Resistencia Divina", desc: "+3% de probabilidad de crítico.", tier: 1 },
+  { id: "manos", name: "Manos Curativas", desc: "+8% de poder de curación.", tier: 2 },
+  { id: "oracion_rapida", name: "Oración Rápida", desc: "-10% de enfriamiento de habilidades.", tier: 2 },
+  { id: "vigilia", name: "Vigilia", desc: "-15% de enfriamiento de pociones.", tier: 2 },
+  { id: "toque_asclepio", name: "Toque de Asclepio", desc: "+1%/s de regeneración de vida fuera de combate.", tier: 2 },
+  { id: "aura_fuente", name: "Aura de la Fuente", desc: "+2 de radio de regeneración junto a la fuente.", tier: 3 },
+  { id: "comunion", name: "Comunión", desc: "+1 de radio en las curaciones de grupo.", tier: 3 },
+];
+const CLERIC_TREE_BY_ID: Record<string, AbilityDef> = Object.fromEntries(CLERIC_TREE.map((a) => [a.id, a]));
+/** Total abilities already unlocked required before a tier becomes spendable. */
+function tierReq(tier: number): number { return tier === 1 ? 0 : tier === 2 ? 2 : 5; }
+function hasAbility(p: Player, id: string): boolean { return p.cls === "cleric" && p.abilities.has(id); }
+
 let nextEntId = 1;
 const players = new Map<string, Player>(); // online players by account name
 const mobs: Mob[] = [];
 const loot = new Map<number, Loot>();
+const boardCdUntil = new Map<number, number>(); // player id -> next allowed board_post time
 
 const npcs: Npc[] = NPC_DEFS.map((n) => ({ id: nextEntId++, kind: n.kind, name: n.name, x: n.x, y: n.y }));
 const elder = npcs[0], kora = npcs[1], bront = npcs[2];
 const portalNpc = npcs.find((n) => n.kind === "portal")!;
+const board = npcs.find((n) => n.kind === "board")!;
 
 for (const s of world.spawns) {
   const st = mobStats(s.kind, s.lvl);
@@ -189,6 +216,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS players(
 db.exec(`CREATE TABLE IF NOT EXISTS parties(
   id TEXT PRIMARY KEY,
   members TEXT NOT NULL)`);
+db.exec(`CREATE TABLE IF NOT EXISTS requests(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  author TEXT NOT NULL, text TEXT NOT NULL, created INTEGER NOT NULL)`);
 const qGet = db.query<{ name: string; pass: string; cls: string; data: string }, [string]>(
   "SELECT name, pass, cls, data FROM players WHERE name = ?1",
 );
@@ -196,6 +226,19 @@ const qInsert = db.query(
   "INSERT INTO players(name, pass, cls, data, created, seen) VALUES(?1, ?2, ?3, ?4, ?5, ?5)",
 );
 const qSave = db.query("UPDATE players SET data = ?2, seen = ?3 WHERE name = ?1");
+const qBoardInsert = db.query("INSERT INTO requests(author, text, created) VALUES(?1, ?2, ?3)");
+const qBoardList = db.query<{ id: number; author: string; text: string; created: number }, []>(
+  "SELECT id, author, text, created FROM requests ORDER BY id DESC LIMIT 50",
+);
+const qBoardFindByAuthor = db.query<{ id: number }, [string]>(
+  "SELECT id FROM requests WHERE author = ?1 LIMIT 1",
+);
+const qBoardDelete = db.query("DELETE FROM requests WHERE id = ?1");
+const qBoardUpdate = db.query("UPDATE requests SET text = ?2 WHERE id = ?1");
+const BOARD_MODS = new Set(["cansao", "cansao2"]);
+function isBoardMod(p: Player): boolean {
+  return BOARD_MODS.has(p.name.toLowerCase());
+}
 
 function serialize(p: Player): string {
   return JSON.stringify({
@@ -204,6 +247,7 @@ function serialize(p: Player): string {
     x: p.x, y: p.y, inv: p.inv, eq: p.eq, quests: p.quests,
     partyId: p.partyId,
     visitedZones: p.visitedZones,
+    abilityPts: p.abilityPts, abilities: [...p.abilities],
   });
 }
 
@@ -280,10 +324,15 @@ function derive(p: Player): Derived {
   const sv = stat === "str" ? str : stat === "dex" ? dex : int_;
   const bonus = sv * mult;
   const dm = 1 + dmgp / 100;
+  if (hasAbility(p, "escudo")) arm += 3;
+  if (hasAbility(p, "resistencia")) crit += 3;
+  let mhp = 40 + 12 * p.lvl + 3 * str + hpB;
+  let mmp = 20 + 4 * p.lvl + 3 * int_ + mpB;
+  if (hasAbility(p, "vital")) mhp *= 1.05;
+  if (hasAbility(p, "reserva")) mmp *= 1.05;
   return {
     str, dex, int: int_, arm,
-    mhp: 40 + 12 * p.lvl + 3 * str + hpB,
-    mmp: 20 + 4 * p.lvl + 3 * int_ + mpB,
+    mhp, mmp,
     lo: (lo0 + bonus) * dm, hi: (hi0 + bonus) * dm,
     crit: 5 + 0.15 * dex + crit,
   };
@@ -310,6 +359,7 @@ function sendYou(p: Player): void {
     arm: d.arm, dmg: [Math.round(d.lo), Math.round(d.hi)],
     crit: Math.round(d.crit * 10) / 10, spd: PLAYER_SPD,
     inv: p.inv, eq: p.eq, quests: p.quests, visitedZones: p.visitedZones,
+    abilityPts: p.abilityPts, abilities: [...p.abilities],
   });
   p.dirty = true;
 }
@@ -428,6 +478,7 @@ function addXp(p: Player, amount: number): void {
     p.xp -= xpNext(p.lvl);
     p.lvl++;
     p.pts += 3;
+    p.abilityPts += 1;
     leveled = true;
     sysChat(`¡${p.name} subió al nivel ${p.lvl}!`);
     bcastAt(p.x, p.y, { t: "fx", k: "level", i: p.id });
@@ -953,7 +1004,7 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
   }
 
   p.mp -= def.cost;
-  p.skillCds[n] = now + def.cd;
+  p.skillCds[n] = now + def.cd * (hasAbility(p, "oracion_rapida") ? 0.9 : 1);
   if (def.pct > 0 || hits.length) p.combatUntil = now + COMBAT_MS;
   if (fxMsg) bcastAt(p.x, p.y, fxMsg);
 
@@ -963,9 +1014,9 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
       if (pl.dead || !pl.ws) return;
       const d = derive(pl);
       const before = pl.hp;
-      const amount = def.healMissing
+      const amount = (def.healMissing
         ? Math.max(0, d.mhp - pl.hp) * def.heal!
-        : d.mhp * def.heal!;
+        : d.mhp * def.heal!) * (hasAbility(p, "manos") ? 1.08 : 1);
       pl.hp = Math.min(d.mhp, pl.hp + amount);
       if (pl.hp > before) {
         bcastAt(pl.x, pl.y, { t: "fx", k: "heal", i: pl.id });
@@ -974,7 +1025,7 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
     };
     applyHeal(p);
     if (p.party) {
-      const r = def.radius ?? 4;
+      const r = (def.radius ?? 4) + (hasAbility(p, "comunion") ? 1 : 0);
       if (def.healMostHurt) {
         // Oración: also heal the single most damaged living ally in range.
         let best: Player | null = null;
@@ -1103,6 +1154,17 @@ function checkZoneVisit(p: Player): void {
   }
 }
 
+function sendBoard(p: Player): void {
+  const rows = qBoardList.all();
+  send(p.ws, {
+    t: "board", npc: board.id, name: board.name,
+    isMod: isBoardMod(p),
+    hasActive: rows.some((r) => r.author === p.name),
+    cooldownUntil: boardCdUntil.get(p.id) ?? 0,
+    entries: rows.map((r) => ({ id: r.id, author: r.author, text: r.text, ts: r.created })),
+  });
+}
+
 function sendPortalDialog(p: Player): void {
   const destinations = Object.entries(PORTAL_WAYPOINTS).map(([id, wp]) => ({
     id,
@@ -1148,6 +1210,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
   const p: Player = {
     id: nextEntId++, ws, name, cls,
     lvl: 1, xp: 0, gold: 25, pts: 0,
+    abilityPts: 0, abilities: new Set<string>(),
     str: base.str, dex: base.dex, int: base.int,
     hp: 0, mp: 0,
     x: TOWN.x + 0.5 + (Math.random() - 0.5) * 2, y: TOWN.y + 3.5,
@@ -1203,6 +1266,13 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
     p.xp = clampInt(d.xp, 0, 10000000, 0);
     p.gold = clampInt(d.gold, 0, 100000000, 0);
     p.pts = clampInt(d.pts, 0, 3 * LEVEL_CAP, 0);
+    // Migration: legacy blobs (pre-ability-tree) have no abilityPts field —
+    // backfill retroactively (1 per level already earned) so existing
+    // clerics aren't left with an empty tree. Reset here means allocation
+    // only; p.lvl/xp/gold/inventory above are untouched.
+    p.abilityPts = clampInt(d.abilityPts ?? (cls === "cleric" ? p.lvl - 1 : 0), 0, LEVEL_CAP, 0);
+    if (Array.isArray(d.abilities))
+      for (const id of d.abilities) if (typeof id === "string" && CLERIC_TREE_BY_ID[id]) p.abilities.add(id);
     const base = CLASS_BASE[cls];
     p.str = clampInt(d.str, base.str, 200, base.str);
     p.dex = clampInt(d.dex, base.dex, 200, base.dex);
@@ -1309,6 +1379,7 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
     send(ws, {
       t: "welcome", id: player.id, name: player.name, cls: player.cls,
       skills: SKILLS[player.cls].map((s) => ({ n: s.n, name: s.name, desc: s.desc, cost: s.cost, cd: s.cd, unlock: s.unlock, kind: s.kind })),
+      abilityTree: player.cls === "cleric" ? CLERIC_TREE : [],
     });
     ws.send(MAP_MSG);
     sendYou(player);
@@ -1468,10 +1539,62 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!npc || !nearNpc(p, npc)) return;
       if (npc.kind === "elder") sendElderDialog(p);
       else if (npc.kind === "portal") sendPortalDialog(p);
+      else if (npc.kind === "board") sendBoard(p);
       else {
         send(p.ws, { t: "dialog", npc: npc.id, name: npc.name, kind: npc.kind, lines: NPC_LINES[npc.kind] });
         sendShop(p, npc);
       }
+      break;
+    }
+    case "board_post": {
+      if (p.dead) return;
+      if (!nearNpc(p, board)) return toast(p, "Debes estar junto al tablón de peticiones");
+      if (!isBoardMod(p) && qBoardFindByAuthor.get(p.name)) {
+        sendBoard(p);
+        return toast(p, "Ya tienes una petición activa — espera a que un moderador la resuelva");
+      }
+      const raw = typeof msg.text === "string" ? msg.text.trim() : "";
+      if (raw.length < 3) return toast(p, "Escribe un poco más");
+      if (raw.length > 240) return toast(p, "Máximo 240 caracteres");
+      const readyAt = boardCdUntil.get(p.id) ?? 0;
+      if (now < readyAt) return toast(p, `Espera ${Math.ceil((readyAt - now) / 1000)}s para publicar de nuevo`);
+      boardCdUntil.set(p.id, now + BOARD_POST_CD);
+      qBoardInsert.run(p.name, raw, now);
+      sendBoard(p);
+      toast(p, "Petición publicada — ¡gracias!");
+      break;
+    }
+    case "board_delete": {
+      if (p.dead) return;
+      if (!isBoardMod(p)) return toast(p, "No tienes permiso para borrar peticiones");
+      const id = num(msg.id);
+      if (id == null) return;
+      qBoardDelete.run(id);
+      sendBoard(p);
+      break;
+    }
+    case "board_edit": {
+      if (p.dead) return;
+      if (!isBoardMod(p)) return toast(p, "No tienes permiso para editar peticiones");
+      const id = num(msg.id);
+      const raw = typeof msg.text === "string" ? msg.text.trim() : "";
+      if (id == null || raw.length < 3 || raw.length > 240) return;
+      qBoardUpdate.run(id, raw);
+      sendBoard(p);
+      break;
+    }
+    case "ability_alloc": {
+      if (p.dead) return;
+      if (p.cls !== "cleric") return toast(p, "Tu clase aún no tiene árbol de habilidades");
+      const id = typeof msg.id === "string" ? msg.id : "";
+      const def = CLERIC_TREE_BY_ID[id];
+      if (!def) return;
+      if (p.abilities.has(id)) return toast(p, "Ya tienes esa habilidad");
+      if (p.abilityPts < 1) return toast(p, "No tienes puntos de habilidad");
+      if (p.abilities.size < tierReq(def.tier)) return toast(p, "Necesitas desbloquear más habilidades antes");
+      p.abilities.add(id);
+      p.abilityPts -= 1;
+      sendYou(p);
       break;
     }
     case "buy": {
@@ -1505,6 +1628,25 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.gold += gain;
       p.inv[slot] = null;
       toast(p, `Vendiste ${it.name} por ${gain} de oro`);
+      sendYou(p);
+      break;
+    }
+    case "sell_all": {
+      if (p.dead) return;
+      const rarity = typeof msg.rarity === "string" ? msg.rarity : "";
+      if (rarity !== "common" && rarity !== "magic" && rarity !== "rare") return;
+      if (!nearNpc(p, kora) && !nearNpc(p, bront)) return toast(p, "No hay ningún mercader cerca");
+      let gain = 0, count = 0;
+      for (let i = 0; i < INV_SIZE; i++) {
+        const it = p.inv[i];
+        if (!it || it.slot === "quest" || it.rarity !== rarity) continue;
+        gain += Math.floor(it.val / 4) * (it.qty ?? 1);
+        count++;
+        p.inv[i] = null;
+      }
+      if (count === 0) return toast(p, "No tienes objetos de esa rareza para vender");
+      p.gold += gain;
+      toast(p, `Vendiste ${count} objeto${count === 1 ? "" : "s"} por ${gain} de oro`);
       sendYou(p);
       break;
     }
@@ -1570,7 +1712,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const d = derive(p);
       if (def.pool === "hp") p.hp = Math.min(d.mhp, p.hp + d.mhp * def.heal);
       else p.mp = Math.min(d.mmp, p.mp + d.mmp * def.heal);
-      p.potCdUntil = now + POTION_CD;
+      p.potCdUntil = now + POTION_CD * (hasAbility(p, "vigilia") ? 0.85 : 1);
       it.qty = (it.qty ?? 1) - 1;
       if (it.qty <= 0) p.inv[slot] = null;
       bcastAt(p.x, p.y, { t: "fx", k: "heal", i: p.id });
@@ -1833,12 +1975,13 @@ function simTick(): void {
     // damage) both rates jump to a fast blanket regen regardless of combat.
     const d = derive(p);
     const inCombat = now < p.combatUntil;
-    const nearFountain = dist(p.x, p.y, FOUNTAIN.x, FOUNTAIN.y) <= FOUNTAIN_REGEN_R;
+    const nearFountain = dist(p.x, p.y, FOUNTAIN.x, FOUNTAIN.y) <= FOUNTAIN_REGEN_R + (hasAbility(p, "aura_fuente") ? 2 : 0);
     if (nearFountain) {
       if (p.hp < d.mhp) p.hp = Math.min(d.mhp, p.hp + d.mhp * FOUNTAIN_HP_REGEN * dt);
       if (p.mp < d.mmp) p.mp = Math.min(d.mmp, p.mp + d.mmp * FOUNTAIN_MP_REGEN * dt);
     } else {
-      if (!inCombat && p.hp < d.mhp) p.hp = Math.min(d.mhp, p.hp + d.mhp * 0.02 * dt);
+      const hpRegenPct = 0.02 + (hasAbility(p, "toque_asclepio") ? 0.01 : 0);
+      if (!inCombat && p.hp < d.mhp) p.hp = Math.min(d.mhp, p.hp + d.mhp * hpRegenPct * dt);
       if (p.mp < d.mmp) p.mp = Math.min(d.mmp, p.mp + d.mmp * (inCombat ? 0.01 : 0.03) * dt);
     }
 
