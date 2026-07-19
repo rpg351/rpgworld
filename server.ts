@@ -32,6 +32,7 @@ const INV_SIZE = 24;
 const COMBAT_MS = 5000;
 const POTION_CD = 3000;
 const RECALL_CD = 15000;
+const REVIVE_MS = 30000; // auto-revive delay after death (manual "Resucitar" button skips this)
 const FOUNTAIN_REGEN_R = 5; // tiles from the fountain that count as "near"
 const FOUNTAIN_HP_REGEN = 0.10; // 10%/s hp — 5x the normal 2%/s
 const FOUNTAIN_MP_REGEN = 0.12; // 12%/s mp — 4x the normal 3%/s
@@ -127,7 +128,7 @@ interface Player extends StatusHolder {
   vel: { x: number; y: number } | null; // WASD velocity (normalized), overrides path/chase
   atkTarget: number | null; lootTarget: number | null; nextAtk: number; repathAt: number;
   skillCds: number[]; potCdUntil: number; combatUntil: number; recallCdUntil: number;
-  dead: boolean; lastChat: number; dirty: boolean;
+  dead: boolean; deadAt: number; lastChat: number; dirty: boolean;
   visitedZones: string[]; // portal destinations unlocked by visiting regions
   party: Party | null; partyId: string | null; // live party + durable id (survives logout/restart)
   invites: Map<string, number>; // invitaciones pendientes (nombre → expira)
@@ -482,6 +483,7 @@ function mobDie(m: Mob, killer: Player): void {
 
 function playerDie(p: Player): void {
   p.dead = true;
+  p.deadAt = Date.now();
   p.hp = 0;
   p.path = null;
   p.direct = null;
@@ -489,7 +491,22 @@ function playerDie(p: Player): void {
   p.atkTarget = null;
   p.lootTarget = null;
   p.moving = false;
-  send(p.ws, { t: "dead" });
+  send(p.ws, { t: "dead", reviveAt: p.deadAt + REVIVE_MS });
+}
+
+// Shared by the manual "Resucitar" button and the 30s auto-revive tick.
+function revivePlayer(p: Player): void {
+  p.dead = false;
+  p.deadAt = 0;
+  p.x = TOWN.x + 0.5 + (Math.random() - 0.5) * 2;
+  p.y = TOWN.y + 3.5;
+  const d = derive(p);
+  p.hp = d.mhp;
+  p.mp = d.mmp;
+  p.gold = Math.floor(p.gold * 0.9);
+  p.combatUntil = 0;
+  p.slowUntil = 0;
+  p.stunUntil = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -1140,7 +1157,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     visitedZones: ["helike"],
     path: null, direct: null, vel: null, atkTarget: null, lootTarget: null, nextAtk: 0, repathAt: 0,
     skillCds: [0, 0, 0, 0, 0], potCdUntil: 0, combatUntil: 0, recallCdUntil: 0,
-    dead: false, lastChat: 0, dirty: true, seen: new Set(),
+    dead: false, deadAt: 0, lastChat: 0, dirty: true, seen: new Set(),
     party: null, partyId: null, invites: new Map(), disconnectedAt: null, followId: null,
     followStuck: 0,
     slowUntil: 0, slowPct: 0, stunUntil: 0, lastAtk: 0, moving: false, d: 0,
@@ -1297,7 +1314,7 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
     sendYou(player);
     // Reconnecting while dead used to hide the revive UI (welcome clears it) and never
     // re-send {t:"dead"}, leaving the player invisible/stuck with no Resucitar button.
-    if (player.dead) send(ws, { t: "dead" });
+    if (player.dead) send(ws, { t: "dead", reviveAt: player.deadAt + REVIVE_MS });
     // Test-only: drop a potion ~8 tiles east so loot-chase can be verified without a kill.
     if (process.env.RPG_TEST_LOOT === "1") {
       let dx = 8, dy = 0;
@@ -1703,16 +1720,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "respawn": {
       if (!p.dead) return;
-      p.dead = false;
-      p.x = TOWN.x + 0.5 + (Math.random() - 0.5) * 2;
-      p.y = TOWN.y + 3.5;
-      const d = derive(p);
-      p.hp = d.mhp;
-      p.mp = d.mmp;
-      p.gold = Math.floor(p.gold * 0.9);
-      p.combatUntil = 0;
-      p.slowUntil = 0;
-      p.stunUntil = 0;
+      revivePlayer(p);
       sendYou(p);
       break;
     }
@@ -1811,7 +1819,13 @@ function simTick(): void {
   for (const p of players.values()) {
     if (!p.ws) continue;
     p.moving = false;
-    if (p.dead) continue;
+    if (p.dead) {
+      if (now >= p.deadAt + REVIVE_MS) {
+        revivePlayer(p);
+        sendYou(p);
+      }
+      continue;
+    }
     checkZoneVisit(p);
 
     // Regen: 2%/s hp + 3%/s mp out of combat (5s), 1%/s mp in combat. Near

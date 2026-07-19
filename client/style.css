@@ -78,6 +78,14 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--ink);
   font-size:34px;letter-spacing:6px;color:var(--bronze-bright);
   text-shadow:0 0 24px rgba(200,147,59,.5),0 2px 4px #000;opacity:0;transition:opacity .8s}
 #zoneBanner.show{opacity:1}
+#targetFrame{position:absolute;top:14px;left:50%;transform:translateX(-50%);width:220px;
+  text-align:center;pointer-events:none;z-index:15}
+#targetFrame.hidden{display:none}
+#targetName{font-size:14px;letter-spacing:1.5px;color:var(--ink);text-shadow:0 1px 3px #000;margin-bottom:3px}
+#targetName.boss{color:#ff9a5e}
+.target-bar{height:10px;background:#14100a;border:1px solid var(--edge);border-radius:5px;overflow:hidden;
+  box-shadow:0 2px 6px rgba(0,0,0,.5)}
+#targetFill{height:100%;width:0;background:linear-gradient(90deg,#8c231a,var(--blood));transition:width .2s ease}
 #toasts{position:absolute;top:26%;left:0;right:0;text-align:center;pointer-events:none}
 .toast{display:inline-block;clear:both;margin:3px auto;padding:5px 16px;background:rgba(20,15,8,.85);
   border:1px solid var(--edge);border-radius:3px;color:var(--ink);font-size:14px;
@@ -244,6 +252,7 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .overlay-title{font-size:46px;letter-spacing:8px;color:var(--blood);
   text-shadow:0 0 30px rgba(168,53,43,.6),0 2px 4px #000}
 .overlay-title.small{font-size:24px;color:var(--bronze);letter-spacing:4px}
+#reviveCountdown{color:var(--ink-dim);font-size:13px;letter-spacing:.5px;margin-bottom:16px}
 #respawnBtn{padding:12px 34px;font:17px Georgia,serif;letter-spacing:2px;color:#1a1206;
   background:linear-gradient(180deg,var(--bronze-bright),var(--bronze));
   border:1px solid #5c4416;border-radius:4px;cursor:pointer}

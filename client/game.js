@@ -53,6 +53,7 @@ var S = {
   cds: [0, 0, 0, 0],
   lastSkill: 0,
   dead: false,
+  reviveAt: 0,
   zoneName: "",
   shopOpen: false,
   shopNpc: 0,
@@ -147,6 +148,7 @@ function handle(m) {
       S.dir = { x: 0, y: 0 };
       S.followId = null;
       S.dead = false;
+      S.reviveAt = 0;
       $("deathOverlay").classList.add("hidden");
       enterGame();
       break;
@@ -183,6 +185,7 @@ function handleWorld(m) {
         if (ov) ov.classList.remove("hidden");
       } else if (S.dead && typeof m.hp === "number" && m.hp > 0) {
         S.dead = false;
+        S.reviveAt = 0;
         const ov = $("deathOverlay");
         if (ov) ov.classList.add("hidden");
       }
@@ -275,6 +278,7 @@ function handleWorld(m) {
       break;
     case "dead": {
       S.dead = true;
+      S.reviveAt = typeof m.reviveAt === "number" ? m.reviveAt : 0;
       stopMove();
       const ov = $("deathOverlay");
       if (ov) ov.classList.remove("hidden");
@@ -1959,7 +1963,29 @@ function drawFloats(t) {
   }
   ctx.globalAlpha = 1;
 }
+function updateReviveCountdown() {
+  const el = $("reviveCountdown");
+  if (!el) return;
+  if (!S.dead || !S.reviveAt) {
+    el.textContent = "";
+    return;
+  }
+  const secs = Math.max(0, Math.ceil((S.reviveAt - Date.now()) / 1000));
+  el.textContent = secs > 0 ? `Revives automáticamente en ${secs}s` : "Revives en un instante…";
+}
 
+function updateTargetFrame() {
+  const tf = $("targetFrame");
+  const E = S.targetId ? S.ents.get(S.targetId) : null;
+  if (!isEnemyEnt(E, S.targetId) || E.h <= 0) {
+    if (!tf.classList.contains("hidden")) tf.classList.add("hidden");
+    return;
+  }
+  tf.classList.remove("hidden");
+  $("targetName").textContent = `${E.n || E.k} · Nv ${E.l}`;
+  $("targetName").classList.toggle("boss", E.k === "cyclops" || E.k === "minotaur");
+  $("targetFill").style.width = Math.max(0, 100 * E.h / (E.H || 1)) + "%";
+}
 function isEnemyEnt(E, id) {
   return E && !E.dieT && id !== S.myId && !PLAYER_KINDS[E.k] && !NPC_KINDS[E.k];
 }
@@ -2051,6 +2077,8 @@ function frame() {
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, VW, VH);
   updateHover();
+  updateTargetFrame();
+  updateReviveCountdown();
   drawOrbs(t);
   drawSkillCooldowns(t);
   drawMinimapDots();
