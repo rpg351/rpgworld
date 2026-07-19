@@ -18,7 +18,7 @@
   const PENTA_MIN = [1, 6/5, 4/3, 3/2, 9/5, 2, 12/5];
   const SONG_BARS = 32;
 
-  // 12 songs — distinct root / mode / tempo / motif / texture. Auto-rotates.
+  // 18 songs — distinct root / mode / tempo / motif / texture. Auto-rotates.
   const SONGS = [
     { name: "Amanecer en Helike", beat: 0.58, root: 146.83, scale: AEOLIAN, fifth: 1.5,
       pad: 0.034, pluck: 0.045, sparkle: 0.012, perc: 0.01, percOff: true,
@@ -35,27 +35,53 @@
     { name: "Marcha de Polifemo", beat: 0.42, root: 98.00, scale: MIXOLYD, fifth: 1.5,
       pad: 0.03, pluck: 0.055, sparkle: 0.0, perc: 0.018, percOff: true,
       motif: [0,0,4,4, 5,5,4,-1, 3,3,2,2, 0,0,0,-1], bars: 28, filter: 780 },
-    { name: "Himno de la Fuente", beat: 0.70, root: 174.61, scale: IONIAN, fifth: 1.5,
-      pad: 0.032, pluck: 0.04, sparkle: 0.018, perc: 0.006,
-      motif: [0,2,4,7, 5,4,2,0, 4,5,7,5, 4,2,0,4], bars: 36, filter: 1200, shimmer: 0.014, shimmerDeg: 4 },
+    // Reworked — was a plain scale-run hymn; now slower, sparser, with an
+    // octave leap and rests so it reads as solemn rather than sing-song.
+    { name: "Himno de la Fuente", beat: 0.78, root: 174.61, scale: IONIAN, fifth: 1.5,
+      pad: 0.034, pluck: 0.032, sparkle: 0.014, perc: 0.0,
+      motif: [0,-1,7,4, 9,-1,7,5, 2,-1,9,7, 5,4,-1,0], bars: 32, filter: 1000, shimmer: 0.012, shimmerDeg: 4 },
     { name: "Vigilia Nocturna", beat: 0.62, root: 123.47, scale: DORIAN, fifth: 1.5,
       pad: 0.038, pluck: 0.036, sparkle: 0.01, perc: 0.007,
       motif: [4,2,0,2, 5,4,2,0, 7,5,4,2, 0,2,4,5], bars: 32, filter: 820, pluckType: "sine" },
-    { name: "Cacería de Artemisa", beat: 0.38, root: 196.00, scale: PENTA_MIN, fifth: 1.5,
-      pad: 0.022, pluck: 0.055, sparkle: 0.02, perc: 0.016, percOff: true,
-      motif: [0,2,4,2, 0,4,5,4, 2,0,2,4, 5,4,2,0], bars: 24, filter: 1400, padType: "triangle" },
-    { name: "Luz de Asclepio", beat: 0.66, root: 155.56, scale: LYDIAN, fifth: 1.5,
-      pad: 0.034, pluck: 0.04, sparkle: 0.016, perc: 0.005,
-      motif: [0,3,4,7, 4,3,0,2, 5,4,7,5, 4,3,0,4], bars: 36, filter: 1100, shimmer: 0.016, shimmerDeg: 3 },
+    // Reworked — was a bouncy pentatonic chase riff; now syncopated with
+    // rests and wide leaps for a predatory, uneven stalking feel.
+    { name: "Cacería de Artemisa", beat: 0.34, root: 196.00, scale: PENTA_MIN, fifth: 1.5,
+      pad: 0.02, pluck: 0.05, sparkle: 0.014, perc: 0.02, percOff: true,
+      motif: [0,-1,7,4, -1,9,4,-1, 7,2,-1,9, 4,-1,2,7], bars: 24, filter: 1200, pluckType: "sawtooth" },
+    // Reworked — was a bright arpeggio shrine tune; now slower with a
+    // droning fifth and sparse, unevenly-spaced tones for a mystic feel.
+    { name: "Luz de Asclepio", beat: 0.9, root: 155.56, scale: LYDIAN, fifth: 1.5,
+      pad: 0.038, pluck: 0.03, sparkle: 0.018, perc: 0.0,
+      motif: [0,-1,-1,4, -1,7,-1,-1, 5,-1,9,-1, -1,4,-1,-1], bars: 32, filter: 1050, shimmer: 0.018, shimmerDeg: 3 },
     { name: "Brisa del Puerto", beat: 0.54, root: 138.59, scale: MIXOLYD, fifth: 1.498,
       pad: 0.03, pluck: 0.048, sparkle: 0.014, perc: 0.011, percOff: true,
       motif: [0,4,5,4, 2,0,2,4, 7,5,4,2, 0,2,4,0], bars: 28, filter: 980 },
     { name: "Eco del Titán", beat: 0.48, root: 87.31, scale: PHRYGIAN, fifth: 1.5,
       pad: 0.042, pluck: 0.04, sparkle: 0.006, perc: 0.015,
       motif: [0,1,0,4, 3,1,0,5, 4,3,1,0, 4,5,3,0], bars: 32, filter: 600, padType: "triangle" },
-    { name: "Descanso del Héroe", beat: 0.72, root: 185.00, scale: IONIAN, fifth: 1.5,
-      pad: 0.036, pluck: 0.035, sparkle: 0.012, perc: 0.004,
-      motif: [0,2,4,5, 4,2,0,-1, 4,5,7,5, 4,2,0,2], bars: 40, filter: 1050, shimmer: 0.015, shimmerDeg: 2 },
+    // Reworked — was a lullaby-plain rest theme; now leans on a sustained
+    // pad and a sparse, wide-interval motif instead of a walked scale.
+    { name: "Descanso del Héroe", beat: 0.85, root: 185.00, scale: IONIAN, fifth: 1.5,
+      pad: 0.04, pluck: 0.026, sparkle: 0.01, perc: 0.0,
+      motif: [0,-1,-1,5, -1,-1,4,-1, -1,7,-1,-1, 2,-1,0,-1], bars: 36, filter: 900, shimmer: 0.013, shimmerDeg: 2 },
+    { name: "Sombra de Circe", beat: 0.56, root: 116.54, scale: PHRYGIAN, fifth: 1.5,
+      pad: 0.038, pluck: 0.044, sparkle: 0.01, perc: 0.009, padType: "triangle",
+      motif: [0,3,1,-1, 4,3,5,1, 0,-1,4,3, 1,5,3,0], bars: 32, filter: 700, pluckType: "sawtooth" },
+    { name: "Forja de Hefesto", beat: 0.4, root: 92.50, scale: MIXOLYD, fifth: 1.5,
+      pad: 0.026, pluck: 0.058, sparkle: 0.0, perc: 0.022, percOff: true,
+      motif: [0,4,0,4, 3,-1,3,-1, 5,4,2,0, 4,-1,0,-1], bars: 28, filter: 680 },
+    { name: "Lamento de las Nereidas", beat: 0.72, root: 130.81, scale: AEOLIAN, fifth: 1.5,
+      pad: 0.04, pluck: 0.03, sparkle: 0.016, perc: 0.0, pluckType: "sine",
+      motif: [0,-1,3,5, -1,7,5,3, -1,2,0,-1, 3,5,3,0], bars: 36, filter: 760, shimmer: 0.014, shimmerDeg: 3 },
+    { name: "Trueno de Zeus", beat: 0.36, root: 82.41, scale: MIXOLYD, fifth: 1.5,
+      pad: 0.03, pluck: 0.05, sparkle: 0.0, perc: 0.024, percOff: true,
+      motif: [0,7,4,7, 5,-1,5,7, 3,7,2,7, 0,-1,0,7], bars: 28, filter: 620 },
+    { name: "Umbral del Inframundo", beat: 0.6, root: 73.42, scale: PHRYGIAN, fifth: 1.498,
+      pad: 0.044, pluck: 0.032, sparkle: 0.004, perc: 0.012, padType: "triangle",
+      motif: [0,-1,1,-1, 4,-1,3,-1, 0,1,0,-1, 5,4,1,0], bars: 32, filter: 520 },
+    { name: "Coro de las Musas", beat: 0.66, root: 164.81, scale: LYDIAN, fifth: 1.5,
+      pad: 0.032, pluck: 0.036, sparkle: 0.02, perc: 0.006, padType: "triangle",
+      motif: [0,4,7,9, 7,4,-1,5, 9,7,4,2, -1,0,4,-1], bars: 32, filter: 1150, shimmer: 0.016, shimmerDeg: 4 },
   ];
 
   class AudioEngine {
@@ -105,12 +131,13 @@
     }
 
     setMuted(m) {
-      this.muted = __omp_shell("!m;")
+      this.muted = m;
       localStorage.setItem(LS_MUTE, this.muted ? "1" : "0");
       this._applyGains();
       if (this.muted) this.stopMusic();
       else if (this.unlocked) this.startMusic();
       this._updateMuteBtn();
+      this._updateSongLabel();
     }
 
     toggleMute() {
@@ -130,6 +157,18 @@
       btn.textContent = this.muted ? "🔇" : "🔊";
       btn.title = this.muted ? "Activar sonido" : "Silenciar";
       btn.setAttribute("aria-pressed", this.muted ? "true" : "false");
+    }
+
+    _updateSongLabel() {
+      const el = document.getElementById("songLabel");
+      if (!el) return;
+      if (this.muted || !this.musicOn) {
+        el.classList.remove("show");
+        return;
+      }
+      const song = SONGS[this._songIdx % SONGS.length];
+      el.textContent = "♪ " + song.name;
+      el.classList.add("show");
     }
 
     _env(g, t0, a, d, s, r, peak = 1) {
@@ -176,13 +215,14 @@
       return true;
     }
 
-    // ---- music: 12 distinct procedural songs, auto-rotate ----
+    // ---- music: 18 distinct procedural songs, auto-rotate ----
     startMusic() {
       if (!this.ctx || this.muted || this.musicOn) return;
       this.musicOn = true;
       this._beat = 0;
       this._songBars = 0;
       this._songIdx = Math.floor(Math.random() * SONGS.length);
+      this._updateSongLabel();
       this._scheduleMusic();
     }
 
@@ -192,6 +232,7 @@
         clearTimeout(this._musicTimer);
         this._musicTimer = null;
       }
+      this._updateSongLabel();
     }
 
     _nextSong() {
@@ -202,6 +243,7 @@
       this._songIdx = n;
       this._beat = 0;
       this._songBars = 0;
+      this._updateSongLabel();
     }
 
     _scheduleMusic() {
