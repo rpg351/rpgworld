@@ -166,6 +166,10 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--ink);
 #abilityPanel{left:300px;top:180px;width:460px;max-height:min(70vh,560px);overflow-y:auto}
 #dialogPanel{left:50%;transform:translateX(-50%);width:400px}
 #shopPanel{right:336px;top:180px;width:300px}
+#stashPanel{right:336px;top:180px;width:308px}
+#petPanel{right:336px;top:180px;width:300px}
+#stashGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:5px}
+#stashGrid .inv-slot.full{cursor:pointer}
 #menuPanel{left:50%;top:100px;transform:translateX(-50%);width:340px}
 .menu-tabs{display:flex;gap:6px;margin-bottom:10px}
 .menu-tab{flex:1;padding:6px 8px;font:12px Georgia,serif;letter-spacing:.5px;cursor:pointer;
@@ -210,9 +214,15 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--ink);
 .board-mod-btn:hover{border-color:var(--bronze-dim);color:var(--bronze-bright)}
 .board-mod-btn.danger:hover{border-color:var(--blood);color:var(--blood)}
 .panel-title{font-size:16px;color:var(--bronze-bright);letter-spacing:2px;margin-bottom:10px;
-  padding-bottom:6px;border-bottom:1px solid var(--edge)}
+  padding-bottom:6px;border-bottom:1px solid var(--edge);cursor:grab;user-select:none}
+.panel-title:active{cursor:grabbing}
+.panel.dragging{opacity:.9}
 .panel-x{float:right;cursor:pointer;color:var(--ink-dim);font-size:13px;padding:0 4px}
 .panel-x:hover{color:var(--blood)}
+.panel-collapse{float:right;cursor:pointer;color:var(--ink-dim);font-size:13px;padding:0 8px 0 4px}
+.panel-collapse:hover{color:var(--bronze-bright)}
+.panel.collapsed{max-height:none;overflow:visible}
+.panel.collapsed>*:not(.panel-title){display:none}
 
 /* Inventory */
 #eqGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
@@ -268,6 +278,7 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 #charBody .plus:hover{filter:brightness(1.15)}
 #charBody .derived{margin-top:10px;padding-top:8px;border-top:1px solid var(--edge);color:var(--ink-dim)}
 #charBody .pts{color:var(--rare);margin:6px 0}
+#charBody .char-reset-btn{margin-top:8px;width:100%;cursor:pointer}
 
 /* Quests */
 .quest{margin-bottom:12px}
@@ -277,7 +288,10 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .q-prog{height:8px;background:#14100a;border:1px solid var(--edge);border-radius:4px;overflow:hidden}
 .q-prog div{height:100%;background:linear-gradient(90deg,#4c6e35,#7ba14f)}
 .q-prog-label{font-size:11px;color:var(--ink-dim);margin-top:2px}
-.ability-pts{font-size:13px;color:var(--bronze-bright);margin:-4px 0 10px;letter-spacing:.3px}
+.ability-pts-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-4px 0 10px}
+.ability-pts{font-size:13px;color:var(--bronze-bright);letter-spacing:.3px}
+.ability-pts-row .ability-pts{margin:0}
+.ability-pts-row .btn.ghost{cursor:pointer;font-size:11px;padding:3px 8px;flex-shrink:0}
 .ability-empty{font-size:13px;color:var(--ink-dim);text-align:center;padding:14px 0}
 .ability-req{font-size:11px;color:var(--blood);font-style:italic;text-align:center}
 .ability-btn{font-size:12px;padding:3px 12px}
@@ -290,8 +304,8 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
   box-shadow:0 0 4px rgba(200,147,59,.4)}
 .ability-max{font-size:11px;color:var(--rare);font-style:italic;text-align:center}
 
-/* Ability tree: tier rows stack bottom-to-top (tier 1 at the bottom), each
-   node a circular icon card connected up to the gate of the tier above it. */
+/* Ability tree: tier rows stack top-to-bottom (tier 1 first), each
+   node a circular icon card connected up to the gate of the tier below it. */
 .ability-tree{display:flex;flex-direction:column;align-items:stretch}
 .ability-tier-row{display:flex;flex-wrap:wrap;justify-content:center;gap:14px 16px;padding:6px 0}
 .ability-gate{position:relative;text-align:center;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
@@ -300,8 +314,8 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .ability-node{width:92px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:3px}
 .ability-node.locked{opacity:.45}
 .ability-node.owned .node-name{color:#e8d9a8}
-.ability-tier-row:not([data-tier="3"]) .node-circle{position:relative}
-.ability-tier-row:not([data-tier="3"]) .node-circle::before{content:"";position:absolute;left:50%;top:-16px;
+.ability-tier-row:not([data-tier="1"]) .node-circle{position:relative}
+.ability-tier-row:not([data-tier="1"]) .node-circle::before{content:"";position:absolute;left:50%;top:-16px;
   width:2px;height:16px;margin-left:-1px;background:var(--edge)}
 .ability-node.owned .node-circle::before{background:var(--bronze-dim)}
 .node-circle{position:relative;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;

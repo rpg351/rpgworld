@@ -4,11 +4,11 @@
 // ---------------------------------------------------------------------------
 // Classes & skills
 // ---------------------------------------------------------------------------
-export const CLASS_BASE: Record<string, { str: number; dex: number; int: number }> = {
-  warrior: { str: 10, dex: 6, int: 4 },
-  hunter: { str: 6, dex: 10, int: 4 },
-  mage: { str: 4, dex: 6, int: 10 },
-  cleric: { str: 6, dex: 5, int: 9 },
+export const CLASS_BASE: Record<string, { str: number; dex: number; int: number; primaryStat: "str" | "dex" | "int" }> = {
+  warrior: { str: 10, dex: 6, int: 4, primaryStat: "str" },
+  hunter: { str: 6, dex: 10, int: 4, primaryStat: "dex" },
+  mage: { str: 4, dex: 6, int: 10, primaryStat: "int" },
+  cleric: { str: 6, dex: 5, int: 9, primaryStat: "int" },
 };
 
 export interface SkillDef {
@@ -216,16 +216,19 @@ export const MOB_DEFS: Record<string, MobDef> = {
   hydra: { spd: 4.0, aggro: 12, range: 2.0, cd: 1900, hpM: 1, dmgM: 1 },
 };
 
+// Fixed combat stats for unique bosses (independent of the generic level formula below).
+const BOSS_STATS: Record<string, { mhp: number; lo: number; hi: number; arm: number; xp: number; goldBase: number; goldRange: number }> = {
+  cyclops: { mhp: 3200, lo: 26, hi: 38, arm: 40, xp: 900, goldBase: 120, goldRange: 80 },
+  minotaur: { mhp: 5200, lo: 34, hi: 48, arm: 52, xp: 1600, goldBase: 220, goldRange: 120 },
+  // Jefe del pantano (nivel 25): ~1.5x la vida del minotauro, golpea más fuerte.
+  hydra: { mhp: 7800, lo: 46, hi: 66, arm: 66, xp: 2600, goldBase: 320, goldRange: 180 },
+};
+
 /** Derived monster combat stats by kind+level. */
 export function mobStats(kind: string, lvl: number) {
   const d = MOB_DEFS[kind];
-  if (kind === "cyclops")
-    return { mhp: 3200, lo: 26, hi: 38, arm: 40, xp: 900, gold: () => 120 + Math.floor(Math.random() * 80) };
-  if (kind === "minotaur")
-    return { mhp: 5200, lo: 34, hi: 48, arm: 52, xp: 1600, gold: () => 220 + Math.floor(Math.random() * 120) };
-  if (kind === "hydra")
-    // Jefe del pantano (nivel 25): ~1.5x la vida del minotauro, golpea más fuerte.
-    return { mhp: 7800, lo: 46, hi: 66, arm: 66, xp: 2600, gold: () => 320 + Math.floor(Math.random() * 180) };
+  const b = BOSS_STATS[kind];
+  if (b) return { mhp: b.mhp, lo: b.lo, hi: b.hi, arm: b.arm, xp: b.xp, gold: () => b.goldBase + Math.floor(Math.random() * b.goldRange) };
   const mhp = Math.round((16 + 13 * lvl) * d.hpM);
   const lo = Math.round((2 + 1.7 * lvl) * d.dmgM);
   return {
@@ -411,6 +414,16 @@ export function makeQuestItem(base: string): Item {
 }
 
 // ---------------------------------------------------------------------------
+// Pets (purely cosmetic followers, bought from the pet-shop NPC)
+// ---------------------------------------------------------------------------
+export const PET_DEFS: Record<string, { name: string; cost: number }> = {
+  dog: { name: "Perro", cost: 150 },
+  cat: { name: "Gato", cost: 150 },
+  owl: { name: "Búho", cost: 300 },
+  turtle: { name: "Tortuga", cost: 250 },
+};
+
+// ---------------------------------------------------------------------------
 // Quests (chain: each requires the previous turned in)
 // ---------------------------------------------------------------------------
 export interface QuestDef {
@@ -457,7 +470,7 @@ export const NPC_LINES: Record<string, string[]> = {
     "Recién llegado de las caravanas de Corinto... bueno, bastante fresco.",
   ],
   portal: [
-    "Esta piedra antigua abre caminos a las regiones que ya has pisado.",
+    "Este portal antiguo abre caminos a las regiones que ya has pisado.",
     "Toca un destino para viajar al instante. Helike siempre está disponible.",
   ],
   smith: [

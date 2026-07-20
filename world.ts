@@ -46,7 +46,10 @@ export const NPC_DEFS = [
   { kind: "elder", name: "Nikandros", x: 30.5, y: 76.5 },
   { kind: "merchant", name: "Kora", x: 26.5, y: 83.5 },
   { kind: "smith", name: "Bront", x: 34.5, y: 83.5 },
-  { kind: "portal", name: "Piedra de tránsito", x: 22.5, y: 78.5 },
+  { kind: "portal", name: "Portal", x: 25.5, y: 78.5 },
+  { kind: "board", name: "Tablón", x: 30.5, y: 87.5 },
+  { kind: "stash", name: "Cofre", x: 34.5, y: 78.5 },
+  { kind: "petshop", name: "Criadero", x: 30.5, y: 83.5 },
 ];
 
 
@@ -96,6 +99,22 @@ export function inRect(
   r: { x0: number; y0: number; x1: number; y1: number },
 ): boolean {
   return x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1;
+}
+
+/** Carve a ring of rocks (radius 8.5-10) around a boss point, clearing the interior. */
+function carveRockRing(
+  g: string[][],
+  cx: number,
+  cy: number,
+  opts: { keepWall?: boolean; clearWater?: boolean } = {},
+): void {
+  for (let y = cy - 11; y <= cy + 11; y++)
+    for (let x = cx - 11; x <= cx + 11; x++) {
+      if (x < 1 || x >= W - 1 || y < 1 || y >= H - 1) continue;
+      const d = Math.hypot(x - cx, y - cy);
+      if (d >= 8.5 && d < 10 && (!opts.keepWall || g[y][x] !== "w")) g[y][x] = "r";
+      else if (d < 8.5 && (g[y][x] === "r" || g[y][x] === "t" || (opts.clearWater && g[y][x] === "w"))) g[y][x] = "g";
+    }
 }
 
 export function buildWorld(): World {
@@ -151,13 +170,7 @@ export function buildWorld(): World {
 
   // --- Cyclops arena: ring of rocks around the boss (road cuts the gap) ---
   const AC = { x: 145, y: 115 };
-  for (let y = AC.y - 11; y <= AC.y + 11; y++)
-    for (let x = AC.x - 11; x <= AC.x + 11; x++) {
-      if (x < 1 || x >= W - 1 || y < 1 || y >= H - 1) continue;
-      const d = Math.hypot(x - AC.x, y - AC.y);
-      if (d >= 8.5 && d < 10 && g[y][x] !== "w") g[y][x] = "r";
-      else if (d < 8.5 && (g[y][x] === "r" || g[y][x] === "t")) g[y][x] = "g";
-    }
+  carveRockRing(g, AC.x, AC.y, { keepWall: true });
 
   // --- scattered trees & rocks (never over town, water, walls, floors) ---
   const OG = ZONES[0];
@@ -282,13 +295,7 @@ export function buildWorld(): World {
     }
   // Guarida de la Hidra: anillo de rocas; el espolón del camino corta la entrada.
   const HA = { x: Math.floor(BOSS3_POS.x), y: Math.floor(BOSS3_POS.y) };
-  for (let y = HA.y - 11; y <= HA.y + 11; y++)
-    for (let x = HA.x - 11; x <= HA.x + 11; x++) {
-      if (x < 1 || x >= W - 1 || y < 1 || y >= H - 1) continue;
-      const d = Math.hypot(x - HA.x, y - HA.y);
-      if (d >= 8.5 && d < 10) g[y][x] = "r";
-      else if (d < 8.5 && (g[y][x] === "r" || g[y][x] === "t" || g[y][x] === "w")) g[y][x] = "g";
-    }
+  carveRockRing(g, HA.x, HA.y, { clearWater: true });
   // Caminos del este (tallados al final, como en la franja clásica): la vía
   // principal continúa hacia el este y cruza la vieja orilla (x 157-159) como
   // un vado; el ramal del laberinto se prolonga por el norte; un espolón baja

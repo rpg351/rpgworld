@@ -5,7 +5,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ServerWebSocket } from "bun";
 import {
-  CLASS_BASE, CLASS_WEAPON, MOB_DEFS, NPC_LINES, POTION_DEFS, QUESTS, QUEST_ORDER,
+  CLASS_BASE, CLASS_WEAPON, MOB_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
   SKILLS, TREES, WEAPON_SCALING, freshItemId, makePotion, makeQuestItem, mobStats,
   rollItem, rollRarity,
 } from "./data";
@@ -29,6 +29,7 @@ const CAST_RANGE = 7;
 const LEASH = 15;
 const LOOT_TTL = 60000;
 const INV_SIZE = 24;
+const STASH_SIZE = 32;
 const COMBAT_MS = 5000;
 const POTION_CD = 3000;
 const RECALL_CD = 15000;
@@ -38,6 +39,13 @@ const FOUNTAIN_REGEN_R = 5; // tiles from the fountain that count as "near"
 const FOUNTAIN_HP_REGEN = 0.10; // 10%/s hp — 5x the normal 2%/s
 const FOUNTAIN_MP_REGEN = 0.12; // 12%/s mp — 4x the normal 3%/s
 const LEVEL_CAP = 25;
+
+const EQUIP_SLOTS = ["weapon", "armor", "helm", "ring"] as const;
+const BOSS_KINDS = new Set(["cyclops", "minotaur", "hydra"]);
+
+function pickSlot(slots: readonly string[]): string {
+  return slots[Math.floor(Math.random() * slots.length)];
+}
 
 // Always-online companion bots — shared squad party + starter gear.
 const BOT_SQUAD = new Set(["Achilles", "Atalanta", "Circe", "Chiron"]);
@@ -122,14 +130,15 @@ interface Player extends StatusHolder {
   lvl: number; xp: number; gold: number; pts: number;
   abilityPts: number; abilities: Map<string, number>; // class ability tree: unspent points + node ranks (id -> 1..5)
   loadout: number[]; // 4 SkillDef.n values equipped to skill-bar slots 1-4
+  pets: Set<string>; activePet: string | null; // owned pet ids + the one currently following (cosmetic only)
   str: number; dex: number; int: number;
   hp: number; mp: number; x: number; y: number;
-  inv: (Item | null)[]; eq: Record<string, Item | null>;
+  inv: (Item | null)[]; stash: (Item | null)[]; eq: Record<string, Item | null>;
   quests: Record<string, { n: number; done: boolean; turned: boolean }>;
   path: { x: number; y: number }[] | null;
   direct: { x: number; y: number } | null; // straight-line fallback target
   vel: { x: number; y: number } | null; // WASD velocity (normalized), overrides path/chase
-  atkTarget: number | null; lootTarget: number | null; nextAtk: number; repathAt: number;
+  atkTarget: number | null; lootTarget: number | null; npcTarget: number | null; nextAtk: number; repathAt: number;
   skillCds: number[]; potCdUntil: number; combatUntil: number; recallCdUntil: number;
   dead: boolean; deadAt: number; lastChat: number; dirty: boolean;
   visitedZones: string[]; // portal destinations unlocked by visiting regions
@@ -184,7 +193,9 @@ function cdMult(p: Player): number {
 
 let nextEntId = 1;
 const players = new Map<string, Player>(); // online players by account name
+const playersById = new Map<number, Player>(); // kept in sync with `players` for O(1) lookup by id
 const mobs: Mob[] = [];
+const mobsById = new Map<number, Mob>(); // mobs never leave the array after startup, so this is filled once
 const loot = new Map<number, Loot>();
 const boardCdUntil = new Map<number, number>(); // player id -> next allowed board_post time
 
@@ -192,6 +203,8 @@ const npcs: Npc[] = NPC_DEFS.map((n) => ({ id: nextEntId++, kind: n.kind, name: 
 const elder = npcs[0], kora = npcs[1], bront = npcs[2];
 const portalNpc = npcs.find((n) => n.kind === "portal")!;
 const board = npcs.find((n) => n.kind === "board")!;
+const stashNpc = npcs.find((n) => n.kind === "stash")!;
+const petshopNpc = npcs.find((n) => n.kind === "petshop")!;
 
 for (const s of world.spawns) {
   const st = mobStats(s.kind, s.lvl);
@@ -206,6 +219,7 @@ for (const s of world.spawns) {
     slowUntil: 0, slowPct: 0, stunUntil: 0, lastAtk: 0, moving: false, d: 0,
   });
 }
+for (const m of mobs) mobsById.set(m.id, m);
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -247,10 +261,11 @@ function serialize(p: Player): string {
   return JSON.stringify({
     lvl: p.lvl, xp: p.xp, gold: p.gold, pts: p.pts,
     str: p.str, dex: p.dex, int: p.int, hp: p.hp, mp: p.mp,
-    x: p.x, y: p.y, inv: p.inv, eq: p.eq, quests: p.quests,
+    x: p.x, y: p.y, inv: p.inv, stash: p.stash, eq: p.eq, quests: p.quests,
     partyId: p.partyId,
     visitedZones: p.visitedZones,
     abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
+    pets: [...p.pets], activePet: p.activePet,
   });
 }
 
@@ -312,7 +327,7 @@ interface Derived {
 function derive(p: Player): Derived {
   let str = p.str, dex = p.dex, int_ = p.int;
   let arm = 0, dmgp = 0, crit = 0, hpB = 0, mpB = 0;
-  for (const slot of ["weapon", "armor", "helm", "ring"]) {
+  for (const slot of EQUIP_SLOTS) {
     const it = p.eq[slot];
     if (!it) continue;
     arm += it.arm || 0;
@@ -369,6 +384,7 @@ function sendYou(p: Player): void {
     crit: Math.round(d.crit * 10) / 10, spd: Math.round(d.spd * 100) / 100,
     inv: p.inv, eq: p.eq, quests: p.quests, visitedZones: p.visitedZones,
     abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
+    pets: [...p.pets], activePet: p.activePet,
   });
   p.dirty = true;
 }
@@ -376,20 +392,25 @@ function sendYou(p: Player): void {
 // ---------------------------------------------------------------------------
 // Inventory
 // ---------------------------------------------------------------------------
-/** Add item to inventory (stacks potions/quest items to 10). False = full. */
-function invAdd(p: Player, item: Item): boolean {
+/** Add item to a slot array (stacks potions/quest items to 10). False = full. */
+function addToSlots(arr: (Item | null)[], item: Item): boolean {
   if (item.slot === "potion" || item.slot === "quest") {
-    for (const it of p.inv) {
+    for (const it of arr) {
       if (it && it.base === item.base && (it.qty ?? 1) < 10) {
         it.qty = (it.qty ?? 1) + (item.qty ?? 1);
         return true;
       }
     }
   }
-  const free = p.inv.indexOf(null);
+  const free = arr.indexOf(null);
   if (free < 0) return false;
-  p.inv[free] = item;
+  arr[free] = item;
   return true;
+}
+
+/** Add item to inventory (stacks potions/quest items to 10). False = full. */
+function invAdd(p: Player, item: Item): boolean {
+  return addToSlots(p.inv, item);
 }
 
 function hornCount(p: Player): number {
@@ -445,27 +466,25 @@ function dropItem(x: number, y: number, item: Item): void {
   });
 }
 
+// Boss-only guaranteed rare drops: how many, at what item tier.
+const BOSS_LOOT: Record<string, { count: number; tier: number }> = {
+  cyclops: { count: 2, tier: 4 },
+  minotaur: { count: 3, tier: 4 },
+  hydra: { count: 3, tier: 5 },
+};
+
+// Boss-kill chat announcements (cyclops also unlocks a portal — handled separately in mobDie).
+const BOSS_KILL_MSG: Record<string, (killer: string) => string> = {
+  minotaur: (k) => `¡${k} ha derrotado a Asterión en el laberinto de los Asfódelos!`,
+  hydra: (k) => `¡${k} ha decapitado a la Hidra de Lerna en lo hondo del pantano!`,
+};
+
 function rollDrops(m: Mob, killer: Player): void {
   killer.gold += m.gold();
-  if (m.kind === "cyclops") {
-    // Boss always drops 2 rares.
-    const slots = ["weapon", "armor", "helm", "ring"];
-    for (let i = 0; i < 2; i++)
-      dropItem(m.x, m.y, rollItem(slots[Math.floor(Math.random() * slots.length)], 4, "rare"));
-    return;
-  }
-  if (m.kind === "minotaur") {
-    // Labyrinth boss: 3 high-tier rares.
-    const slots = ["weapon", "armor", "helm", "ring"];
-    for (let i = 0; i < 3; i++)
-      dropItem(m.x, m.y, rollItem(slots[Math.floor(Math.random() * slots.length)], 4, "rare"));
-    return;
-  }
-  if (m.kind === "hydra") {
-    // Swamp boss: 3 tier-5 rares.
-    const slots = ["weapon", "armor", "helm", "ring"];
-    for (let i = 0; i < 3; i++)
-      dropItem(m.x, m.y, rollItem(slots[Math.floor(Math.random() * slots.length)], 5, "rare"));
+  const boss = BOSS_LOOT[m.kind];
+  if (boss) {
+    for (let i = 0; i < boss.count; i++)
+      dropItem(m.x, m.y, rollItem(pickSlot(EQUIP_SLOTS), boss.tier, "rare"));
     return;
   }
   // Satyr Horn: 60% while q2 is active and the killer still needs horns.
@@ -478,8 +497,8 @@ function rollDrops(m: Mob, killer: Player): void {
     const key = (m.lvl >= 9 ? ["hp3", "mp3"] : ["hp1", "mp1"])[Math.random() < 0.5 ? 0 : 1];
     dropItem(m.x, m.y, makePotion(key));
   } else {
-    const slots = ["weapon", "weapon", "armor", "helm", "ring"];
-    dropItem(m.x, m.y, rollItem(slots[Math.floor(Math.random() * slots.length)], tier, rollRarity()));
+    const slots = ["weapon", "weapon", "armor", "helm", "ring"] as const;
+    dropItem(m.x, m.y, rollItem(pickSlot(slots), tier, rollRarity()));
   }
 }
 
@@ -511,7 +530,7 @@ function addXp(p: Player, amount: number): void {
 function mobDie(m: Mob, killer: Player): void {
   m.dead = true;
   m.target = null;
-  m.respawnAt = Date.now() + (m.kind === "cyclops" || m.kind === "minotaur" || m.kind === "hydra" ? 180000 : 20000);
+  m.respawnAt = Date.now() + (BOSS_KINDS.has(m.kind) ? 180000 : 20000);
   // XP compartida: miembros del grupo vivos y conectados a ≤PARTY_XP_RANGE casillas
   // se reparten la XP con un bono del 15% por miembro extra. Oro solo al que mata.
   const sharers = killer.party
@@ -544,9 +563,10 @@ function mobDie(m: Mob, killer: Player): void {
     sysChat(`¡${killer.name} ha derrotado a Polifemo, el terror del este!`);
     unlockPortal(killer, "asfodelos", true);
     for (const q of sharers) unlockPortal(q, "asfodelos", true);
+  } else {
+    const msg = BOSS_KILL_MSG[m.kind];
+    if (msg) sysChat(msg(killer.name));
   }
-  if (m.kind === "minotaur") sysChat(`¡${killer.name} ha derrotado a Asterión en el laberinto de los Asfódelos!`);
-  if (m.kind === "hydra") sysChat(`¡${killer.name} ha decapitado a la Hidra de Lerna en lo hondo del pantano!`);
 }
 
 function playerDie(p: Player): void {
@@ -558,6 +578,7 @@ function playerDie(p: Player): void {
   p.vel = null;
   p.atkTarget = null;
   p.lootTarget = null;
+  p.npcTarget = null;
   p.moving = false;
   send(p.ws, { t: "dead", reviveAt: p.deadAt + REVIVE_MS });
 }
@@ -605,8 +626,8 @@ function newPartyId(): string {
 }
 
 function playerById(id: number): Player | null {
-  for (const q of players.values()) if (q.id === id && q.ws) return q;
-  return null;
+  const q = playersById.get(id);
+  return q && q.ws ? q : null;
 }
 
 function syncRosterFromOnline(pt: Party): void {
@@ -628,6 +649,25 @@ function deletePartyRow(id: string): void {
 }
 
 
+/** Parse a durable roster JSON blob, keeping only entries whose name passes `nameOk`. */
+function parseRosterJson(raw: string, nameOk: (name: string) => boolean): PartyMemberMeta[] {
+  const roster: PartyMemberMeta[] = [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      for (const x of parsed) {
+        if (!x || typeof x !== "object") continue;
+        const name = typeof (x as { name?: unknown }).name === "string" ? (x as { name: string }).name : "";
+        if (!nameOk(name)) continue;
+        const cls = typeof (x as { cls?: unknown }).cls === "string" ? (x as { cls: string }).cls : "warrior";
+        const lvl = clampInt((x as { lvl?: unknown }).lvl, 1, LEVEL_CAP, 1);
+        roster.push({ name, cls, lvl });
+      }
+    }
+  } catch { /* ignore */ }
+  return roster;
+}
+
 function findBotSquadParty(): Party | null {
   let best: Party | null = null;
   let bestN = 0;
@@ -638,20 +678,7 @@ function findBotSquadParty(): Party | null {
   if (best) return best;
   const rows = db.query("SELECT id, members FROM parties").all() as { id: string; members: string }[];
   for (const row of rows) {
-    let roster: PartyMemberMeta[] = [];
-    try {
-      const parsed = JSON.parse(row.members);
-      if (Array.isArray(parsed)) {
-        for (const x of parsed) {
-          if (!x || typeof x !== "object") continue;
-          const name = typeof (x as { name?: unknown }).name === "string" ? (x as { name: string }).name : "";
-          if (!BOT_SQUAD.has(name)) continue;
-          const cls = typeof (x as { cls?: unknown }).cls === "string" ? (x as { cls: string }).cls : "warrior";
-          const lvl = clampInt((x as { lvl?: unknown }).lvl, 1, LEVEL_CAP, 1);
-          roster.push({ name, cls, lvl });
-        }
-      }
-    } catch { /* ignore */ }
+    const roster = parseRosterJson(row.members, (name) => BOT_SQUAD.has(name));
     if (roster.length > bestN) {
       const pt = getOrLoadParty(row.id);
       if (pt) { best = pt; bestN = roster.length; }
@@ -809,20 +836,7 @@ function getOrLoadParty(id: string): Party | null {
   if (live) return live;
   const row = qPartyGet.get(id);
   if (!row) return null;
-  let roster: PartyMemberMeta[] = [];
-  try {
-    const parsed = JSON.parse(row.members);
-    if (Array.isArray(parsed)) {
-      for (const x of parsed) {
-        if (!x || typeof x !== "object") continue;
-        const name = typeof (x as { name?: unknown }).name === "string" ? (x as { name: string }).name : "";
-        if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) continue;
-        const cls = typeof (x as { cls?: unknown }).cls === "string" ? (x as { cls: string }).cls : "warrior";
-        const lvl = clampInt((x as { lvl?: unknown }).lvl, 1, LEVEL_CAP, 1);
-        roster.push({ name, cls, lvl });
-      }
-    }
-  } catch { /* ignore */ }
+  const roster = parseRosterJson(row.members, (name) => /^[A-Za-z0-9_]{3,16}$/.test(name));
   if (roster.length === 0) {
     deletePartyRow(id);
     return null;
@@ -927,9 +941,8 @@ function mitigate(raw: number, arm: number): number {
 }
 
 /** Player damages a mob. `raw` = pre-rolled damage before crit/armor (dmgp% already included). */
-function playerHit(p: Player, m: Mob, raw: number): void {
+function playerHit(p: Player, m: Mob, raw: number, d: Derived = derive(p)): void {
   if (m.dead) return;
-  const d = derive(p);
   const crit = Math.random() * 100 < d.crit;
   if (crit) raw *= 1.6;
   const dmg = mitigate(raw, m.arm);
@@ -1076,7 +1089,7 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
   // Daño plano: base + perRank·(rango−1) + coeff·stat primario (+ 50% del
   // daño rodado del arma en habilidades con arma) + pasivo de daño de
   // habilidades; luego dmgp% del equipo y el pipeline crítico/armadura de siempre.
-  const stat = p.cls === "warrior" ? d.str : p.cls === "hunter" ? d.dex : d.int;
+  const stat = d[CLASS_BASE[p.cls].primaryStat];
   const flatPassive = 2 * (abilityRank(p, "w_filo") + abilityRank(p, "h_punta") + abilityRank(p, "m_poder"));
   const [wLo, wHi] = p.eq.weapon?.dmg ?? [1, 3];
   for (const m of hits) {
@@ -1086,15 +1099,23 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
       const weaponRoll = (def.weaponShare ?? 0) * (wLo + Math.random() * (wHi - wLo));
       const raw = (def.base + def.perRank * (effRank - 1) + def.coeff * stat + weaponRoll + flatPassive)
         * (1 + d.dmgp / 100);
-      playerHit(p, m, raw);
+      playerHit(p, m, raw, d);
     }
   }
   sendYou(p);
 }
 
 function mobById(id: number): Mob | null {
-  for (const m of mobs) if (m.id === id) return m;
-  return null;
+  return mobsById.get(id) ?? null;
+}
+
+/** Sale value at the merchant: 25% of an item's base value, scaled by stack size. */
+function sellValue(it: Item): number {
+  return Math.floor(it.val / 4) * (it.qty ?? 1);
+}
+
+function nearAnyMerchant(p: Player): boolean {
+  return nearNpc(p, kora) || nearNpc(p, bront);
 }
 
 function r2(v: number): number {
@@ -1133,6 +1154,18 @@ function sendShop(p: Player, npc: Npc): void {
   send(p.ws, {
     t: "shop", npc: npc.id, name: npc.name,
     items: stock.map((s, idx) => ({ idx, item: s.item, price: s.item.val })),
+  });
+}
+
+function sendStash(p: Player): void {
+  send(p.ws, { t: "stash", items: p.stash });
+}
+
+function sendPetShop(p: Player): void {
+  send(p.ws, {
+    t: "petshop",
+    defs: Object.entries(PET_DEFS).map(([id, d]) => ({ id, name: d.name, cost: d.cost })),
+    owned: [...p.pets], active: p.activePet,
   });
 }
 
@@ -1233,8 +1266,7 @@ function sendElderDialog(p: Player): void {
 function questReward(p: Player, item: "weapon" | "armor" | "rare"): Item {
   if (item === "weapon") return rollItem("weapon", 2, "magic", CLASS_WEAPON[p.cls]);
   if (item === "armor") return rollItem("armor", 3, "magic");
-  const slots = ["weapon", "armor", "helm", "ring"];
-  return rollItem(slots[Math.floor(Math.random() * slots.length)], 4, "rare", CLASS_WEAPON[p.cls]);
+  return rollItem(pickSlot(EQUIP_SLOTS), 4, "rare", CLASS_WEAPON[p.cls]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1246,14 +1278,16 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     id: nextEntId++, ws, name, cls,
     lvl: 1, xp: 0, gold: 25, pts: 0,
     abilityPts: 0, abilities: new Map<string, number>(), loadout: [1, 2, 3, 4],
+    pets: new Set<string>(), activePet: null,
     str: base.str, dex: base.dex, int: base.int,
     hp: 0, mp: 0,
     x: TOWN.x + 0.5 + (Math.random() - 0.5) * 2, y: TOWN.y + 3.5,
     inv: new Array(INV_SIZE).fill(null),
+    stash: new Array(STASH_SIZE).fill(null),
     eq: { weapon: null, armor: null, helm: null, ring: null },
     quests: {},
     visitedZones: ["helike"],
-    path: null, direct: null, vel: null, atkTarget: null, lootTarget: null, nextAtk: 0, repathAt: 0,
+    path: null, direct: null, vel: null, atkTarget: null, lootTarget: null, npcTarget: null, nextAtk: 0, repathAt: 0,
     skillCds: [0, 0, 0, 0, 0], potCdUntil: 0, combatUntil: 0, recallCdUntil: 0,
     dead: false, deadAt: 0, lastChat: 0, dirty: true, seen: new Set(),
     party: null, partyId: null, invites: new Map(), disconnectedAt: null, followId: null,
@@ -1328,7 +1362,7 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
     // caen al mapeo fijo original 1-2-3-4 para que la barra nunca quede vacía.
     if (
       Array.isArray(d.loadout) && d.loadout.length === 4 &&
-      d.loadout.every((v) => typeof v === "number" && Number.isInteger(v) && SKILLS[cls]?.some((s) => s.n === v))
+      d.loadout.every((v) => typeof v === "number" && Number.isInteger(v) && (v === 0 || SKILLS[cls]?.some((s) => s.n === v)))
     ) {
       p.loadout = d.loadout as number[];
     }
@@ -1342,9 +1376,14 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
     }
     if (Array.isArray(d.inv))
       for (let i = 0; i < INV_SIZE; i++) p.inv[i] = sanitizeItem(d.inv[i]);
+    if (Array.isArray(d.stash))
+      for (let i = 0; i < STASH_SIZE; i++) p.stash[i] = sanitizeItem(d.stash[i]);
+    if (Array.isArray(d.pets))
+      p.pets = new Set((d.pets as unknown[]).filter((v): v is string => typeof v === "string" && !!PET_DEFS[v]));
+    if (typeof d.activePet === "string" && p.pets.has(d.activePet)) p.activePet = d.activePet;
     if (d.eq && typeof d.eq === "object") {
       const eq = d.eq as Record<string, unknown>;
-      for (const slot of ["weapon", "armor", "helm", "ring"]) {
+      for (const slot of EQUIP_SLOTS) {
         const it = sanitizeItem(eq[slot]);
         p.eq[slot] = it && it.slot === slot ? it : null;
       }
@@ -1419,6 +1458,7 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
       } else {
         player = loadPlayer(name, row.cls, row.data, ws);
         players.set(name, player);
+        playersById.set(player.id, player);
       }
     } else {
       if (!CLASS_BASE[cls]) return send(ws, { t: "err", msg: "Elige una clase: guerrero, cazador, mago o clérigo" });
@@ -1426,6 +1466,7 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
       player = defaultPlayer(name, cls, ws);
       qInsert.run(name, hash, cls, serialize(player), Date.now());
       players.set(name, player);
+      playersById.set(player.id, player);
     }
     sess.player = player;
     clearLoginFails(ipKey);
@@ -1473,6 +1514,18 @@ function nearNpc(p: Player, npc: Npc, range = 3): boolean {
   return dist(p.x, p.y, npc.x, npc.y) <= range;
 }
 
+/** Open an NPC's dialog/shop/board panel for the player. Assumes proximity already checked. */
+function openNpcDialog(p: Player, npc: Npc): void {
+  if (npc.kind === "elder") sendElderDialog(p);
+  else if (npc.kind === "portal") sendPortalDialog(p);
+  else if (npc.kind === "board") sendBoard(p);
+  else if (npc.kind === "stash") sendStash(p);
+  else if (npc.kind === "petshop") sendPetShop(p);
+  else {
+    send(p.ws, { t: "dialog", npc: npc.id, name: npc.name, kind: npc.kind, lines: NPC_LINES[npc.kind] });
+    sendShop(p, npc);
+  }
+}
 
 /** Pick ground loot if in range. true = done (picked / gone / full), false = still need to approach. */
 function tryPickupLoot(p: Player, id: number): boolean {
@@ -1522,6 +1575,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const ty = Math.max(0.5, Math.min(W - 0.5, y));
       p.atkTarget = null;
       p.lootTarget = null;
+      p.npcTarget = null;
       const path = astar(world.walk, p.x, p.y, tx, ty);
       if (path) {
         p.path = path;
@@ -1548,6 +1602,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.direct = null;
       p.atkTarget = null;
       p.lootTarget = null;
+      p.npcTarget = null;
       break;
     }
     case "attack": {
@@ -1558,6 +1613,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (id === 0) {
         p.atkTarget = null;
         p.lootTarget = null;
+        p.npcTarget = null;
         p.path = null;
         p.direct = null;
         break;
@@ -1566,6 +1622,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!m || m.dead) return;
       p.atkTarget = m.id;
       p.lootTarget = null;
+      p.npcTarget = null;
       p.path = null;
       p.direct = null;
       p.repathAt = 0;
@@ -1583,7 +1640,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const slot = num(msg.slot);
       const n = num(msg.n);
       if (slot == null || slot < 1 || slot > 4) return;
-      if (n == null || !SKILLS[p.cls]?.some((s) => s.n === n)) return;
+      if (n == null || (n !== 0 && !SKILLS[p.cls]?.some((s) => s.n === n))) return;
       p.loadout[slot - 1] = n;
       p.dirty = true;
       sendYou(p);
@@ -1597,6 +1654,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       // Same lock+chase pattern as attack: approach until within 2 tiles, then pick.
       p.atkTarget = null;
       p.lootTarget = id;
+      p.npcTarget = null;
       p.path = null;
       p.direct = null;
       p.repathAt = 0;
@@ -1607,13 +1665,18 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       const id = num(msg.id);
       const npc = npcs.find((n) => n.id === id);
-      if (!npc || !nearNpc(p, npc)) return;
-      if (npc.kind === "elder") sendElderDialog(p);
-      else if (npc.kind === "portal") sendPortalDialog(p);
-      else if (npc.kind === "board") sendBoard(p);
-      else {
-        send(p.ws, { t: "dialog", npc: npc.id, name: npc.name, kind: npc.kind, lines: NPC_LINES[npc.kind] });
-        sendShop(p, npc);
+      if (!npc) return;
+      p.atkTarget = null;
+      p.lootTarget = null;
+      if (nearNpc(p, npc)) {
+        p.npcTarget = null;
+        openNpcDialog(p, npc);
+      } else {
+        // Same lock+chase pattern as attack/pickup: walk over, then open once in range.
+        p.npcTarget = npc.id;
+        p.path = null;
+        p.direct = null;
+        p.repathAt = 0;
       }
       break;
     }
@@ -1669,6 +1732,30 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       sendYou(p);
       break;
     }
+    case "ability_reset": {
+      if (p.dead) return;
+      let refund = 0;
+      for (const r of p.abilities.values()) refund += r;
+      if (refund === 0) return toast(p, "No tienes puntos de habilidad gastados");
+      p.abilities.clear();
+      p.abilityPts += refund;
+      p.dirty = true;
+      sendYou(p);
+      toast(p, "Árbol de habilidades reiniciado");
+      break;
+    }
+    case "stat_reset": {
+      if (p.dead) return;
+      const base = CLASS_BASE[p.cls];
+      const refund = (p.str - base.str) + (p.dex - base.dex) + (p.int - base.int);
+      if (refund === 0) return toast(p, "No tienes puntos de característica gastados");
+      p.pts += refund;
+      p.str = base.str; p.dex = base.dex; p.int = base.int;
+      p.dirty = true;
+      sendYou(p);
+      toast(p, "Características reiniciadas");
+      break;
+    }
     case "buy": {
       if (p.dead) return;
       const npcId = num(msg.npc), idx = num(msg.idx);
@@ -1692,11 +1779,11 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       const slot = num(msg.slot);
       if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
-      if (!nearNpc(p, kora) && !nearNpc(p, bront)) return toast(p, "No hay ningún mercader cerca");
+      if (!nearAnyMerchant(p)) return toast(p, "No hay ningún mercader cerca");
       const it = p.inv[slot];
       if (!it) return;
       if (it.slot === "quest") return toast(p, "No puedes vender objetos de misión");
-      const gain = Math.floor(it.val / 4) * (it.qty ?? 1);
+      const gain = sellValue(it);
       p.gold += gain;
       p.inv[slot] = null;
       toast(p, `Vendiste ${it.name} por ${gain} de oro`);
@@ -1707,12 +1794,12 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       const rarity = typeof msg.rarity === "string" ? msg.rarity : "";
       if (rarity !== "common" && rarity !== "magic" && rarity !== "rare") return;
-      if (!nearNpc(p, kora) && !nearNpc(p, bront)) return toast(p, "No hay ningún mercader cerca");
+      if (!nearAnyMerchant(p)) return toast(p, "No hay ningún mercader cerca");
       let gain = 0, count = 0;
       for (let i = 0; i < INV_SIZE; i++) {
         const it = p.inv[i];
         if (!it || it.slot === "quest" || it.rarity !== rarity) continue;
-        gain += Math.floor(it.val / 4) * (it.qty ?? 1);
+        gain += sellValue(it);
         count++;
         p.inv[i] = null;
       }
@@ -1720,6 +1807,59 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.gold += gain;
       toast(p, `Vendiste ${count} objeto${count === 1 ? "" : "s"} por ${gain} de oro`);
       sendYou(p);
+      break;
+    }
+    case "stash_deposit": {
+      if (p.dead) return;
+      if (!nearNpc(p, stashNpc)) return toast(p, "Debes estar junto al cofre");
+      const slot = num(msg.slot);
+      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+      const it = p.inv[slot];
+      if (!it) return;
+      if (it.slot === "quest") return toast(p, "No puedes guardar objetos de misión");
+      if (!addToSlots(p.stash, it)) return toast(p, "El cofre está lleno");
+      p.inv[slot] = null;
+      sendYou(p);
+      sendStash(p);
+      break;
+    }
+    case "stash_withdraw": {
+      if (p.dead) return;
+      if (!nearNpc(p, stashNpc)) return toast(p, "Debes estar junto al cofre");
+      const slot = num(msg.slot);
+      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= STASH_SIZE) return;
+      const it = p.stash[slot];
+      if (!it) return;
+      if (!invAdd(p, it)) return toast(p, "Inventario lleno");
+      p.stash[slot] = null;
+      sendYou(p);
+      sendStash(p);
+      break;
+    }
+    case "pet_buy": {
+      if (p.dead) return;
+      if (!nearNpc(p, petshopNpc)) return toast(p, "Debes estar junto al criadero");
+      const id = typeof msg.id === "string" ? msg.id : "";
+      const def = PET_DEFS[id];
+      if (!def) return;
+      if (p.pets.has(id)) return toast(p, "Ya tienes esa mascota");
+      if (p.gold < def.cost) return toast(p, "No tienes suficiente oro");
+      p.gold -= def.cost;
+      p.pets.add(id);
+      p.dirty = true;
+      sendYou(p);
+      sendPetShop(p);
+      toast(p, `Adoptaste a ${def.name}`);
+      break;
+    }
+    case "pet_equip": {
+      if (p.dead) return;
+      const id = typeof msg.id === "string" ? msg.id : "";
+      if (id && (!PET_DEFS[id] || !p.pets.has(id))) return;
+      p.activePet = id || null;
+      p.dirty = true;
+      sendYou(p);
+      sendPetShop(p);
       break;
     }
     case "drop": {
@@ -1908,7 +2048,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!wp) return;
       if (dest !== "helike" && !p.visitedZones.includes(dest))
         return toast(p, "Primero debes visitar esa región a pie");
-      if (!nearNpc(p, portalNpc)) return toast(p, "Debes estar junto a la Piedra de tránsito");
+      if (!nearNpc(p, portalNpc)) return toast(p, "Debes estar junto al Portal");
       if (p.combatUntil > now) return toast(p, "No puedes viajar en combate");
       p.x = wp.x;
       p.y = wp.y;
@@ -1917,6 +2057,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.vel = null;
       p.atkTarget = null;
       p.lootTarget = null;
+      p.npcTarget = null;
       p.followStuck = 0;
       p.combatUntil = 0;
       sendYou(p);
@@ -1953,6 +2094,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.vel = null;
       p.atkTarget = null;
       p.lootTarget = null;
+      p.npcTarget = null;
       p.combatUntil = 0;
       bcastAt(p.x, p.y, { t: "fx", k: "recall", i: p.id });
       toast(p, "Has vuelto a Helike");
@@ -2101,11 +2243,11 @@ function simTick(): void {
           if (now >= p.nextAtk) {
             p.nextAtk = now + ATTACK_CD;
             const icon = p.eq.weapon?.icon;
-            if (icon === "bow" || icon === "staff")
+            if (range === RANGED_RANGE)
               bcastAt(p.x, p.y, { t: "fx", k: "proj", from: { x: r2(p.x), y: r2(p.y) }, to: { x: r2(m.x), y: r2(m.y) }, style: icon === "bow" ? "arrow" : "fire" });
             else
               bcastAt(p.x, p.y, { t: "fx", k: "slash", x: r2(p.x), y: r2(p.y), tx: r2(m.x), ty: r2(m.y) });
-            playerHit(p, m, d.lo + Math.random() * (d.hi - d.lo));
+            playerHit(p, m, d.lo + Math.random() * (d.hi - d.lo), d);
           }
         } else if (!p.vel) {
           if (now >= p.repathAt) {
@@ -2151,6 +2293,32 @@ function simTick(): void {
           else if (p.direct && !stepToward(p, p.direct.x, p.direct.y, speed * dt)) p.direct = null;
           else if (p.direct) p.moving = true;
         }
+      }
+    } else if (p.npcTarget != null) {
+      const npc = npcs.find((n) => n.id === p.npcTarget);
+      if (!npc) {
+        p.npcTarget = null;
+        p.path = null;
+      } else if (nearNpc(p, npc)) {
+        p.path = null;
+        p.direct = null;
+        openNpcDialog(p, npc);
+        p.npcTarget = null;
+      } else if (!p.vel) {
+        if (now >= p.repathAt) {
+          p.repathAt = now + 500;
+          const path = astar(world.walk, p.x, p.y, npc.x, npc.y);
+          if (path) {
+            p.path = path;
+            p.direct = null;
+          } else {
+            p.path = null;
+            p.direct = { x: npc.x, y: npc.y };
+          }
+        }
+        if (p.path) followPath(p, speed, dt);
+        else if (p.direct && !stepToward(p, p.direct.x, p.direct.y, speed * dt)) p.direct = null;
+        else if (p.direct) p.moving = true;
       }
     } else if (p.path && !p.vel) {
       followPath(p, speed, dt);
@@ -2387,6 +2555,7 @@ function snapshotTick(): void {
         h: Math.max(0, Math.round(q.hp)), H: d.mhp, l: q.lvl, n: q.name,
         s: entFlags(q, now), d: q.d,
       };
+      if (q.activePet) e.pet = q.activePet;
       if (q === p) {
         e.m = Math.round(q.mp);
         e.M = d.mmp;
@@ -2402,7 +2571,13 @@ function snapshotTick(): void {
     for (const l of loot.values()) {
       const dx = l.x - p.x, dy = l.y - p.y;
       if (dx * dx + dy * dy > AOI2) continue;
-      lootList.push({ i: l.id, x: r2(l.x), y: r2(l.y), name: l.item.name, rarity: l.item.rarity, icon: l.item.icon });
+      lootList.push({
+        i: l.id, x: r2(l.x), y: r2(l.y),
+        name: l.item.name, rarity: l.item.rarity, icon: l.item.icon,
+        slot: l.item.slot, tier: l.item.tier, lvl: l.item.lvl,
+        dmg: l.item.dmg, arm: l.item.arm, mods: l.item.mods,
+        val: l.item.val, qty: l.item.qty,
+      });
     }
 
     send(p.ws, { t: "st", pop, ents, gone, loot: lootList });
@@ -2472,6 +2647,7 @@ setInterval(() => {
       savePlayer(p);
       partyUnload(p); // stay in durable roster; drop live handle only
       players.delete(p.name);
+      playersById.delete(p.id);
     }
   }
 }, 10000);

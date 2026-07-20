@@ -1,5 +1,6 @@
 // ../var/www/ideitas.online/rpg/game.js
 var $ = (id) => document.getElementById(id);
+var BOSS_KINDS = new Set(["cyclops", "minotaur", "hydra"]);
 
 function requireDom() {
   const need = ["loginForm", "game", "respawnBtn", "hpOrb", "mpOrb", "world"];
@@ -51,6 +52,8 @@ var I18N = {
     "panel.sellHint": "Clic en un objeto para venderlo al mercader.",
     "panel.char": "Personaje",
     "panel.quest": "Diario de misiones",
+    "panel.stash": "Cofre",
+    "panel.pets": "Criadero",
     "mob.chat": "Chat", "mob.inv": "Inv", "mob.quest": "Misiones", "mob.char": "Héroe",
     "death.title": "Has caído",
     "death.respawn": "Resucitar en Helike",
@@ -64,7 +67,7 @@ var I18N = {
     "menu.title": "Menú", "menu.help": "Ayuda", "menu.options": "Opciones", "menu.logout": "Cerrar sesión",
     "help.h.about": "Cómo funciona",
     "help.about1": "Sos un héroe en Helike, un pueblo de la Grecia mítica. Elegís una clase (guerrero, cazador, mago o clérigo) y salís a matar monstruos por el mapa para ganar experiencia, oro y objetos. Cada nivel te da puntos de estadística y, desde el nivel 4, un punto de habilidad para tu árbol de clase.",
-    "help.about2": "En el pueblo hay NPCs útiles: el Anciano da misiones, el herrero/Circe compran y venden objetos, la piedra de tránsito te teleporta a otras zonas ya visitadas, y el tablón de peticiones deja que cualquiera escriba ideas para el juego.",
+    "help.about2": "En el pueblo hay NPCs útiles: el Anciano da misiones, el herrero/Circe compran y venden objetos, el Portal te teleporta a otras zonas ya visitadas, y el tablón de peticiones deja que cualquiera escriba ideas para el juego.",
     "help.about3": "Si morís, tu personaje queda caído: revive solo a los 30s, o apretá el botón \"Resucitar\" para volver antes a Helike. Cerca de la fuente de la plaza (zona santuario) la vida y el maná regeneran mucho más rápido, y no llega daño de fuera.",
     "help.about4": "Podés agruparte con otros jugadores: invitalos haciendo clic en ellos, y usá \"Seguir\" en el panel de grupo para que tu personaje camine solo detrás del líder. La experiencia de las misiones de caza se comparte entre los miembros cercanos.",
     "help.h.move": "Movimiento",
@@ -96,8 +99,9 @@ var I18N = {
     "help.player": "Invitarlo a tu grupo",
     "help.followKey": "\"Seguir\" (panel de grupo)",
     "help.follow": "Tu personaje camina solo hacia el líder del grupo",
+    "help.party": "Minimizar/expandir el panel de grupo",
     "help.npcKey": "Clic en un NPC",
-    "help.npc": "Hablar, comprar, teleportarte o escribir en el tablón de peticiones, según el NPC",
+    "help.npc": "Hablar, comprar, teleportarte, guardar objetos en el cofre, adoptar una mascota o escribir en el tablón de peticiones, según el NPC",
     "opt.music": "Música", "opt.fx": "Efectos", "opt.lang": "Idioma",
     "opt.autoloot": "Auto-recogida",
     "opt.autoloot.off": "Desactivada", "opt.autoloot.all": "Todo",
@@ -133,6 +137,10 @@ var I18N = {
     "ability.needNode": "Asigna un punto a esta habilidad en el árbol (tecla H)",
     "ability.baseGate": "Disponible desde el inicio",
     "ability.equipSlot": (n) => `Equipar en la ranura ${n}`,
+    "ability.resetBtn": "Reiniciar árbol",
+    "ability.resetConfirm": "¿Reiniciar el árbol de habilidades? Recuperarás todos los puntos gastados.",
+    "char.resetBtn": "Reiniciar características",
+    "char.resetConfirm": "¿Reiniciar tus puntos de característica? Recuperarás todos los puntos asignados.",
   },
   en: {
     "login.subtitle": "Helike · Mythic Greece",
@@ -152,6 +160,8 @@ var I18N = {
     "panel.sellHint": "Click an item to sell it to the merchant.",
     "panel.char": "Character",
     "panel.quest": "Quest log",
+    "panel.stash": "Stash",
+    "panel.pets": "Pet shop",
     "mob.chat": "Chat", "mob.inv": "Inv", "mob.quest": "Quests", "mob.char": "Hero",
     "death.title": "You have fallen",
     "death.respawn": "Revive in Helike",
@@ -165,7 +175,7 @@ var I18N = {
     "menu.title": "Menu", "menu.help": "Help", "menu.options": "Options", "menu.logout": "Log out",
     "help.h.about": "How it works",
     "help.about1": "You're a hero in Helike, a town in mythic Greece. Pick a class (warrior, hunter, mage or cleric) and go kill monsters across the map to earn experience, gold and loot. Every level grants stat points and, from level 4 on, an ability point for your class tree.",
-    "help.about2": "The town has useful NPCs: the Elder gives quests, the smith/Circe buy and sell items, the transit stone teleports you to zones you've already visited, and the request board lets anyone write ideas for the game.",
+    "help.about2": "The town has useful NPCs: the Elder gives quests, the smith/Circe buy and sell items, the Portal teleports you to zones you've already visited, and the request board lets anyone write ideas for the game.",
     "help.about3": "If you die, your character falls: it revives on its own after 30s, or hit the \"Revive\" button to return to Helike right away. Near the plaza fountain (sanctuary zone) HP/MP regen much faster and no damage from outside reaches you.",
     "help.about4": "You can group up with other players: invite them by clicking them, and use \"Follow\" in the party panel so your character walks behind the leader on its own. Hunt-quest XP is shared with nearby party members.",
     "help.h.move": "Movement",
@@ -197,8 +207,9 @@ var I18N = {
     "help.player": "Invite them to your party",
     "help.followKey": "\"Follow\" (party panel)",
     "help.follow": "Your character walks on its own toward the party leader",
+    "help.party": "Minimize/expand the party panel",
     "help.npcKey": "Click an NPC",
-    "help.npc": "Talk, shop, teleport, or write on the request board, depending on the NPC",
+    "help.npc": "Talk, shop, teleport, store items in the chest, adopt a pet, or write on the request board, depending on the NPC",
     "opt.music": "Music", "opt.fx": "Effects", "opt.lang": "Language",
     "opt.autoloot": "Auto-loot",
     "opt.autoloot.off": "Off", "opt.autoloot.all": "Everything",
@@ -234,6 +245,10 @@ var I18N = {
     "ability.needNode": "Put a point into this skill in your tree (H key)",
     "ability.baseGate": "Available from the start",
     "ability.equipSlot": (n) => `Equip to slot ${n}`,
+    "ability.resetBtn": "Reset tree",
+    "ability.resetConfirm": "Reset your ability tree? You'll get all spent points back.",
+    "char.resetBtn": "Reset stats",
+    "char.resetConfirm": "Reset your allotted stat points? You'll get them all back.",
   },
 };
 var LS_LANG = "aot_lang";
@@ -304,6 +319,9 @@ var S = {
   shopOpen: false,
   shopNpc: 0,
   shopItems: [],
+  stashOpen: false,
+  stash: [],
+  petShop: { defs: [], owned: [], active: null },
   pendingSell: -1,
   chatIdleT: 0,
   dirKeys: Object.create(null),
@@ -469,6 +487,7 @@ function handleWorld(m) {
         E.d = e.d || 0;
         if (e.n !== undefined)
           E.n = e.n;
+        E.pet = e.pet || null;
         if (e.m !== undefined) {
           E.m = e.m;
           E.M = e.M;
@@ -554,6 +573,12 @@ function handleWorld(m) {
       break;
     case "board":
       showBoard(m);
+      break;
+    case "stash":
+      showStash(m);
+      break;
+    case "petshop":
+      showPetShop(m);
       break;
     case "chat":
       addChat(m);
@@ -778,7 +803,7 @@ function tileAt(x, y) {
     return "w";
   return S.map.tiles[y][x];
 }
-function drawTiles(t) {
+function drawTiles(t, curZone) {
   const x0 = Math.floor(s2wx(0)) - 1, x1 = Math.ceil(s2wx(VW)) + 1;
   const y0 = Math.floor(s2wy(0)) - 1, y1 = Math.ceil(s2wy(VH)) + 1;
   for (let ty = y0;ty <= y1; ty++) {
@@ -970,9 +995,8 @@ function drawTiles(t) {
       }
     }
   }
-  const z = zoneAt(S.cam.x, S.cam.y);
-  if (z && ZONE_TINT[z.idx]) {
-    ctx.fillStyle = ZONE_TINT[z.idx];
+  if (curZone && ZONE_TINT[curZone.idx]) {
+    ctx.fillStyle = ZONE_TINT[curZone.idx];
     ctx.fillRect(0, 0, VW, VH);
   }
 }
@@ -1608,6 +1632,106 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
   g.restore();
 }
 function drawNpc(g, k, bob, t) {
+  if (k === "stash") {
+    // Wooden chest with a domed lid, iron bands and a glowing lock.
+    g.fillStyle = "#6b4423";
+    g.beginPath();
+    g.moveTo(-10, 9 - bob);
+    g.lineTo(-10, 1 - bob);
+    g.quadraticCurveTo(-10, -8 - bob, 0, -8 - bob);
+    g.quadraticCurveTo(10, -8 - bob, 10, 1 - bob);
+    g.lineTo(10, 9 - bob);
+    g.closePath();
+    g.fill();
+    g.fillStyle = "#4a3018";
+    g.fillRect(-10, 0.5 - bob, 20, 2.2);
+    g.strokeStyle = "#2f2010";
+    g.lineWidth = 1.3;
+    g.beginPath();
+    g.moveTo(-10, 1 - bob); g.lineTo(-10, 9 - bob);
+    g.moveTo(10, 1 - bob); g.lineTo(10, 9 - bob);
+    g.moveTo(-10, -3 - bob); g.quadraticCurveTo(0, -10 - bob, 10, -3 - bob);
+    g.stroke();
+    const glow = 0.55 + Math.sin(t / 380) * 0.3;
+    g.fillStyle = `rgba(255,214,120,${glow})`;
+    g.beginPath();
+    g.arc(0, 3 - bob, 2.1, 0, 7);
+    g.fill();
+    g.strokeStyle = "#8a6527";
+    g.lineWidth = 1;
+    g.stroke();
+    return;
+  }
+  if (k === "petshop") {
+    // Small wooden kennel with an A-frame roof and a paw print out front.
+    g.fillStyle = "#8a6a3e";
+    g.beginPath();
+    g.moveTo(-9, 9 - bob);
+    g.lineTo(-9, -2 - bob);
+    g.lineTo(0, -12 - bob);
+    g.lineTo(9, -2 - bob);
+    g.lineTo(9, 9 - bob);
+    g.closePath();
+    g.fill();
+    g.fillStyle = "#5c3a20";
+    g.beginPath();
+    g.moveTo(-10.5, -2 - bob);
+    g.lineTo(0, -13.5 - bob);
+    g.lineTo(10.5, -2 - bob);
+    g.lineTo(7, -2 - bob);
+    g.lineTo(0, -9 - bob);
+    g.lineTo(-7, -2 - bob);
+    g.closePath();
+    g.fill();
+    g.fillStyle = "#1a1206";
+    g.beginPath();
+    g.arc(0, 4 - bob, 3.4, Math.PI, 0);
+    g.fill();
+    g.fillRect(-3.4, 4 - bob, 6.8, 5);
+    g.fillStyle = "#c8933b";
+    g.beginPath(); g.arc(13, 8.5 - bob, 1.3, 0, 7); g.fill();
+    g.beginPath(); g.arc(15.6, 6.4 - bob, 1, 0, 7); g.fill();
+    g.beginPath(); g.arc(15.9, 9.6 - bob, 1, 0, 7); g.fill();
+    g.beginPath(); g.arc(12.4, 5.6 - bob, 0.9, 0, 7); g.fill();
+    return;
+  }
+  if (k === "portal") {
+    // Stone ring gateway with a swirling energy disc and orbiting sparkles.
+    const cy = -6 - bob;
+    const pulse = 0.5 + Math.sin(t * 0.006) * 0.3;
+    g.fillStyle = `rgba(130,95,225,${0.45 + pulse * 0.2})`;
+    g.beginPath();
+    g.arc(0, cy, 6.6, 0, 7);
+    g.fill();
+    g.strokeStyle = `rgba(205,175,255,${0.6 + pulse * 0.3})`;
+    g.lineWidth = 1.1;
+    for (let i = 0; i < 2; i++) {
+      const r = 2.6 + i * 2 + pulse;
+      g.beginPath();
+      g.arc(0, cy, r, t * 0.002 + i, t * 0.002 + i + 4.5);
+      g.stroke();
+    }
+    g.strokeStyle = "#6b6b74";
+    g.lineWidth = 2.6;
+    g.beginPath();
+    g.arc(0, cy, 9, 0, 7);
+    g.stroke();
+    g.strokeStyle = "#c9c9d2";
+    g.lineWidth = 0.8;
+    g.beginPath();
+    g.arc(0, cy, 9, -0.7, 0.7);
+    g.stroke();
+    g.fillStyle = "#e8dcff";
+    for (let i = 0; i < 3; i++) {
+      const a = t / 300 + i * 2.1;
+      g.beginPath();
+      g.arc(Math.cos(a) * 10.5, cy + Math.sin(a) * 4.2, 1, 0, 7);
+      g.fill();
+    }
+    g.fillStyle = "#4a4a52";
+    g.fillRect(-9, cy + 8.5, 18, 2.6);
+    return;
+  }
   const robes = { elder: ["#d8cfb8", "#8a6527"], merchant: ["#7a4a6a", "#c8933b"], smith: ["#5c3a28", "#8f8f96"] };
   const [robe, trim] = robes[k] || ["#999", "#666"];
   g.fillStyle = robe;
@@ -1660,32 +1784,13 @@ function drawNpc(g, k, bob, t) {
     for (let i = 0; i < 3; i++) g.fillRect(-6, -16 - bob + i * 3, 12, 1.4);
     return;
   }
-  if (k === "portal") {
-    g.fillStyle = "#6a4cff";
-    g.beginPath();
-    g.moveTo(0, 8 - bob);
-    g.lineTo(-5, -14 - bob);
-    g.lineTo(5, -14 - bob);
-    g.closePath();
-    g.fill();
-    g.strokeStyle = "#c8b0ff";
-    g.lineWidth = 1.2;
-    g.beginPath();
-    g.arc(0, -6 - bob, 4 + Math.sin(t * 0.006) * 0.6, 0, 7);
-    g.stroke();
-    g.fillStyle = `rgba(160,120,255,${0.35 + Math.sin(t * 0.008) * 0.15})`;
-    g.beginPath();
-    g.arc(0, -6 - bob, 6, 0, 7);
-    g.fill();
-    return;
-  }
   if (k === "merchant") {
     g.fillStyle = "#8a6527";
     g.fillRect(-9, -2 - bob, 5, 6);
   }
 }
 var PLAYER_KINDS = { warrior: 1, hunter: 1, mage: 1, cleric: 1 };
-var NPC_KINDS = { elder: 1, merchant: 1, smith: 1, portal: 1, board: 1 };
+var NPC_KINDS = { elder: 1, merchant: 1, smith: 1, portal: 1, board: 1, stash: 1, petshop: 1 };
 function drawEntity(E, t) {
   const sx = w2sx(E.rx), sy = w2sy(E.ry);
   if (sx < -80 || sy < -100 || sx > VW + 80 || sy > VH + 100)
@@ -1697,7 +1802,7 @@ function drawEntity(E, t) {
   const walk = moving ? 1 : 0;
   ctx.save();
   ctx.translate(sx, sy);
-  if ((E.k === "cyclops" || E.k === "minotaur" || E.k === "hydra") && !E.dieT) {
+  if (BOSS_KINDS.has(E.k) && !E.dieT) {
     const pulse = 0.5 + Math.sin(t / 260) * 0.5;
     const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, 46 * scale);
     gr.addColorStop(0, `rgba(255,90,40,${0.16 + pulse * 0.1})`);
@@ -1717,6 +1822,17 @@ function drawEntity(E, t) {
     ctx.beginPath();
     ctx.ellipse(0, 12, 7, 2.6, 0, 0, 7);
     ctx.fill();
+  }
+  if (E.pet && isPlayer && !E.dieT) {
+    const pb = Math.sin(t / 380 + E.bobP + 1.7) * 1.2;
+    ctx.save();
+    ctx.translate(-13, 9 + pb);
+    ctx.fillStyle = "rgba(0,0,0,.25)";
+    ctx.beginPath();
+    ctx.ellipse(0, 5, 5, 2, 0, 0, 7);
+    ctx.fill();
+    drawPetIcon(ctx, E.pet, 0, 0, 14);
+    ctx.restore();
   }
   if (E.dieT) {
     const self = idOf(E) === S.myId;
@@ -1792,7 +1908,7 @@ function drawEntity(E, t) {
     ctx.fillStyle = "rgba(0,0,0,.7)";
     const label = `${E.n || ""} · ${E.l}`;
     ctx.fillText(label, 1, topY - 5 + 1);
-    ctx.fillStyle = idOf(E) === S.myId ? "#ecc16e" : S.partyIds.has(idOf(E)) ? "#7de08a" : (E.k === "cyclops" || E.k === "minotaur" || E.k === "hydra") ? "#ff9a5e" : "#cfe0ff";
+    ctx.fillStyle = idOf(E) === S.myId ? "#ecc16e" : S.partyIds.has(idOf(E)) ? "#7de08a" : BOSS_KINDS.has(E.k) ? "#ff9a5e" : "#cfe0ff";
     ctx.fillText(label, 0, topY - 5);
   } else if (isNpc) {
     ctx.font = "11px Georgia";
@@ -2506,7 +2622,7 @@ function updateTargetFrame() {
   }
   tf.classList.remove("hidden");
   $("targetName").textContent = `${E.n || E.k} · Nv ${E.l}`;
-  $("targetName").classList.toggle("boss", E.k === "cyclops" || E.k === "minotaur" || E.k === "hydra");
+  $("targetName").classList.toggle("boss", BOSS_KINDS.has(E.k));
   $("targetFill").style.width = Math.max(0, 100 * E.h / (E.H || 1)) + "%";
 }
 function isEnemyEnt(E, id) {
@@ -2590,11 +2706,12 @@ function frame() {
     S.cam.x = me.rx;
     S.cam.y = me.ry;
   }
+  const curZone = me ? zoneAt(me.rx, me.ry) : null;
   applyShake();
   updateParticles(t, dt);
   ctx.fillStyle = "#12100b";
   ctx.fillRect(0, 0, VW, VH);
-  drawTiles(t);
+  drawTiles(t, curZone);
   drawLoot(t);
   drawPortals(t);
   if (t - _dustAt > 180 && S.particles.length < 260) {
@@ -2638,12 +2755,12 @@ function frame() {
   drawOrbs(t);
   drawSkillCooldowns(t);
   drawMinimapDots();
-  checkZone();
+  checkZone(curZone);
   if (t - S.chatIdleT > 8000)
     $("chatLog").classList.add("idle");
 }
 function entRadius(E) {
-  return E.k === "cyclops" || E.k === "minotaur" || E.k === "hydra" ? 1.4 : 0.7;
+  return BOSS_KINDS.has(E.k) ? 1.4 : 0.7;
 }
 function pickAt(wx, wy) {
   const mobile = typeof isMobileUi === "function" && isMobileUi();
@@ -2676,6 +2793,11 @@ function pickAt(wx, wy) {
 }
 function updateHover() {
   if (!S.mouse.in) {
+    // Note: do NOT hideTooltip() here. The canvas fires "mouseleave" (mouse.in=false)
+    // any time the pointer moves onto an overlapping DOM panel (inventory/shop/etc.),
+    // which runs every animation frame while hovering those panels and would fight
+    // with their own per-slot showTooltip()/hideTooltip() listeners, blanking item
+    // stat tooltips almost as soon as they appear.
     S.hoverId = 0;
     S.hoverLoot = 0;
     return;
@@ -2687,10 +2809,14 @@ function updateHover() {
   S.hoverLoot = p.loot;
   const E = S.ents.get(p.ent);
   canvas.className = "";
-  if (p.loot)
+  if (p.loot) {
     canvas.classList.add("hover-loot");
-  else if (E)
-    canvas.classList.add(NPC_KINDS[E.k] ? "hover-talk" : "hover-attack");
+    const L = S.loot.get(p.loot);
+    if (L) showTooltip({ clientX: S.mouse.x, clientY: S.mouse.y }, L, "Clic para recoger");
+  } else {
+    hideTooltip();
+    if (E) canvas.classList.add(NPC_KINDS[E.k] ? "hover-talk" : "hover-attack");
+  }
 }
 canvas.addEventListener("mousemove", (e) => {
   S.mouse.x = e.clientX;
@@ -2842,7 +2968,7 @@ function initMenu() {
   syncMenuControls();
   applyLang(getLang());
 }
-var PANEL_ORDER = ["dialogPanel", "shopPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel"];
+var PANEL_ORDER = ["dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel"];
 function closeTopPanel() {
   for (const id of PANEL_ORDER) {
     const el = $(id);
@@ -2850,6 +2976,10 @@ function closeTopPanel() {
       el.classList.add("hidden");
       if (id === "shopPanel") {
         S.shopOpen = false;
+        renderInventory();
+      }
+      if (id === "stashPanel") {
+        S.stashOpen = false;
         renderInventory();
       }
       return true;
@@ -2997,9 +3127,17 @@ window.addEventListener("keydown", (e) => {
     case "L":
       togglePanel("questPanel");
       break;
+    case "p":
+    case "P":
+      if (S.party.length) setPartyMinimized(!S.partyMinimized);
+      break;
     case "h":
     case "H":
       togglePanel("abilityPanel");
+      break;
+    case "f":
+    case "F":
+      setAutoAtk(!S.autoAtk);
       break;
     case "b":
     case "B":
@@ -3030,6 +3168,10 @@ document.querySelectorAll(".panel-x").forEach((x) => x.addEventListener("click",
   $(id).classList.add("hidden");
   if (id === "shopPanel") {
     S.shopOpen = false;
+    renderInventory();
+  }
+  if (id === "stashPanel") {
+    S.stashOpen = false;
     renderInventory();
   }
   hideTooltip();
@@ -3859,7 +4001,7 @@ function openPortalPanel(m) {
   const title = $("dialogName");
   if (!body || !title) return;
   const xbtn = title.querySelector(".panel-x");
-  title.textContent = m.name || "Piedra de tránsito";
+  title.textContent = m.name || "Portal";
   if (xbtn) title.appendChild(xbtn);
   let html = "";
   for (const line of m.lines || []) html += `<p>${line}</p>`;
@@ -3890,12 +4032,11 @@ function refreshHud() {
   $("goldHud").textContent = `${y.gold} de oro`;
   refreshSkillLocks();
 }
-function checkZone() {
+function checkZone(curZone) {
   const me = S.ents.get(S.myId);
   if (!me || !S.map)
     return;
-  const z = zoneAt(me.rx, me.ry);
-  const name = z ? z.name : nearTown(me.rx, me.ry) ? "Helike" : "";
+  const name = curZone ? curZone.name : nearTown(me.rx, me.ry) ? "Helike" : "";
   if (name && name !== S.zoneName) {
     S.zoneName = name;
     $("zoneHud").textContent = name;
@@ -4498,11 +4639,13 @@ function renderInventory() {
       }
       const act = S.shopOpen
         ? `Vender por ${Math.floor(item.val / 4)} de oro`
-        : item.slot === "potion"
-          ? "Clic: beber · Arrastra fuera: tirar"
-          : item.slot === "quest"
-            ? "Objeto de misión"
-            : "Clic: equipar · Arrastra fuera: tirar";
+        : S.stashOpen
+          ? "Clic para guardar en el cofre"
+          : item.slot === "potion"
+            ? "Clic: beber · Arrastra fuera: tirar"
+            : item.slot === "quest"
+              ? "Objeto de misión"
+              : "Clic: equipar · Arrastra fuera: tirar";
       d._tip = { item, action: act };
       d.addEventListener("mousemove", (e) => showTooltip(e, item, act));
       d.addEventListener("mouseleave", hideTooltip);
@@ -4516,6 +4659,9 @@ function renderInventory() {
           if (item.rarity !== "common" && !confirm(`¿Vender ${item.name} (${RARITY_ES[item.rarity] || item.rarity}) por ${Math.floor(item.val / 4)} de oro?`))
             return;
           send({ t: "sell", slot });
+        } else if (S.stashOpen) {
+          if (item.slot === "quest") return toast("No puedes guardar objetos de misión");
+          send({ t: "stash_deposit", slot });
         } else if (item.slot === "potion")
           send({ t: "use", slot });
         else if (item.slot === "quest")
@@ -4525,7 +4671,7 @@ function renderInventory() {
       });
       // Drag outside the inventory panel to drop on the ground (shared loot).
       d.querySelectorAll("canvas").forEach((cv) => { cv.draggable = false; });
-      if (!S.shopOpen && item.slot !== "quest") {
+      if (!S.shopOpen && !S.stashOpen && item.slot !== "quest") {
         d.addEventListener("mousedown", (e) => {
           if (e.button !== 0) return;
           beginInvDrag(e, slot, item);
@@ -4611,6 +4757,7 @@ function renderChar() {
     const label = { str: "Fuerza", dex: "Destreza", int: "Inteligencia" }[st];
     html += `<div class="stat-row"><span>${label}</span><span><b>${y[st]}</b>` + (y.pts > 0 ? ` <button class="plus" data-st="${st}">+</button>` : "") + `</span></div>`;
   }
+  html += `<button type="button" class="btn ghost char-reset-btn" id="charResetBtn" data-i18n="char.resetBtn">${t("char.resetBtn")}</button>`;
   html += `<div class="derived">
     <div class="stat-row"><span>Daño</span><b>${y.dmg[0]}–${y.dmg[1]}</b></div>
     <div class="stat-row"><span>Prob. de crítico</span><b>${(+y.crit).toFixed(1)}%</b></div>
@@ -4622,6 +4769,11 @@ function renderChar() {
   </div>`;
   b.innerHTML = html;
   b.querySelectorAll(".plus").forEach((btn) => btn.addEventListener("click", () => send({ t: "allot", stat: btn.dataset.st })));
+  const resetBtn = $("charResetBtn");
+  if (resetBtn) resetBtn.addEventListener("click", () => {
+    if (!confirm(t("char.resetConfirm"))) return;
+    send({ t: "stat_reset" });
+  });
 }
 var QUEST_META = {
   q1: { name: "Jabalíes revoltosos", goal: "Mata 8 jabalíes", count: 8 },
@@ -4688,17 +4840,16 @@ function renderAbilities() {
     </div>`;
   };
 
-  // Tier rows stack bottom-to-top: tier 3 (top) first in DOM, tier 1 (bottom)
-  // last, each pair of rows separated by the point-gate that unlocks the row
-  // above it; a root marker caps the bottom (tier 1 needs 0 points).
+  // Tier rows stack top-to-bottom (tier 1 first, so the base skills are
+  // visible without scrolling), each gate describing what the next row down needs.
   let html = '<div class="ability-tree">';
-  for (const tier of [3, 2, 1]) {
+  html += `<div class="ability-gate ability-root">${t("ability.tier", 1)} · ${t("ability.baseGate")}</div>`;
+  for (const tier of [1, 2, 3]) {
     const nodes = byTier[tier] || [];
     if (!nodes.length) continue;
     html += `<div class="ability-tier-row" data-tier="${tier}">${nodes.map(nodeHtml).join("")}</div>`;
-    if (tier > 1) html += `<div class="ability-gate">${t("ability.tier", tier)} · ${t("ability.needMore", tierReq(tier))}</div>`;
+    if (tier < 3) html += `<div class="ability-gate">${t("ability.tier", tier + 1)} · ${t("ability.needMore", tierReq(tier + 1))}</div>`;
   }
-  html += `<div class="ability-gate ability-root">${t("ability.tier", 1)} · ${t("ability.baseGate")}</div>`;
   html += "</div>";
   b.innerHTML = html;
 
@@ -4716,9 +4867,10 @@ function renderAbilities() {
   b.querySelectorAll(".equip-btn").forEach((btn) => btn.addEventListener("click", () => {
     if (btn.disabled) return;
     const slot = +btn.dataset.slot, n = +btn.dataset.n;
-    if (S.loadout[slot - 1] === n) return;
-    S.loadout[slot - 1] = n;
-    send({ t: "skill_equip", slot, n });
+    // Click an unassigned skill into the slot; click the already-assigned one again to clear it.
+    const next = S.loadout[slot - 1] === n ? 0 : n;
+    S.loadout[slot - 1] = next;
+    send({ t: "skill_equip", slot, n: next });
     buildSkillbar();
     renderAbilities();
   }));
@@ -4933,9 +5085,228 @@ function renderShop() {
   $("shopGold").textContent = S.you ? `Tu oro: ${S.you.gold}` : "";
   refreshHoverTooltip();
 }
+function showStash(m) {
+  S.stashOpen = true;
+  S.stash = m.items || [];
+  renderStash();
+  $("stashPanel").classList.remove("hidden");
+  $("invPanel").classList.remove("hidden");
+  renderInventory();
+}
+function drawPetIcon(g, id, cx, cy, size) {
+  const s = size / 20;
+  g.save();
+  g.translate(cx, cy);
+  g.scale(s, s);
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  switch (id) {
+    case "dog":
+      g.fillStyle = "#c68a4a";
+      g.beginPath(); g.arc(0, 1, 7, 0, 7); g.fill();
+      g.beginPath(); g.moveTo(-6, -3); g.lineTo(-9, -9); g.lineTo(-3, -5); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(6, -3); g.lineTo(9, -9); g.lineTo(3, -5); g.closePath(); g.fill();
+      g.fillStyle = "#2a1a0c";
+      g.beginPath(); g.arc(-2.5, 0, 1, 0, 7); g.fill();
+      g.beginPath(); g.arc(2.5, 0, 1, 0, 7); g.fill();
+      g.beginPath(); g.arc(0, 3, 1.2, 0, 7); g.fill();
+      break;
+    case "cat":
+      g.fillStyle = "#8b8b93";
+      g.beginPath(); g.arc(0, 1, 7, 0, 7); g.fill();
+      g.beginPath(); g.moveTo(-6, -4); g.lineTo(-8, -10); g.lineTo(-2, -6); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(6, -4); g.lineTo(8, -10); g.lineTo(2, -6); g.closePath(); g.fill();
+      g.fillStyle = "#12100b";
+      g.beginPath(); g.arc(-2.5, -0.5, 1, 0, 7); g.fill();
+      g.beginPath(); g.arc(2.5, -0.5, 1, 0, 7); g.fill();
+      g.strokeStyle = "#e8e8ec"; g.lineWidth = 0.6;
+      g.beginPath(); g.moveTo(-1, 3); g.lineTo(-6, 2); g.moveTo(1, 3); g.lineTo(6, 2); g.stroke();
+      break;
+    case "owl":
+      g.fillStyle = "#8a6a45";
+      g.beginPath(); g.arc(0, 0, 7.5, 0, 7); g.fill();
+      g.fillStyle = "#e8dcc0";
+      g.beginPath(); g.arc(-3, -1, 3, 0, 7); g.fill();
+      g.beginPath(); g.arc(3, -1, 3, 0, 7); g.fill();
+      g.fillStyle = "#1a1206";
+      g.beginPath(); g.arc(-3, -1, 1.3, 0, 7); g.fill();
+      g.beginPath(); g.arc(3, -1, 1.3, 0, 7); g.fill();
+      g.fillStyle = "#d9922e";
+      g.beginPath(); g.moveTo(-1, 2); g.lineTo(1, 2); g.lineTo(0, 4.5); g.closePath(); g.fill();
+      break;
+    case "turtle":
+      g.fillStyle = "#4c6e35";
+      g.beginPath(); g.arc(0, 0, 7, 0, 7); g.fill();
+      g.strokeStyle = "#2f4a20"; g.lineWidth = 0.8;
+      g.beginPath(); g.moveTo(0, -7); g.lineTo(0, 7); g.moveTo(-6, 0); g.lineTo(6, 0); g.stroke();
+      g.fillStyle = "#7ba14f";
+      g.beginPath(); g.arc(-8, 0, 2, 0, 7); g.fill();
+      g.beginPath(); g.arc(8, 0, 2, 0, 7); g.fill();
+      break;
+    default:
+      g.fillStyle = "#ccc";
+      g.beginPath(); g.arc(0, 0, 7, 0, 7); g.fill();
+  }
+  g.restore();
+}
+function renderStash() {
+  const grid = $("stashGrid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  for (let i = 0; i < S.stash.length; i++) {
+    const item = S.stash[i];
+    const d = document.createElement("div");
+    d.className = "inv-slot" + (item ? ` full r-${item.rarity}` : "");
+    if (item) {
+      d.appendChild(slotCanvas(item, 46, 42));
+      if (item.qty > 1) {
+        const q = document.createElement("span");
+        q.className = "qty";
+        q.textContent = item.qty;
+        d.appendChild(q);
+      }
+      const act = "Clic para retirar";
+      d._tip = { item, action: act };
+      d.addEventListener("mousemove", (e) => showTooltip(e, item, act));
+      d.addEventListener("mouseleave", hideTooltip);
+      const slot = i;
+      d.addEventListener("click", () => send({ t: "stash_withdraw", slot }));
+    }
+    grid.appendChild(d);
+  }
+  refreshHoverTooltip();
+}
+function showPetShop(m) {
+  S.petShop = { defs: m.defs || [], owned: m.owned || [], active: m.active || null };
+  renderPetShop();
+  $("petPanel").classList.remove("hidden");
+}
+function renderPetShop() {
+  const b = $("petBody");
+  if (!b) return;
+  b.innerHTML = "";
+  const { defs, owned, active } = S.petShop;
+  for (const def of defs) {
+    const has = owned.includes(def.id);
+    const row = document.createElement("div");
+    row.className = "shop-item";
+    const cv = document.createElement("canvas");
+    cv.width = 34;
+    cv.height = 34;
+    drawPetIcon(cv.getContext("2d"), def.id, 17, 17, 24);
+    row.appendChild(cv);
+    const nm = document.createElement("div");
+    nm.className = "si-name";
+    nm.textContent = def.name;
+    row.appendChild(nm);
+    if (!has) {
+      const pr = document.createElement("div");
+      pr.className = "si-price";
+      pr.textContent = `${def.cost} g`;
+      row.appendChild(pr);
+      const buy = document.createElement("button");
+      buy.className = "btn";
+      buy.textContent = "Adoptar";
+      if (S.you && S.you.gold < def.cost) buy.className = "btn ghost";
+      else buy.addEventListener("click", () => send({ t: "pet_buy", id: def.id }));
+      row.appendChild(buy);
+    } else {
+      const eq = document.createElement("button");
+      const equipped = active === def.id;
+      eq.className = "btn" + (equipped ? " ghost" : "");
+      eq.textContent = equipped ? "Equipada" : "Equipar";
+      if (!equipped) eq.addEventListener("click", () => send({ t: "pet_equip", id: def.id }));
+      else eq.addEventListener("click", () => send({ t: "pet_equip", id: "" }));
+      row.appendChild(eq);
+    }
+    b.appendChild(row);
+  }
+}
 requireDom();
 initLogin();
 initMenu();
+var PANEL_LAYOUT_KEY = "aot_panel_layout";
+function loadPanelLayouts() {
+  try { return JSON.parse(localStorage.getItem(PANEL_LAYOUT_KEY) || "{}"); } catch (_) { return {}; }
+}
+function savePanelLayout(id, patch) {
+  const all = loadPanelLayouts();
+  all[id] = Object.assign({}, all[id], patch);
+  try { localStorage.setItem(PANEL_LAYOUT_KEY, JSON.stringify(all)); } catch (_) {}
+}
+function initDraggablePanels() {
+  const layouts = loadPanelLayouts();
+  document.querySelectorAll(".panel").forEach((panel) => {
+    const id = panel.id;
+    const title = panel.querySelector(".panel-title");
+    if (!title) return;
+    let collapseBtn = title.querySelector(".panel-collapse");
+    if (!collapseBtn) {
+      collapseBtn = document.createElement("span");
+      collapseBtn.className = "panel-collapse";
+      collapseBtn.textContent = "▾";
+      collapseBtn.title = "Minimizar/expandir";
+      const closeBtn = title.querySelector(".panel-x");
+      if (closeBtn) title.insertBefore(collapseBtn, closeBtn);
+      else title.appendChild(collapseBtn);
+      collapseBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const collapsed = panel.classList.toggle("collapsed");
+        collapseBtn.textContent = collapsed ? "▸" : "▾";
+        savePanelLayout(id, { collapsed });
+      });
+    }
+    const saved = layouts[id];
+    if (saved) {
+      if (saved.left != null && saved.top != null) {
+        panel.style.left = saved.left + "px";
+        panel.style.top = saved.top + "px";
+        panel.style.right = "auto";
+        panel.style.transform = "none";
+      }
+      if (saved.collapsed) {
+        panel.classList.add("collapsed");
+        collapseBtn.textContent = "▸";
+      }
+    }
+    let dragging = false, startX = 0, startY = 0, baseLeft = 0, baseTop = 0;
+    title.addEventListener("mousedown", (e) => {
+      if (e.button !== 0 || (typeof isMobileUi === "function" && isMobileUi())) return;
+      if (e.target.closest(".panel-x, .panel-collapse")) return;
+      const r = panel.getBoundingClientRect();
+      panel.style.left = r.left + "px";
+      panel.style.top = r.top + "px";
+      panel.style.right = "auto";
+      panel.style.transform = "none";
+      dragging = true;
+      startX = e.clientX; startY = e.clientY;
+      baseLeft = r.left; baseTop = r.top;
+      panel.classList.add("dragging");
+      e.preventDefault();
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!dragging) return;
+      const nx = clamp(baseLeft + (e.clientX - startX), 0, innerWidth - 60);
+      const ny = clamp(baseTop + (e.clientY - startY), 0, innerHeight - 40);
+      panel.style.left = nx + "px";
+      panel.style.top = ny + "px";
+    });
+    window.addEventListener("mouseup", () => {
+      if (!dragging) return;
+      dragging = false;
+      panel.classList.remove("dragging");
+      savePanelLayout(id, { left: parseFloat(panel.style.left), top: parseFloat(panel.style.top) });
+    });
+  });
+}
+function initAbilityReset() {
+  const btn = $("abilityResetBtn");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    if (!confirm(t("ability.resetConfirm"))) return;
+    send({ t: "ability_reset" });
+  });
+}
 function initShopSellAll() {
   const map = { sellAllCommon: "common", sellAllMagic: "magic", sellAllRare: "rare" };
   for (const [id, rarity] of Object.entries(map)) {
@@ -4949,7 +5320,9 @@ function initShopSellAll() {
   }
 }
 initBoard();
+initAbilityReset();
 initShopSellAll();
+initDraggablePanels();
 initMobileUi();
 resize();
 window.addEventListener("resize", () => { initMobileUi(); resize(); });
