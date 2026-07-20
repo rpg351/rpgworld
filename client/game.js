@@ -2987,6 +2987,24 @@ function closeTopPanel() {
   }
   return false;
 }
+// NPC-interaction panels: only one of these should ever be open at a time,
+// and moving with WASD closes whichever is open (unlike invPanel/charPanel/
+// abilityPanel/questPanel, which stay open while walking).
+var CITY_PANELS = ["dialogPanel", "shopPanel", "stashPanel", "petPanel", "boardPanel"];
+function closeCityPanels(except) {
+  let changed = false;
+  for (const id of CITY_PANELS) {
+    if (id === except) continue;
+    const el = $(id);
+    if (el && !el.classList.contains("hidden")) {
+      el.classList.add("hidden");
+      changed = true;
+    }
+  }
+  if (S.shopOpen && except !== "shopPanel") { S.shopOpen = false; changed = true; }
+  if (S.stashOpen && except !== "stashPanel") { S.stashOpen = false; changed = true; }
+  if (changed) renderInventory();
+}
 function togglePanel(id) {
   $(id).classList.toggle("hidden");
   if (id === "invPanel")
@@ -3092,6 +3110,7 @@ window.addEventListener("keydown", (e) => {
       S.dirKeys[mk] = 1;
       S.targetId = 0; // WASD cancels attack lock (server clears atkTarget on dir)
       S.lootTarget = 0;
+      closeCityPanels(); // walking away closes shop/stash/petshop/board/dialog, not inv/char/etc.
       sendDir();
     }
     return;
@@ -4000,6 +4019,7 @@ function openPortalPanel(m) {
   const body = $("dialogBody");
   const title = $("dialogName");
   if (!body || !title) return;
+  closeCityPanels("dialogPanel");
   const xbtn = title.querySelector(".panel-x");
   title.textContent = m.name || "Portal";
   if (xbtn) title.appendChild(xbtn);
@@ -4907,6 +4927,7 @@ function renderQuests() {
   b.innerHTML = html;
 }
 function showDialog(m) {
+  closeCityPanels("dialogPanel");
   const p = $("dialogPanel");
   $("dialogName").innerHTML = `${m.name} <span class="panel-x" data-close="dialogPanel">✕</span>`;
   $("dialogName").querySelector(".panel-x").addEventListener("click", () => p.classList.add("hidden"));
@@ -4996,6 +5017,7 @@ function initBoard() {
   }, 1000);
 }
 function showBoard(m) {
+  closeCityPanels("boardPanel");
   S.boardEntries = m.entries || [];
   S.boardMeta = { isMod: !!m.isMod, hasActive: !!m.hasActive, cooldownUntil: m.cooldownUntil || 0 };
   $("boardPanel").classList.remove("hidden");
@@ -5035,6 +5057,7 @@ function renderBoard(entries) {
   }
 }
 function showShop(m) {
+  closeCityPanels("shopPanel");
   S.shopOpen = true;
   S.shopNpc = m.npc;
   S.shopItems = m.items || [];
@@ -5086,6 +5109,7 @@ function renderShop() {
   refreshHoverTooltip();
 }
 function showStash(m) {
+  closeCityPanels("stashPanel");
   S.stashOpen = true;
   S.stash = m.items || [];
   renderStash();
@@ -5177,6 +5201,7 @@ function renderStash() {
   refreshHoverTooltip();
 }
 function showPetShop(m) {
+  closeCityPanels("petPanel");
   S.petShop = { defs: m.defs || [], owned: m.owned || [], active: m.active || null };
   renderPetShop();
   $("petPanel").classList.remove("hidden");
