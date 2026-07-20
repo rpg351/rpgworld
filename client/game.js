@@ -472,11 +472,14 @@ function handleWorld(m) {
     }
     case "st": {
       S.pop = m.pop;
-      const t = now();
+      // Named nowT, not t: this whole block runs inside handleWorld(m), and a
+      // local `t` here would shadow the global t() i18n helper used below for
+      // the population-count HUD text (silently breaking every "st" message).
+      const nowT = now();
       for (const e of m.ents || []) {
         let E = S.ents.get(e.i);
         if (!E) {
-          E = { buf: [], rx: e.x, ry: e.y, hitT: 0, dieT: 0, spawnT: t, bobP: Math.random() * 7 };
+          E = { buf: [], rx: e.x, ry: e.y, hitT: 0, dieT: 0, spawnT: nowT, bobP: Math.random() * 7 };
           S.ents.set(e.i, E);
         }
         E.k = e.k;
@@ -492,17 +495,17 @@ function handleWorld(m) {
           E.m = e.m;
           E.M = e.M;
         }
-        E.buf.push({ t, x: e.x, y: e.y });
+        E.buf.push({ t: nowT, x: e.x, y: e.y });
         if (E.buf.length > 12)
           E.buf.splice(0, E.buf.length - 12);
         // Local corpse: mark dieT while hp is 0 so we render faded instead of "alive".
-        if (e.i === S.myId && e.h <= 0 && !E.dieT) { E.dieT = t; spawnParticles(E.rx, E.ry - 0.6, 12, { color: "#ff6a5e", spread: 2.4, size: 2.2, life: 550, grav: 1.6 }); }
+        if (e.i === S.myId && e.h <= 0 && !E.dieT) { E.dieT = nowT; spawnParticles(E.rx, E.ry - 0.6, 12, { color: "#ff6a5e", spread: 2.4, size: 2.2, life: 550, grav: 1.6 }); }
         if (e.i === S.myId && e.h > 0) E.dieT = 0;
       }
       for (const id of m.gone || []) {
         const E = S.ents.get(id);
         if (E && E.h <= 0 && !E.dieT) {
-          E.dieT = t;
+          E.dieT = nowT;
           spawnParticles(E.rx, E.ry - 0.6, 10, { color: "#e8dcc0", spread: 2.2, size: 2, life: 500, grav: 1.6 });
         } else
           S.ents.delete(id);
@@ -1045,6 +1048,26 @@ function drawHumanoid(g, cls, bob, walk, t, face, inWorld = true) {
   g.lineTo(-5, 4 - bob);
   g.closePath();
   g.fill();
+  g.save();
+  g.clip();
+  g.fillStyle = "rgba(255,255,255,.16)";
+  g.beginPath();
+  g.ellipse(-2.4, -5 - bob, 3, 5.5, 0, 0, 7);
+  g.fill();
+  g.fillStyle = "rgba(0,0,0,.16)";
+  g.beginPath();
+  g.ellipse(2.8, -1 - bob, 3, 5, 0, 0, 7);
+  g.fill();
+  g.restore();
+  g.strokeStyle = "rgba(0,0,0,.3)";
+  g.lineWidth = 1;
+  g.beginPath();
+  g.moveTo(-6, -8 - bob);
+  g.lineTo(6, -8 - bob);
+  g.lineTo(5, 4 - bob);
+  g.lineTo(-5, 4 - bob);
+  g.closePath();
+  g.stroke();
   g.fillStyle = trim;
   g.fillRect(-6, -8 - bob, 12, 2);
   if (cls === "hunter") {
@@ -1061,6 +1084,17 @@ function drawHumanoid(g, cls, bob, walk, t, face, inWorld = true) {
     g.beginPath();
     g.arc(0, -13 - bob, 4.5, 0, 7);
     g.fill();
+    g.save();
+    g.clip();
+    g.fillStyle = "rgba(255,255,255,.22)";
+    g.beginPath();
+    g.arc(-1.6, -14.4 - bob, 2.1, 0, 7);
+    g.fill();
+    g.fillStyle = "rgba(0,0,0,.14)";
+    g.beginPath();
+    g.arc(1.8, -11.8 - bob, 2.1, 0, 7);
+    g.fill();
+    g.restore();
     if (cls === "warrior") {
       g.fillStyle = "#c8933b";
       g.beginPath();
@@ -1170,6 +1204,22 @@ function drawHumanoid(g, cls, bob, walk, t, face, inWorld = true) {
   }
   g.restore();
 }
+// Clips to whatever path is still active from the caller's last fill() (fill()
+// doesn't reset the current path) and lays a soft highlight/shadow over it —
+// a cheap way to give an otherwise flat silhouette some depth.
+function shadeCurrent(g, hlx, hly, hlr, shx, shy, shr) {
+  g.save();
+  g.clip();
+  g.fillStyle = "rgba(255,255,255,.16)";
+  g.beginPath();
+  g.ellipse(hlx, hly, hlr, hlr * 1.3, 0, 0, 7);
+  g.fill();
+  g.fillStyle = "rgba(0,0,0,.16)";
+  g.beginPath();
+  g.ellipse(shx, shy, shr, shr * 1.3, 0, 0, 7);
+  g.fill();
+  g.restore();
+}
 function drawMonster(g, k, bob, walk, t, face, scale) {
   const flip = face ? -1 : 1;
   g.save();
@@ -1181,6 +1231,7 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.beginPath();
       g.ellipse(0, -5 - bob, 10, 6.5, 0, 0, 7);
       g.fill();
+      shadeCurrent(g, -3, -7 - bob, 4, 4, -3 - bob, 4);
       g.fillStyle = "#7d5530";
       g.beginPath();
       g.arc(9, -6 - bob, 4.5, 0, 7);
@@ -1222,6 +1273,7 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.beginPath();
       g.ellipse(0, -6 - bob, 6, 8, 0, 0, 7);
       g.fill();
+      shadeCurrent(g, -2.2, -9 - bob, 2.6, 2.4, -3 - bob, 2.6);
       g.fillStyle = "#c39a68";
       g.beginPath();
       g.arc(0, -15 - bob, 4.5, 0, 7);
@@ -1276,6 +1328,7 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.beginPath();
       g.arc(0, -13 - bob, 4.4, 0, 7);
       g.fill();
+      shadeCurrent(g, -1.5, -14.5 - bob, 1.8, 1.7, -11.8 - bob, 1.8);
       g.fillStyle = "#141210";
       g.beginPath();
       g.arc(-1.7, -13.5 - bob, 1.1, 0, 7);
@@ -1311,6 +1364,7 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.beginPath();
       g.ellipse(0, -3, 4.5, 6.5, 0, 0, 7);
       g.fill();
+      shadeCurrent(g, -1.7, -5, 2, 1.8, -1, 2);
       g.fillStyle = "#d3a988";
       g.beginPath();
       g.arc(0, -11, 3.8, 0, 7);
@@ -1346,6 +1400,7 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.beginPath();
       g.ellipse(0, -8 - bob, 5, 7, 0, 0, 7);
       g.fill();
+      shadeCurrent(g, -1.8, -10 - bob, 2.2, 2, -6 - bob, 2.2);
       g.fillStyle = "#7cb082";
       g.beginPath();
       g.arc(0, -16 - bob, 4.4, 0, 7);
@@ -1378,12 +1433,14 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.lineTo(-7, -1 - bob);
       g.closePath();
       g.fill();
+      shadeCurrent(g, -3.5, -13 - bob, 4, 4, -6 - bob, 4);
       g.fillStyle = "#6a4c2e";
       g.fillRect(-7, -7 - bob, 14, 3);
       g.fillStyle = "#ab8a60";
       g.beginPath();
       g.arc(0, -23 - bob, 6, 0, 7);
       g.fill();
+      shadeCurrent(g, -2.2, -25 - bob, 2.6, 2.4, -21 - bob, 2.6);
       g.fillStyle = "#fff";
       g.beginPath();
       g.arc(0, -24 - bob, 2.6, 0, 7);
@@ -1424,6 +1481,7 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.quadraticCurveTo(7, -4 - bob, 5, 8);
       g.closePath();
       g.fill();
+      shadeCurrent(g, -2.2, -2 - bob, 3, 2.4, 2 - bob, 3);
       g.fillStyle = "#c8d0f0";
       g.beginPath();
       g.arc(0, -14 - bob, 4, 0, 7);
@@ -1445,6 +1503,7 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.lineTo(4, 8);
       g.closePath();
       g.fill();
+      shadeCurrent(g, -2, -2 - bob, 2.4, 2, 2 - bob, 2.4);
       g.fillStyle = "#8a3060";
       g.beginPath();
       g.arc(0, -11 - bob, 4.2, 0, 7);
@@ -1480,10 +1539,12 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.lineTo(-7, -1 - bob);
       g.closePath();
       g.fill();
+      shadeCurrent(g, -3.5, -11 - bob, 4, 4, -4 - bob, 4);
       g.fillStyle = "#4a3018";
       g.beginPath();
       g.arc(0, -22 - bob, 6.5, 0, 7);
       g.fill();
+      shadeCurrent(g, -2.4, -24 - bob, 2.8, 2.6, -20 - bob, 2.8);
       // horns
       g.strokeStyle = "#d8c8a0";
       g.lineWidth = 2.4;
@@ -1516,6 +1577,7 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.lineTo(-5, 1 - bob);
       g.closePath();
       g.fill();
+      shadeCurrent(g, -2.4, -8 - bob, 2.6, 2.4, -3 - bob, 2.6);
       // cola
       g.strokeStyle = "#3f6a2e";
       g.lineWidth = 3;
@@ -1591,6 +1653,7 @@ function drawMonster(g, k, bob, walk, t, face, scale) {
       g.beginPath();
       g.ellipse(0, -4 - bob, 11, 8, 0, 0, 7);
       g.fill();
+      shadeCurrent(g, -4, -7 - bob, 5, 4.5, -1 - bob, 5);
       g.fillStyle = "#3a6438";
       g.fillRect(-8, 2 - bob, 4, 6 + wob);
       g.fillRect(4, 2 - bob, 4, 6 - wob);
@@ -1741,12 +1804,42 @@ function drawNpc(g, k, bob, t) {
   g.quadraticCurveTo(7, -6 - bob, 6, 10);
   g.closePath();
   g.fill();
+  g.save();
+  g.clip();
+  g.fillStyle = "rgba(255,255,255,.15)";
+  g.beginPath();
+  g.ellipse(-2.6, -1 - bob, 3, 8, 0, 0, 7);
+  g.fill();
+  g.fillStyle = "rgba(0,0,0,.16)";
+  g.beginPath();
+  g.ellipse(3, 4 - bob, 3, 8, 0, 0, 7);
+  g.fill();
+  g.restore();
+  g.strokeStyle = "rgba(0,0,0,.28)";
+  g.lineWidth = 1;
+  g.beginPath();
+  g.moveTo(-6, 10);
+  g.quadraticCurveTo(-7, -6 - bob, 0, -8 - bob);
+  g.quadraticCurveTo(7, -6 - bob, 6, 10);
+  g.closePath();
+  g.stroke();
   g.fillStyle = trim;
   g.fillRect(-6, 7, 12, 2);
   g.fillStyle = "#d9a970";
   g.beginPath();
   g.arc(0, -12 - bob, 4.4, 0, 7);
   g.fill();
+  g.save();
+  g.clip();
+  g.fillStyle = "rgba(255,255,255,.2)";
+  g.beginPath();
+  g.arc(-1.5, -13.3 - bob, 2, 0, 7);
+  g.fill();
+  g.fillStyle = "rgba(0,0,0,.12)";
+  g.beginPath();
+  g.arc(1.7, -10.8 - bob, 2, 0, 7);
+  g.fill();
+  g.restore();
   if (k === "elder") {
     g.fillStyle = "#eee8da";
     g.beginPath();
@@ -1797,7 +1890,7 @@ function drawEntity(E, t) {
     return;
   const moving = (E.s & 1) !== 0;
   const isNpc = NPC_KINDS[E.k], isPlayer = PLAYER_KINDS[E.k];
-  const scale = E.k === "cyclops" || E.k === "hydra" ? 2 : 1;
+  const scale = BOSS_KINDS.has(E.k) ? 2 : 1;
   const bob = Math.sin(t / 400 + E.bobP) * (moving ? 0.5 : 1.2);
   const walk = moving ? 1 : 0;
   ctx.save();
@@ -1894,7 +1987,7 @@ function drawEntity(E, t) {
       ctx.fill();
     }
   }
-  const topY = E.k === "cyclops" ? -62 : E.k === "hydra" ? -70 : E.k === "harpy" ? -34 : -26;
+  const topY = E.k === "cyclops" || E.k === "minotaur" ? -62 : E.k === "hydra" ? -70 : E.k === "harpy" ? -34 : -26;
   if (E.h < E.H && E.h > 0) {
     const bw = 26 * scale;
     ctx.fillStyle = "rgba(0,0,0,.6)";
@@ -1902,7 +1995,31 @@ function drawEntity(E, t) {
     ctx.fillStyle = isPlayer || isNpc ? "#5fae4a" : "#c8382a";
     ctx.fillRect(-bw / 2 + 0.5, topY + 0.5, (bw - 1) * (E.h / E.H), 3);
   }
-  if (isPlayer || E.k === "cyclops" || E.k === "hydra") {
+  if (BOSS_KINDS.has(E.k) && !E.dieT) {
+    const sy2 = topY - 17 + Math.sin(t / 340) * 2;
+    ctx.save();
+    ctx.translate(0, sy2);
+    ctx.fillStyle = "#7a1810";
+    ctx.beginPath();
+    ctx.moveTo(-15, -6);
+    ctx.lineTo(15, -6);
+    ctx.lineTo(15, 5);
+    ctx.lineTo(0, 2);
+    ctx.lineTo(-15, 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#3a0a06";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.font = "bold 9px Georgia";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#1a0805";
+    ctx.fillText("BOSS", 0.5, 0.5);
+    ctx.fillStyle = "#ffd94a";
+    ctx.fillText("BOSS", 0, 0);
+    ctx.restore();
+  }
+  if (isPlayer || BOSS_KINDS.has(E.k)) {
     ctx.font = "11px Georgia";
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(0,0,0,.7)";
@@ -5128,6 +5245,10 @@ function drawPetIcon(g, id, cx, cy, size) {
     case "dog":
       g.fillStyle = "#c68a4a";
       g.beginPath(); g.arc(0, 1, 7, 0, 7); g.fill();
+      g.save(); g.clip();
+      g.fillStyle = "rgba(255,255,255,.2)"; g.beginPath(); g.arc(-2.6, -1.6, 3, 0, 7); g.fill();
+      g.fillStyle = "rgba(0,0,0,.15)"; g.beginPath(); g.arc(2.8, 3, 3, 0, 7); g.fill();
+      g.restore();
       g.beginPath(); g.moveTo(-6, -3); g.lineTo(-9, -9); g.lineTo(-3, -5); g.closePath(); g.fill();
       g.beginPath(); g.moveTo(6, -3); g.lineTo(9, -9); g.lineTo(3, -5); g.closePath(); g.fill();
       g.fillStyle = "#2a1a0c";
@@ -5138,6 +5259,10 @@ function drawPetIcon(g, id, cx, cy, size) {
     case "cat":
       g.fillStyle = "#8b8b93";
       g.beginPath(); g.arc(0, 1, 7, 0, 7); g.fill();
+      g.save(); g.clip();
+      g.fillStyle = "rgba(255,255,255,.2)"; g.beginPath(); g.arc(-2.6, -1.6, 3, 0, 7); g.fill();
+      g.fillStyle = "rgba(0,0,0,.15)"; g.beginPath(); g.arc(2.8, 3, 3, 0, 7); g.fill();
+      g.restore();
       g.beginPath(); g.moveTo(-6, -4); g.lineTo(-8, -10); g.lineTo(-2, -6); g.closePath(); g.fill();
       g.beginPath(); g.moveTo(6, -4); g.lineTo(8, -10); g.lineTo(2, -6); g.closePath(); g.fill();
       g.fillStyle = "#12100b";
@@ -5149,6 +5274,10 @@ function drawPetIcon(g, id, cx, cy, size) {
     case "owl":
       g.fillStyle = "#8a6a45";
       g.beginPath(); g.arc(0, 0, 7.5, 0, 7); g.fill();
+      g.save(); g.clip();
+      g.fillStyle = "rgba(255,255,255,.18)"; g.beginPath(); g.arc(-2.8, -2.8, 3.2, 0, 7); g.fill();
+      g.fillStyle = "rgba(0,0,0,.15)"; g.beginPath(); g.arc(3, 3, 3.2, 0, 7); g.fill();
+      g.restore();
       g.fillStyle = "#e8dcc0";
       g.beginPath(); g.arc(-3, -1, 3, 0, 7); g.fill();
       g.beginPath(); g.arc(3, -1, 3, 0, 7); g.fill();
@@ -5161,6 +5290,10 @@ function drawPetIcon(g, id, cx, cy, size) {
     case "turtle":
       g.fillStyle = "#4c6e35";
       g.beginPath(); g.arc(0, 0, 7, 0, 7); g.fill();
+      g.save(); g.clip();
+      g.fillStyle = "rgba(255,255,255,.16)"; g.beginPath(); g.arc(-2.6, -2.6, 3, 0, 7); g.fill();
+      g.fillStyle = "rgba(0,0,0,.16)"; g.beginPath(); g.arc(2.8, 2.8, 3, 0, 7); g.fill();
+      g.restore();
       g.strokeStyle = "#2f4a20"; g.lineWidth = 0.8;
       g.beginPath(); g.moveTo(0, -7); g.lineTo(0, 7); g.moveTo(-6, 0); g.lineTo(6, 0); g.stroke();
       g.fillStyle = "#7ba14f";
@@ -5223,6 +5356,12 @@ function renderPetShop() {
     const nm = document.createElement("div");
     nm.className = "si-name";
     nm.textContent = def.name;
+    if (def.desc) {
+      const desc = document.createElement("div");
+      desc.className = "si-desc";
+      desc.textContent = def.desc;
+      nm.appendChild(desc);
+    }
     row.appendChild(nm);
     if (!has) {
       const pr = document.createElement("div");

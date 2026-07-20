@@ -355,6 +355,7 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .shop-item .si-name{flex:1;font-size:12px}
 .shop-item .si-name.magic{color:var(--magic)}
 .shop-item .si-name.rare{color:var(--rare)}
+.shop-item .si-desc{font-size:10px;color:var(--ink-dim);margin-top:1px}
 .shop-item .si-price{color:var(--rare);font-size:12px}
 #shopGold{margin-top:8px;color:var(--rare)}
 

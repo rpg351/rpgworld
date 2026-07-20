@@ -345,6 +345,11 @@ function derive(p: Player): Derived {
   crit += abilityRank(p, "w_crit") + abilityRank(p, "h_crit") + abilityRank(p, "m_crit") + abilityRank(p, "resistencia");
   hpB += 8 * (abilityRank(p, "w_vigor") + abilityRank(p, "h_aliento")) + 6 * abilityRank(p, "vital");
   mpB += 6 * abilityRank(p, "m_mana") + 4 * abilityRank(p, "vital");
+  // Equipped pet's passive perk (gold bonus is applied separately in rollDrops).
+  const pet = p.activePet ? PET_DEFS[p.activePet] : null;
+  if (pet?.stat === "arm") arm += pet.amount;
+  if (pet?.stat === "crit") crit += pet.amount;
+  if (pet?.stat === "hp") hpB += pet.amount;
   const w = p.eq.weapon;
   const [lo0, hi0] = w?.dmg ?? [1, 3];
   const [stat, mult] = WEAPON_SCALING[w?.icon ?? "sword"] ?? ["str", 0.5];
@@ -480,7 +485,8 @@ const BOSS_KILL_MSG: Record<string, (killer: string) => string> = {
 };
 
 function rollDrops(m: Mob, killer: Player): void {
-  killer.gold += m.gold();
+  const petGoldPct = killer.activePet ? PET_DEFS[killer.activePet]?.stat === "gold" ? PET_DEFS[killer.activePet].amount : 0 : 0;
+  killer.gold += Math.round(m.gold() * (1 + petGoldPct / 100));
   const boss = BOSS_LOOT[m.kind];
   if (boss) {
     for (let i = 0; i < boss.count; i++)
@@ -1164,7 +1170,7 @@ function sendStash(p: Player): void {
 function sendPetShop(p: Player): void {
   send(p.ws, {
     t: "petshop",
-    defs: Object.entries(PET_DEFS).map(([id, d]) => ({ id, name: d.name, cost: d.cost })),
+    defs: Object.entries(PET_DEFS).map(([id, d]) => ({ id, name: d.name, cost: d.cost, desc: d.desc })),
     owned: [...p.pets], active: p.activePet,
   });
 }

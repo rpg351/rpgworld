@@ -414,13 +414,15 @@ export function makeQuestItem(base: string): Item {
 }
 
 // ---------------------------------------------------------------------------
-// Pets (purely cosmetic followers, bought from the pet-shop NPC)
+// Pets (cosmetic followers with a small passive perk while equipped, bought
+// from the pet-shop NPC). `stat` matches a Derived field except "gold",
+// which instead boosts gold earned from kills (applied in rollDrops).
 // ---------------------------------------------------------------------------
-export const PET_DEFS: Record<string, { name: string; cost: number }> = {
-  dog: { name: "Perro", cost: 150 },
-  cat: { name: "Gato", cost: 150 },
-  owl: { name: "Búho", cost: 300 },
-  turtle: { name: "Tortuga", cost: 250 },
+export const PET_DEFS: Record<string, { name: string; cost: number; stat: "arm" | "crit" | "hp" | "gold"; amount: number; desc: string }> = {
+  dog: { name: "Perro", cost: 150, stat: "arm", amount: 4, desc: "+4 armadura" },
+  cat: { name: "Gato", cost: 150, stat: "crit", amount: 3, desc: "+3% crítico" },
+  owl: { name: "Búho", cost: 300, stat: "gold", amount: 15, desc: "+15% oro de las bajas" },
+  turtle: { name: "Tortuga", cost: 250, stat: "hp", amount: 40, desc: "+40 vida máxima" },
 };
 
 // ---------------------------------------------------------------------------
