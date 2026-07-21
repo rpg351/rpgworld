@@ -1,3 +1,11 @@
+## 2026-09-29 — readSlot + grantCountAchs + beginChannelGate
+
+- Helper `readSlot` unifica validación de slots de inventario/cofre (sell/drop/equip/use/stash/salvage).
+- `INVITE_MS` compartido para trade/duelo/party; `grantCountAchs` para logros por contador.
+- `beginChannelGate` + `needFountain`; cases de craft con `dead || stunned`.
+- Party accept: toast online unificado; bots sin log `start` (queda `online`).
+- Cache bust `?v=20260929`.
+
 ## 2026-09-28 — findInvSlot + channelGone + toasts
 
 - Helpers `findInvSlot` / `channelGone` unifican búsquedas de inventario y

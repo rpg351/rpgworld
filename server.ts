@@ -335,6 +335,13 @@ function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+/** Parse an inventory/stash slot index from a client message. */
+function readSlot(msg: { slot?: unknown }, size = INV_SIZE): number | null {
+  const slot = num(msg.slot);
+  if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= size) return null;
+  return slot;
+}
+
 function send(ws: WS | null, msg: unknown): void {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
 }
@@ -448,6 +455,11 @@ function grantAch(p: Player, id: string): void {
   pushLootLog(p, { name: `Logro: ${def.name}`, rarity: "rare", icon: "coin", gold: def.gold });
   sendAchs(p);
   sendYou(p);
+}
+
+/** Unlock count-based achievements for a profession counter. */
+function grantCountAchs(p: Player, count: number, ...tiers: [number, string][]): void {
+  for (const [n, id] of tiers) if (count >= n) grantAch(p, id);
 }
 
 function noteGold(p: Player, amount: number): void {
@@ -1586,6 +1598,16 @@ function inCombatBlock(p: Player, now: number, msg: string): boolean {
   return false;
 }
 
+/** Shared preamble for channelled crafts (fish/cook/forage). Returns true if blocked. */
+function beginChannelGate(p: Player, now: number, until: number, busyMsg: string, combatMsg: string): boolean {
+  if (p.dead) return true;
+  dismountAndStand(p);
+  if (alreadyBusy(p, until, now, busyMsg)) return true;
+  if (channelBlocked(p, now)) return true;
+  if (inCombatBlock(p, now, combatMsg)) return true;
+  return false;
+}
+
 function alreadyDueling(p: Player): boolean {
   if (!p.duelWith) return false;
   toast(p, "Ya estás en un duelo");
@@ -1619,6 +1641,12 @@ function nearFountainBind(p: Player): boolean {
   return dist(p.x, p.y, FOUNTAIN.x, FOUNTAIN.y) <= FOUNTAIN_REGEN_R + 1.5;
 }
 
+function needFountain(p: Player): boolean {
+  if (nearFountainBind(p)) return false;
+  toast(p, "Liga tu hogar junto a la fuente de Helike");
+  return true;
+}
+
 function tryFinishForage(p: Player, now: number): void {
   if (!p.forageUntil || now < p.forageUntil) return;
   p.forageUntil = 0;
@@ -1630,7 +1658,7 @@ function tryFinishForage(p: Player, now: number): void {
   }
   p.forageCount++;
   p.dirty = true;
-  if (p.forageCount >= 20) grantAch(p, "forage_20");
+  grantCountAchs(p, p.forageCount, [20, "forage_20"]);
   const rare = herb.rarity === "magic";
   toast(p, rare ? `¡Encontraste ${herb.name}!` : `Recolectaste: ${herb.name}`);
   pushLootLog(p, { name: herb.name, rarity: herb.rarity, icon: "herb" });
@@ -1640,11 +1668,7 @@ function tryFinishForage(p: Player, now: number): void {
 
 
 function beginFish(p: Player, now: number): void {
-  if (p.dead) return;
-  dismountAndStand(p);
-  if (alreadyBusy(p, p.fishUntil, now, "Ya estás pescando…")) return;
-  if (channelBlocked(p, now)) return;
-  if (inCombatBlock(p, now, "No podés pescar en combate")) return;
+  if (beginChannelGate(p, now, p.fishUntil, "Ya estás pescando…", "No podés pescar en combate")) return;
   if (needWater(p)) return;
   if (notInTown(p, "No podés pescar en la plaza")) return;
   clearMobility(p);
@@ -1654,11 +1678,7 @@ function beginFish(p: Player, now: number): void {
 }
 
 function beginForage(p: Player, now: number): void {
-  if (p.dead) return;
-  dismountAndStand(p);
-  if (alreadyBusy(p, p.forageUntil, now, "Ya estás recolectando…")) return;
-  if (channelBlocked(p, now)) return;
-  if (inCombatBlock(p, now, "No podés recolectar en combate")) return;
+  if (beginChannelGate(p, now, p.forageUntil, "Ya estás recolectando…", "No podés recolectar en combate")) return;
   if (needTree(p)) return;
   if (notInTown(p, "No podés recolectar en la plaza")) return;
   clearMobility(p);
@@ -1692,7 +1712,7 @@ function beginBrew(p: Player, now: number): void {
   }
   p.brewCount++;
   p.dirty = true;
-  if (p.brewCount >= 15) grantAch(p, "brew_15");
+  grantCountAchs(p, p.brewCount, [15, "brew_15"]);
   toast(p, `Preparaste: ${outItem.name} (con ${herbName})`);
   pushLootLog(p, { name: outItem.name, rarity: outItem.rarity, icon: outItem.icon });
   bcastAt(p.x, p.y, { t: "fx", k: "brew", i: p.id });
@@ -1701,7 +1721,7 @@ function beginBrew(p: Player, now: number): void {
 
 function tryBind(p: Player): void {
   if (p.dead) return;
-  if (!nearFountainBind(p)) return toast(p, "Liga tu hogar junto a la fuente de Helike");
+  if (needFountain(p)) return;
   p.bindX = p.x;
   p.bindY = p.y;
   p.dirty = true;
@@ -1716,7 +1736,8 @@ function tryBind(p: Player): void {
 const TRADE_SLOTS = 6;
 const TRADE_RANGE = 12;
 const DUEL_RANGE = 14;
-const TRADE_INVITE_MS = 30000;
+const INVITE_MS = 30000;
+const TRADE_INVITE_MS = INVITE_MS;
 
 interface TradeSide {
   items: (Item | null)[];
@@ -1811,7 +1832,7 @@ function tryDuelReq(p: Player, targetId: number, now: number): void {
   if (target.tradeId) return toast(p, `${target.name} está intercambiando`);
   if (tooFar(p, target, DUEL_RANGE)) return;
   p.lastDuelReqAt = now;
-  target.duelInvites.set(p.name, now + 30000);
+  target.duelInvites.set(p.name, now + INVITE_MS);
   send(target.ws, { t: "duel_invited", from: p.name, fromId: p.id, cls: p.cls, lvl: p.lvl });
   toast(p, `Desafío de duelo enviado a ${target.name}`);
 }
@@ -1922,8 +1943,7 @@ function trySalvage(p: Player, slot: number): void {
   noteGold(p, gain);
   p.salvageCount++;
   p.dirty = true;
-  grantAch(p, "salvage_1");
-  if (p.salvageCount >= 20) grantAch(p, "salvage_20");
+  grantCountAchs(p, p.salvageCount, [1, "salvage_1"], [20, "salvage_20"]);
   toast(p, `Desguazaste ${name} (+${gain} oro)`);
   pushLootLog(p, { name: `Desguace: ${name}`, rarity: it.rarity, icon: it.icon || "armor", gold: gain });
   bcastAt(p.x, p.y, { t: "fx", k: "brew", i: p.id });
@@ -2269,8 +2289,7 @@ function tryFinishFish(p: Player, now: number): void {
   }
   p.fishCount++;
   p.dirty = true;
-  if (p.fishCount >= 10) grantAch(p, "fish_10");
-  if (p.fishCount >= 50) grantAch(p, "fish_50");
+  grantCountAchs(p, p.fishCount, [10, "fish_10"], [50, "fish_50"]);
   const rare = fish.rarity === "magic";
   toast(p, rare ? `¡Capturaste ${fish.name}!` : `Pescaste: ${fish.name}`);
   pushLootLog(p, { name: fish.name, rarity: fish.rarity, icon: "fish" });
@@ -2304,8 +2323,7 @@ function tryFinishCook(p: Player, now: number): void {
   }
   p.cookCount++;
   p.dirty = true;
-  if (p.cookCount >= 10) grantAch(p, "cook_10");
-  if (p.cookCount >= 40) grantAch(p, "cook_40");
+  grantCountAchs(p, p.cookCount, [10, "cook_10"], [40, "cook_40"]);
   toast(p, `Cocinaste: ${food.name}`);
   pushLootLog(p, { name: food.name, rarity: food.rarity, icon: "food" });
   bcastAt(p.x, p.y, { t: "fx", k: "cook", i: p.id });
@@ -2313,11 +2331,7 @@ function tryFinishCook(p: Player, now: number): void {
 }
 
 function beginCook(p: Player, now: number): void {
-  if (p.dead) return;
-  dismountAndStand(p);
-  if (alreadyBusy(p, p.cookUntil, now, "Ya estás cocinando…")) return;
-  if (channelBlocked(p, now)) return;
-  if (inCombatBlock(p, now, "No podés cocinar en combate")) return;
+  if (beginChannelGate(p, now, p.cookUntil, "Ya estás cocinando…", "No podés cocinar en combate")) return;
   if (needNpc(p, bront, "Cocina junto a la forja de Bront")) return;
   const slot = findInvSlot(p, (it) => it.slot === "fish" && Boolean(foodFromFish(it.base)));
   if (slot < 0) return toast(p, "No tenés pescado para cocinar");
@@ -3118,8 +3132,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "sell": {
       if (p.dead) return;
-      const slot = num(msg.slot);
-      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+      const slot = readSlot(msg);
+      if (slot == null) return;
       if (needMerchant(p)) return;
       const it = p.inv[slot];
       if (!it) return;
@@ -3198,8 +3212,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     case "stash_deposit": {
       if (p.dead) return;
       if (needNpc(p, stashNpc, "Tenés que estar junto al cofre")) return;
-      const slot = num(msg.slot);
-      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+      const slot = readSlot(msg);
+      if (slot == null) return;
       const it = p.inv[slot];
       if (!it) return;
       if (it.slot === "quest") return questItemBlocked(p, "guardar");
@@ -3212,8 +3226,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     case "stash_withdraw": {
       if (p.dead) return;
       if (needNpc(p, stashNpc, "Tenés que estar junto al cofre")) return;
-      const slot = num(msg.slot);
-      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= STASH_SIZE) return;
+      const slot = readSlot(msg, STASH_SIZE);
+      if (slot == null) return;
       const it = p.stash[slot];
       if (!it) return;
       if (!invAdd(p, it)) return invFull(p);
@@ -3283,12 +3297,12 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "mount": {
-      if (stunned) return;
+      if (p.dead || stunned) return;
       tryMount(p);
       break;
     }
     case "sit": {
-      if (stunned) return;
+      if (p.dead || stunned) return;
       trySit(p);
       break;
     }
@@ -3301,8 +3315,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "drop": {
       if (p.dead || stunned) return;
-      const slot = num(msg.slot);
-      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+      const slot = readSlot(msg);
+      if (slot == null) return;
       const it = p.inv[slot];
       if (!it) return;
       if (it.slot === "quest") return questItemBlocked(p, "tirar");
@@ -3324,8 +3338,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "equip": {
       if (p.dead || stunned) return;
-      const slot = num(msg.slot);
-      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+      const slot = readSlot(msg);
+      if (slot == null) return;
       const it = p.inv[slot];
       if (!it) return;
       if (it.slot !== "weapon" && it.slot !== "armor" && it.slot !== "helm" && it.slot !== "ring")
@@ -3351,8 +3365,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "use": {
       if (p.dead || stunned) return;
-      const slot = num(msg.slot);
-      if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+      const slot = readSlot(msg);
+      if (slot == null) return;
       const it = p.inv[slot];
       if (!it) return;
       if (it.slot === "herb") return toast(p, "Lleva la hierba a Kora y usa /brew (V)");
@@ -3474,7 +3488,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const myPt = p.party || (p.partyId ? getOrLoadParty(p.partyId) : null);
       if (myPt && myPt.roster.length >= PARTY_MAX) return toastPartyFull(p);
       if (target.party || target.partyId) return toast(p, `${target.name} ya está en un grupo`);
-      target.invites.set(p.name, now + 30000);
+      target.invites.set(p.name, now + INVITE_MS);
       send(target.ws, { t: "party_invited", from: p.name, cls: p.cls, lvl: p.lvl });
       toast(p, `Invitación enviada a ${target.name}`);
       break;
@@ -3486,7 +3500,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.invites.delete(from);
       if (!exp || now > exp) return toast(p, "La invitación ya no es válida");
       const inviter = players.get(from) || null;
-      if (!needOnline(p, inviter, "Ese héroe ya no está conectado")) return;
+      if (!needOnline(p, inviter)) return;
       if (p.party || p.partyId) return toast(p, "Ya estás en un grupo — sal primero");
       let pt = inviter.party || (inviter.partyId ? getOrLoadParty(inviter.partyId) : null);
       if (!pt) {
@@ -3553,22 +3567,22 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "fish": {
-      if (stunned) return;
+      if (p.dead || stunned) return;
       beginFish(p, now);
       break;
     }
     case "cook": {
-      if (stunned) return;
+      if (p.dead || stunned) return;
       beginCook(p, now);
       break;
     }
     case "forage": {
-      if (stunned) return;
+      if (p.dead || stunned) return;
       beginForage(p, now);
       break;
     }
     case "brew": {
-      if (stunned) return;
+      if (p.dead || stunned) return;
       beginBrew(p, now);
       break;
     }
@@ -3645,7 +3659,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "salvage": {
       if (p.dead || stunned) return;
-      const slot = num(msg.slot);
+      const slot = readSlot(msg);
       if (slot == null) return;
       trySalvage(p, slot);
       break;

@@ -532,5 +532,4 @@ const bot = new Companion();
 process.on("SIGTERM", () => { bot.stop(); });
 process.on("SIGINT", () => { bot.stop(); });
 
-console.log(`[bot:${NAME}] start ${BOT_CLS}`);
 await bot.start();
