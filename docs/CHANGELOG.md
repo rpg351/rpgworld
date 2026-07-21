@@ -1,3 +1,13 @@
+## 2026-09-22 — Death channel clear + offline/menu dedupe
+
+- **Bugfix**: al morir ahora se cancelan pesca/cocina/recolección (antes solo
+  forage); `clearMobility` + `stopChannels` unifican la limpieza.
+- Interrupción de canales en el tick usa `stopChannels`.
+- Helper `needOnline` unifica toasts de jugador offline (comercio/duelo/pago).
+- Cliente: `onMenuBtn` compacta el menú de jugador; Quién sin vars `id` repetidas.
+- Bots: errores `server err` con throttle (menos spam en journal).
+- Cache bust `?v=20260922`.
+
 ## 2026-09-21 — Duelos, recall y más dedupe
 
 - **Duelos**: rango unificado (`DUEL_RANGE`); helpers `alreadyDueling` / `targetDown`.

@@ -839,13 +839,8 @@ function playerDie(p: Player): void {
   sendMeter(p, true);
   send(p.ws, { t: "streak", n: 0 });
   p.hp = 0;
-  p.path = null;
-  p.direct = null;
-  p.vel = null;
-  p.atkTarget = null;
-  p.lootTarget = null;
-  p.npcTarget = null;
-  p.forageUntil = 0;
+  clearMobility(p);
+  stopChannels(p);
   p.moving = false;
   p.mounted = false;
   p.sitting = false;
@@ -1432,6 +1427,19 @@ function clearMobility(p: Player): void {
   p.npcTarget = null;
 }
 
+function stopChannels(p: Player): void {
+  p.fishUntil = 0;
+  p.cookUntil = 0;
+  p.cookSlot = -1;
+  p.forageUntil = 0;
+}
+
+function needOnline(p: Player, q: Player | null, msg = "Ese jugador no está en línea"): q is Player {
+  if (q && q.ws) return true;
+  toast(p, msg);
+  return false;
+}
+
 function dismountAndStand(p: Player): void {
   dismount(p, true);
   standUp(p, true);
@@ -1736,7 +1744,7 @@ function tryDuelAccept(p: Player, fromName: string, now: number): void {
   }
   p.duelInvites.delete(name);
   const other = playerByName(name, true);
-  if (!other) return toast(p, "Ese jugador no está en línea");
+  if (!needOnline(p, other)) return;
   if (other.duelWith) return toast(p, `${other.name} ya está en un duelo`);
   if (targetDown(p, other)) return;
   if (tooFar(p, other, DUEL_RANGE)) return;
@@ -1950,7 +1958,7 @@ function tryTradeReq(p: Player, targetId: number, now: number): void {
   if (p.tradeId) return toast(p, "Ya estás intercambiando");
   if (waitToast(p, p.lastTradeReqAt, 1200, now)) return;
   const target = playerById(targetId);
-  if (!target || target === p || !target.ws) return toast(p, "Jugador no disponible");
+  if (!target || target === p || !needOnline(p, target)) return;
   if (BOT_SQUAD.has(target.name)) return toast(p, "No podés comerciar con compañeros IA");
   if (BOT_SQUAD.has(p.name)) return;
   if (tooFar(p, target, TRADE_RANGE)) return;
@@ -1969,7 +1977,8 @@ function tryTradeAccept(p: Player, fromName: string, now: number): void {
   tradeInvites.delete(key);
   if (!inv || now > inv.until) return toast(p, "La propuesta expiró");
   const other = playerById(inv.fromId);
-  if (!other || !other.ws || other.name.toLowerCase() !== key) return toast(p, "El jugador ya no está disponible");
+  if (!needOnline(p, other)) return;
+  if (other.name.toLowerCase() !== key) return toast(p, "Ese jugador no está en línea");
   if (other.tradeId) return toast(p, `${other.name} ya está intercambiando`);
   if (tooFar(p, other, TRADE_RANGE)) return;
   const id = `tr_${other.id}_${p.id}_${now}`;
@@ -2370,7 +2379,7 @@ function tryPay(p: Player, targetName: string, amount: number, now: number): voi
   if (waitToast(p, p.lastPayAt, 1500, now)) return;
   if (name.toLowerCase() === p.name.toLowerCase()) return toast(p, "No podés pagarte a vos mismo");
   const target = playerByName(name, true);
-  if (!target) return toast(p, "Ese jugador no está en línea");
+  if (!needOnline(p, target)) return;
   if (tooFar(p, target, DUEL_RANGE)) return;
   if (needGold(p, gold)) return;
   p.gold -= gold;
@@ -3879,16 +3888,13 @@ function simTick(): void {
     tryFinishForage(p, now);
     // Cancel channelled actions if the player moves / fights / leaves the station.
     if (p.fishUntil && channelInterrupted(p, now)) {
-      p.fishUntil = 0;
+      stopChannels(p);
       toast(p, "Dejas de pescar");
-    }
-    if (p.forageUntil && channelInterrupted(p, now)) {
-      p.forageUntil = 0;
+    } else if (p.forageUntil && channelInterrupted(p, now)) {
+      stopChannels(p);
       toast(p, "Dejas de recolectar");
-    }
-    if (p.cookUntil && (channelInterrupted(p, now) || !nearNpc(p, bront))) {
-      p.cookUntil = 0;
-      p.cookSlot = -1;
+    } else if (p.cookUntil && (channelInterrupted(p, now) || !nearNpc(p, bront))) {
+      stopChannels(p);
       toast(p, "Dejas de cocinar");
     }
     if (p.sitting && (channelInterrupted(p, now) || p.moving)) {

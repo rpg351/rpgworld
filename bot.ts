@@ -187,7 +187,9 @@ class Companion {
   onMsg(msg: Json): void {
     const t = msg.t;
     if (t === "err") {
-      console.error(`[bot:${NAME}] server err:`, msg.msg);
+      this._serverErrs = (this._serverErrs || 0) + 1;
+      if (this._serverErrs <= 2 || this._serverErrs % 25 === 0)
+        console.error(`[bot:${NAME}] server err (#${this._serverErrs}):`, msg.msg);
       this.ws?.close();
       return;
     }

@@ -5170,6 +5170,10 @@ function startWhisper(name) {
   inp.focus();
   if (typeof isMobileUi === "function" && isMobileUi()) setChatOpen(true);
 }
+function onMenuBtn(id, fn) {
+  const el = $(id);
+  if (el) el.addEventListener("click", () => { fn(); closePlayerMenu(); });
+}
 
 
 function openPlayerMenu(e, entId) {
@@ -5191,42 +5195,13 @@ function openPlayerMenu(e, entId) {
   pm.classList.remove("hidden");
   pm.style.left = Math.min(window.innerWidth - 200, e.clientX + 6) + "px";
   pm.style.top = Math.min(window.innerHeight - 160, e.clientY + 6) + "px";
-  const insp = $("pmInspect");
-  if (insp) insp.addEventListener("click", () => {
-    send({ t: "inspect", id: entId });
-    closePlayerMenu();
-  });
-  const tradeBtn = $("pmTrade");
-  if (tradeBtn) tradeBtn.addEventListener("click", () => {
-    requestTrade(entId);
-    closePlayerMenu();
-  });
-  const duelBtn = $("pmDuel");
-  if (duelBtn) duelBtn.addEventListener("click", () => {
-    requestDuel(entId);
-    closePlayerMenu();
-  });
-  const duelCancel = $("pmDuelCancel");
-  if (duelCancel) duelCancel.addEventListener("click", () => {
-    send({ t: "duel_cancel" });
-    closePlayerMenu();
-  });
-  const whBtn = $("pmWhisper");
-  if (whBtn) whBtn.addEventListener("click", () => {
-    startWhisper(E.n || "");
-    closePlayerMenu();
-  });
-  const payBtn = $("pmPay");
-  if (payBtn) payBtn.addEventListener("click", () => {
-    promptPayGold(E.n || "");
-    closePlayerMenu();
-  });
-  const b = $("pmInvite");
-  if (b)
-    b.addEventListener("click", () => {
-      requestParty(entId);
-      closePlayerMenu();
-    });
+  onMenuBtn("pmInspect", () => send({ t: "inspect", id: entId }));
+  onMenuBtn("pmTrade", () => requestTrade(entId));
+  onMenuBtn("pmDuel", () => requestDuel(entId));
+  onMenuBtn("pmDuelCancel", () => send({ t: "duel_cancel" }));
+  onMenuBtn("pmWhisper", () => startWhisper(E.n || ""));
+  onMenuBtn("pmPay", () => promptPayGold(E.n || ""));
+  onMenuBtn("pmInvite", () => requestParty(entId));
 }
 function closePlayerMenu() {
   $("playerMenu").classList.add("hidden");
@@ -6574,14 +6549,11 @@ function renderWho() {
       if (act === "whisper") {
         startWhisper(btn.dataset.name);
       } else if (act === "invite") {
-        const id = Number(btn.dataset.id);
-        requestParty(id);
+        requestParty(Number(btn.dataset.id));
       } else if (act === "trade") {
-        const id = Number(btn.dataset.id);
-        requestTrade(id);
+        requestTrade(Number(btn.dataset.id));
       } else if (act === "duel") {
-        const id = Number(btn.dataset.id);
-        requestDuel(id);
+        requestDuel(Number(btn.dataset.id));
       } else if (act === "pay") {
         promptPayGold(btn.dataset.name);
       } else if (act === "friend") {
