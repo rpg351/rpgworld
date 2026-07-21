@@ -248,7 +248,7 @@ export interface Item {
   id: number;
   base: string;
   name: string;
-  slot: string; // weapon|armor|helm|ring|potion|quest|fish|food
+  slot: string; // weapon|armor|helm|ring|potion|quest|fish|food|herb|elixir|fish|food
   icon: string;
   tier: number;
   rarity: string; // common|magic|rare
@@ -413,6 +413,51 @@ export function makeQuestItem(base: string): Item {
   return { id: nextItemId++, base, name, slot: "quest", icon, tier: 1, rarity: "common", lvl: 1, val: 0, qty: 1 };
 }
 
+
+// Foraging herbs (near trees) + alchemy at Kora.
+export const HERB_DEFS: Record<string, { name: string; val: number; weight: number }> = {
+  olive_leaf: { name: "Hoja de olivo", val: 6, weight: 40 },
+  asphodel: { name: "Asfódelo", val: 14, weight: 30 },
+  nightshade: { name: "Belladona", val: 22, weight: 18 },
+  moly: { name: "Moly", val: 60, weight: 12 },
+};
+
+/** Map herb -> brew result at Kora. potion keys use POTION_DEFS; elixir uses ELIXIR_DEFS. */
+export const BREW_MAP: Record<string, { kind: "potion" | "elixir"; id: string }> = {
+  olive_leaf: { kind: "potion", id: "hp1" },
+  asphodel: { kind: "potion", id: "mp1" },
+  nightshade: { kind: "potion", id: "hp3" },
+  moly: { kind: "elixir", id: "moly" },
+};
+
+export const ELIXIR_DEFS: Record<string, {
+  name: string; val: number; heal: number;
+  dmgp?: number; arm?: number; spd?: number; xp?: number; dur: number;
+}> = {
+  moly: { name: "Elixir de Moly", val: 140, heal: 0.22, dmgp: 10, xp: 10, dur: 150000 },
+};
+
+export function makeHerb(base: string, qty = 1): Item {
+  const h = HERB_DEFS[base] || HERB_DEFS.olive_leaf;
+  return { id: nextItemId++, base, name: h.name, slot: "herb", icon: "herb", tier: 1, rarity: base === "moly" ? "magic" : "common", lvl: 1, val: h.val, qty };
+}
+
+export function rollHerb(): Item {
+  const entries = Object.entries(HERB_DEFS);
+  const total = entries.reduce((s, [, d]) => s + d.weight, 0);
+  let r = Math.random() * total;
+  for (const [id, d] of entries) {
+    r -= d.weight;
+    if (r <= 0) return makeHerb(id);
+  }
+  return makeHerb("olive_leaf");
+}
+
+export function makeElixir(base: string, qty = 1): Item {
+  const e = ELIXIR_DEFS[base] || ELIXIR_DEFS.moly;
+  return { id: nextItemId++, base, name: e.name, slot: "elixir", icon: "elixir", tier: 2, rarity: "magic", lvl: 1, val: e.val, qty };
+}
+
 // Fishing catches — sellable / edible (small HP). Caught near water tiles.
 export const FISH_DEFS: Record<string, { name: string; val: number; heal: number; weight: number }> = {
   sardine: { name: "Sardina", val: 8, heal: 0.08, weight: 50 },
@@ -527,6 +572,9 @@ export const ACHIEVEMENTS: Record<string, { name: string; desc: string; gold: nu
   cook_10: { name: "Cocinero", desc: "Cocina 10 platos en la forja", gold: 70 },
   cook_40: { name: "Chef de Helike", desc: "Cocina 40 platos en la forja", gold: 200 },
   mount_1: { name: "Jinete", desc: "Compra tu primera montura", gold: 80 },
+  forage_20: { name: "Herbolario", desc: "Recolecta 20 hierbas", gold: 70 },
+  brew_15: { name: "Alquimista", desc: "Prepara 15 brebajes en el alambique de Kora", gold: 120 },
+  bind_1: { name: "Hogar ligado", desc: "Liga tu piedra de hogar en la fuente", gold: 40 },
 };
 
 export const QUEST_ORDER = ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12"];
@@ -564,6 +612,8 @@ export const NPC_LINES: Record<string, string[]> = {
     "Cuando Asterión caiga, el pantano te llamará. No vayas solo.",
   ],
   merchant: [
+    "Tráeme hierbas del bosque y preparo brebajes en mi alambique.",
+
     "¡Pociones, anillos, baratijas! Todo lo que un aventurero olvida hasta que es demasiado tarde.",
     "Recién llegado de las caravanas de Corinto... bueno, bastante fresco.",
   ],

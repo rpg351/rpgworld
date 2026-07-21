@@ -109,6 +109,14 @@ var I18N = {
     "help.mount": "Montar / apear (comprá monturas en el Criadero)",
     "help.sit": "Sentarte a descansar (regen + XP de campamento)",
     "help.pay": "Enviar oro a un jugador cercano (/pay Nombre cantidad)",
+    "help.forage": "Recolectar hierbas junto a un árbol (/forage)",
+    "help.brew": "Preparar brebajes con Kora (/brew o V)",
+    "help.bind": "Ligar hogar en la fuente (/bind) — B te lleva ahí",
+    "buff.mounted": "Montado",
+    "buff.sitting": "Sentado",
+    "buff.rested": "Descanso",
+    "buff.bind": "Hogar",
+
     "mount.buy": "Comprar",
     "mount.ready": "Usar",
     "mount.active": "Activa",
@@ -298,6 +306,14 @@ var I18N = {
     "help.mount": "Mount / dismount (buy mounts at the Pet shop)",
     "help.sit": "Sit to rest (regen + camp XP buff)",
     "help.pay": "Send gold to a nearby player (/pay Name amount)",
+    "help.forage": "Forage herbs next to a tree (/forage)",
+    "help.brew": "Brew potions with Kora (/brew or V)",
+    "help.bind": "Bind hearth at the fountain (/bind) — B returns there",
+    "buff.mounted": "Mounted",
+    "buff.sitting": "Sitting",
+    "buff.rested": "Rested",
+    "buff.bind": "Hearth",
+
     "mount.buy": "Buy",
     "mount.ready": "Use",
     "mount.active": "Active",
@@ -2649,6 +2665,46 @@ function drawItemIcon(g, icon, rarity, cx, cy, size) {
       g.arc(2.5, 0.5, 1.2, 0, 7);
       g.fill();
       break;
+    case "herb":
+      g.fillStyle = "#3f7a3a";
+      g.beginPath();
+      g.moveTo(0, 7);
+      g.quadraticCurveTo(-2, 2, -6, -4);
+      g.quadraticCurveTo(-1, -1, 0, 7);
+      g.moveTo(0, 7);
+      g.quadraticCurveTo(2, 2, 6, -4);
+      g.quadraticCurveTo(1, -1, 0, 7);
+      g.fill();
+      g.strokeStyle = "#2a4a22";
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(0, 7);
+      g.lineTo(0, -2);
+      g.stroke();
+      g.fillStyle = "#8fd18a";
+      g.beginPath();
+      g.ellipse(-3.5, -2.5, 2.2, 1.2, -0.6, 0, 7);
+      g.ellipse(3.5, -2.5, 2.2, 1.2, 0.6, 0, 7);
+      g.fill();
+      break;
+    case "elixir":
+      g.fillStyle = "#6a3cff";
+      g.beginPath();
+      g.moveTo(-4, -6);
+      g.lineTo(4, -6);
+      g.lineTo(5, -2);
+      g.lineTo(3, 7);
+      g.lineTo(-3, 7);
+      g.lineTo(-5, -2);
+      g.closePath();
+      g.fill();
+      g.fillStyle = "rgba(255,255,255,.35)";
+      g.beginPath();
+      g.ellipse(-1, 1, 1.6, 2.4, 0, 0, 7);
+      g.fill();
+      g.fillStyle = "#d8c6ff";
+      g.fillRect(-4.5, -8, 9, 2.5);
+      break;
 
     case "eye":
       g.fillStyle = "#e8e2d2";
@@ -2746,11 +2802,11 @@ function addFx(m) {
     if (m.i) S.emotes[m.i] = { e: m.e || "wave", t0: t };
     return;
   }
-  if (m.k === "fishcast" || m.k === "fish" || m.k === "cookcast" || m.k === "cook") {
+  if (m.k === "fishcast" || m.k === "fish" || m.k === "cookcast" || m.k === "cook" || m.k === "foragecast" || m.k === "forage" || m.k === "brew") {
     const E = m.i ? S.ents.get(m.i) : null;
     const wx = E ? E.rx : (S.you && S.cam ? S.cam.x : 0);
     const wy = E ? E.ry : (S.you && S.cam ? S.cam.y : 0);
-    const col = (m.k === "cook" || m.k === "cookcast") ? "#e8a050" : "#7ec8ff";
+    const col = (m.k === "cook" || m.k === "cookcast") ? "#e8a050" : (m.k === "brew") ? "#b28cff" : (m.k.startsWith("forage") ? "#7ddea0" : "#7ec8ff");
     spawnParticles(wx, wy - 0.4, m.k.endsWith("cast") ? 6 : 10, { color: col, life: 520, size: 2.1, spread: 1.6, grav: 1.4 });
     return;
   }
@@ -3734,6 +3790,29 @@ function updateStreakHud() {
     el.classList.add("hidden");
   }
 }
+function updateBuffHud() {
+  const el = $("buffHud");
+  if (!el) return;
+  const y = S.you;
+  if (!y) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  const chips = [];
+  if (y.mounted) chips.push(`<span class="buff-chip mount">${t("buff.mounted")}</span>`);
+  if (y.sitting) chips.push(`<span class="buff-chip sit">${t("buff.sitting")}</span>`);
+  if (y.rested > 0) chips.push(`<span class="buff-chip rest">${t("buff.rested")} ${Math.ceil(y.rested / 60)}m</span>`);
+  const buff = y.buff;
+  if (buff && buff.left > 0) {
+    const bits = [];
+    if (buff.dmgp) bits.push(`+${buff.dmgp}%`);
+    if (buff.arm) bits.push(`+${buff.arm}a`);
+    if (buff.spd) bits.push(`+${buff.spd}%`);
+    if (buff.xp) bits.push(`+${buff.xp}%XP`);
+    chips.push(`<span class="buff-chip food">${t("buff.food")} ${bits.join(" ") || ""} · ${buff.left}s</span>`);
+  }
+  if (y.bind) chips.push(`<span class="buff-chip bind">${t("buff.bind")}</span>`);
+  if (!chips.length) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  el.innerHTML = chips.join("");
+  el.classList.remove("hidden");
+}
 function activeQuestTargets() {
   const y = S.you;
   const set = new Set();
@@ -3867,6 +3946,14 @@ window.addEventListener("keydown", (e) => {
     case "z":
     case "Z":
       if (!S.dead) send({ t: "sit" });
+      break;
+    case "t":
+    case "T":
+      if (!S.dead) send({ t: "forage" });
+      break;
+    case "v":
+    case "V":
+      if (!S.dead) send({ t: "brew" });
       break;
     case "b":
     case "B":
@@ -4768,6 +4855,7 @@ function refreshHud() {
   $("lvlNum").textContent = `Nivel ${y.lvl}  —  ${y.xp} / ${y.xpNext} XP`;
   $("goldHud").textContent = `${y.gold} de oro`;
   refreshSkillLocks();
+  updateBuffHud();
 }
 function checkZone(curZone) {
   const me = S.ents.get(S.myId);
@@ -5660,9 +5748,13 @@ function renderInventory() {
               ? "Clic: comer · U cerca de Bront: cocinar · Arrastra: tirar"
               : item.slot === "food"
                 ? "Clic: comer (buff) · Arrastra fuera: tirar"
-                : item.slot === "quest"
-                  ? "Objeto de misión"
-                  : "Clic: equipar · Arrastra fuera: tirar";
+                : item.slot === "herb"
+                  ? "Clic/V cerca de Kora: preparar · Arrastra: tirar"
+                  : item.slot === "elixir"
+                    ? "Clic: beber elixir · Arrastra fuera: tirar"
+                    : item.slot === "quest"
+                      ? "Objeto de misión"
+                      : "Clic: equipar · Arrastra fuera: tirar";
       d._tip = { item, action: act };
       d.addEventListener("mousemove", (e) => showTooltip(e, item, act));
       d.addEventListener("mouseleave", hideTooltip);
@@ -5679,8 +5771,10 @@ function renderInventory() {
         } else if (S.stashOpen) {
           if (item.slot === "quest") return toast("No puedes guardar objetos de misión");
           send({ t: "stash_deposit", slot });
-        } else if (item.slot === "potion" || item.slot === "fish" || item.slot === "food")
+        } else if (item.slot === "potion" || item.slot === "fish" || item.slot === "food" || item.slot === "elixir")
           send({ t: "use", slot });
+        else if (item.slot === "herb")
+          send({ t: "brew" });
         else if (item.slot === "quest")
           toast("Objeto de misión — el Anciano los querrá.");
         else
@@ -5817,6 +5911,9 @@ function renderChar() {
   const restedLine = y.rested > 0
     ? `<div class="stat-row"><span>Descanso</span><b>+20% XP · ${Math.ceil(y.rested / 60)} min</b></div>`
     : "";
+  const bindLine = y.bind
+    ? `<div class="stat-row"><span>${t("buff.bind")}</span><b>${Math.floor(y.bind.x)}, ${Math.floor(y.bind.y)} · B</b></div>`
+    : `<div class="stat-row"><span>${t("buff.bind")}</span><b>— (/bind en la fuente)</b></div>`;
   const titleDef = (S.achs && S.achs.defs || []).find((d) => d.id === (y.title || (S.achs && S.achs.title)));
   const titleLine = (y.title || (S.achs && S.achs.title))
     ? `<div class="stat-row"><span>${t("title.active")}</span><b>${titleDef ? titleDef.name : (y.title || S.achs.title)}</b></div>`
@@ -5844,6 +5941,7 @@ function renderChar() {
     ${sitLine}
     ${titleLine}
     ${restedLine}
+    ${bindLine}
     ${buffLine}
   </div>`;
   b.innerHTML = html;

@@ -30,7 +30,7 @@ type Json = Record<string, unknown>;
 type Ent = { i: number; k: string; x: number; y: number; h?: number; H?: number; n?: string; s?: number };
 type SkillDef = { n: number; cost: number; cd: number; unlock: number; kind: string };
 
-const MOB_KINDS = new Set(["boar", "satyr", "skeleton", "harpy", "gorgon", "cyclops", "shade", "fury", "minotaur"]);
+const MOB_KINDS = new Set(["boar", "satyr", "skeleton", "harpy", "gorgon", "cyclops", "shade", "fury", "minotaur", "lizardman", "wisp", "hydra"]);
 const ALLOWED_PARTY = new Set(["cansao", "cansao2", "mayco"]);
 const SQUAD_BOTS = new Set(["Achilles", "Atalanta", "Circe", "Chiron"]);
 const SQUAD_LEADER = process.env.BOT_SQUAD_LEADER || "Achilles";

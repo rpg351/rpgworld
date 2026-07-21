@@ -5,9 +5,9 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ServerWebSocket } from "bun";
 import {
-  ACHIEVEMENTS, CLASS_BASE, CLASS_WEAPON, FISH_DEFS, FOOD_DEFS, MOB_DEFS, MOUNT_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
-  SKILLS, TREES, WEAPON_SCALING, foodFromFish, freshItemId, makeFish, makeFood, makePotion, makeQuestItem, mobStats,
-  rollFish, rollItem, rollRarity,
+  ACHIEVEMENTS, BREW_MAP, CLASS_BASE, CLASS_WEAPON, ELIXIR_DEFS, FISH_DEFS, FOOD_DEFS, HERB_DEFS, MOB_DEFS, MOUNT_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
+  SKILLS, TREES, WEAPON_SCALING, foodFromFish, freshItemId, makeElixir, makeFish, makeFood, makeHerb, makePotion, makeQuestItem, mobStats,
+  rollFish, rollHerb, rollItem, rollRarity,
 } from "./data";
 import type { AbilityDef, Item, SkillDef } from "./data";
 import {
@@ -133,7 +133,10 @@ interface Player extends StatusHolder {
   pets: Set<string>; activePet: string | null; // owned pet ids + the one currently following (cosmetic only)
   mounts: Set<string>; activeMount: string | null; // owned mounts + preferred mount
   mounted: boolean; // session: currently riding activeMount
-  sitting: boolean; // session: sitting for OOC regen
+  sitting: boolean;
+  forageCount: number; forageUntil: number;
+  brewCount: number;
+  bindX: number; bindY: number; // hearth bind (0,0 = unbound) // session: sitting for OOC regen
   lastPayAt: number; // gold /pay rate limit
   str: number; dex: number; int: number;
   hp: number; mp: number; x: number; y: number;
@@ -300,6 +303,9 @@ function serialize(p: Player): string {
     goldEarned: p.goldEarned,
     fishCount: p.fishCount,
     cookCount: p.cookCount,
+    forageCount: p.forageCount,
+    brewCount: p.brewCount,
+    bindX: p.bindX, bindY: p.bindY,
     title: p.title || "",
   });
 }
@@ -524,6 +530,7 @@ function sendYou(p: Player): void {
     abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
     pets: [...p.pets], activePet: p.activePet,
     mounts: [...p.mounts], activeMount: p.activeMount, mounted: !!p.mounted, sitting: !!p.sitting,
+    bind: (p.bindX || p.bindY) ? { x: Math.round(p.bindX * 10) / 10, y: Math.round(p.bindY * 10) / 10 } : null,
     rested: p.restedUntil > Date.now() ? Math.ceil((p.restedUntil - Date.now()) / 1000) : 0,
     title: p.title || "",
     buff: p.buffUntil > Date.now() ? {
@@ -539,7 +546,7 @@ function sendYou(p: Player): void {
 // ---------------------------------------------------------------------------
 /** Add item to a slot array (stacks potions/quest items to 10). False = full. */
 function addToSlots(arr: (Item | null)[], item: Item): boolean {
-  if (item.slot === "potion" || item.slot === "quest" || item.slot === "fish" || item.slot === "food") {
+  if (item.slot === "potion" || item.slot === "quest" || item.slot === "fish" || item.slot === "food" || item.slot === "herb" || item.slot === "elixir") {
     for (const it of arr) {
       if (it && it.base === item.base && (it.qty ?? 1) < 10) {
         it.qty = (it.qty ?? 1) + (item.qty ?? 1);
@@ -785,6 +792,7 @@ function playerDie(p: Player): void {
   p.atkTarget = null;
   p.lootTarget = null;
   p.npcTarget = null;
+  p.forageUntil = 0;
   p.moving = false;
   p.mounted = false;
   p.sitting = false;
@@ -1344,6 +1352,103 @@ function tileAt(x: number, y: number): string {
   return world.tiles[ty][tx];
 }
 
+
+function nearTree(p: Player): boolean {
+  const cx = Math.floor(p.x), cy = Math.floor(p.y);
+  for (let dy = -1; dy <= 1; dy++)
+    for (let dx = -1; dx <= 1; dx++)
+      if (tileAt(cx + dx + 0.5, cy + dy + 0.5) === "t") return true;
+  return false;
+}
+
+function nearFountainBind(p: Player): boolean {
+  return dist(p.x, p.y, FOUNTAIN.x, FOUNTAIN.y) <= FOUNTAIN_REGEN_R + 1.5;
+}
+
+function tryFinishForage(p: Player, now: number): void {
+  if (!p.forageUntil || now < p.forageUntil) return;
+  p.forageUntil = 0;
+  if (p.dead || !nearTree(p)) {
+    toast(p, "La recolección se interrumpió");
+    return;
+  }
+  const herb = rollHerb();
+  if (!invAdd(p, herb)) {
+    toast(p, "Inventario lleno — perdiste la hierba");
+    return;
+  }
+  p.forageCount++;
+  p.dirty = true;
+  if (p.forageCount >= 20) grantAch(p, "forage_20");
+  const rare = herb.rarity === "magic";
+  toast(p, rare ? `¡Encontraste ${herb.name}!` : `Recolectaste: ${herb.name}`);
+  pushLootLog(p, { name: herb.name, rarity: herb.rarity, icon: "herb" });
+  bcastAt(p.x, p.y, { t: "fx", k: "forage", i: p.id });
+  sendYou(p);
+}
+
+function beginForage(p: Player, now: number): void {
+  if (p.dead) return;
+  if (p.mounted) dismount(p, true);
+  if (p.sitting) standUp(p, true);
+  if (p.forageUntil && now < p.forageUntil) return toast(p, "Ya estás recolectando…");
+  if (p.fishUntil && now < p.fishUntil) return toast(p, "Estás pescando…");
+  if (p.cookUntil && now < p.cookUntil) return toast(p, "Estás cocinando…");
+  if (now < p.combatUntil) return toast(p, "No puedes recolectar en combate");
+  if (!nearTree(p)) return toast(p, "Debes estar junto a un árbol");
+  if (inTown(p.x, p.y)) return toast(p, "No se recolecta en la plaza");
+  p.path = null; p.direct = null; p.vel = null;
+  p.atkTarget = null; p.lootTarget = null; p.npcTarget = null;
+  p.forageUntil = now + 2400;
+  toast(p, "Buscas hierbas…");
+  bcastAt(p.x, p.y, { t: "fx", k: "foragecast", i: p.id });
+}
+
+function beginBrew(p: Player, now: number): void {
+  if (p.dead) return;
+  if (p.mounted) dismount(p, true);
+  if (p.sitting) standUp(p, true);
+  if (now < p.combatUntil) return toast(p, "No puedes preparar brebajes en combate");
+  if (!nearNpc(p, kora)) return toast(p, "Prepara brebajes junto a Kora");
+  let slot = -1;
+  for (let i = 0; i < p.inv.length; i++) {
+    const it = p.inv[i];
+    if (it && it.slot === "herb" && BREW_MAP[it.base]) { slot = i; break; }
+  }
+  if (slot < 0) return toast(p, "No tienes hierbas para preparar");
+  const it = p.inv[slot]!;
+  const herbBase = it.base;
+  const herbName = it.name;
+  const recipe = BREW_MAP[herbBase];
+  it.qty = (it.qty ?? 1) - 1;
+  if (it.qty <= 0) p.inv[slot] = null;
+  const outItem = recipe.kind === "potion" ? makePotion(recipe.id) : makeElixir(recipe.id);
+  if (!invAdd(p, outItem)) {
+    invAdd(p, makeHerb(herbBase));
+    toast(p, "Inventario lleno — no pudiste preparar el brebaje");
+    sendYou(p);
+    return;
+  }
+  p.brewCount++;
+  p.dirty = true;
+  if (p.brewCount >= 15) grantAch(p, "brew_15");
+  toast(p, `Preparaste: ${outItem.name} (con ${herbName})`);
+  pushLootLog(p, { name: outItem.name, rarity: outItem.rarity, icon: outItem.icon });
+  bcastAt(p.x, p.y, { t: "fx", k: "brew", i: p.id });
+  sendYou(p);
+}
+
+function tryBind(p: Player): void {
+  if (p.dead) return;
+  if (!nearFountainBind(p)) return toast(p, "Liga tu hogar junto a la fuente de Helike");
+  p.bindX = p.x;
+  p.bindY = p.y;
+  p.dirty = true;
+  grantAch(p, "bind_1");
+  toast(p, `Hogar ligado (${Math.floor(p.bindX)}, ${Math.floor(p.bindY)})`);
+  sendYou(p);
+}
+
 function nearWater(p: Player): boolean {
   const cx = Math.floor(p.x), cy = Math.floor(p.y);
   for (let dy = -1; dy <= 1; dy++)
@@ -1687,6 +1792,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     abilityPts: 0, abilities: new Map<string, number>(), loadout: [1, 2, 3, 4],
     pets: new Set<string>(), activePet: null,
     mounts: new Set<string>(), activeMount: null, mounted: false, sitting: false, lastPayAt: 0,
+    forageCount: 0, forageUntil: 0, brewCount: 0, bindX: 0, bindY: 0,
     str: base.str, dex: base.dex, int: base.int,
     hp: 0, mp: 0,
     x: TOWN.x + 0.5 + (Math.random() - 0.5) * 2, y: TOWN.y + 3.5,
@@ -1807,6 +1913,10 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
     p.goldEarned = clampInt(d.goldEarned, 0, 100000000, 0);
     p.fishCount = clampInt(d.fishCount, 0, 100000000, 0);
     p.cookCount = clampInt(d.cookCount, 0, 100000000, 0);
+    p.forageCount = clampInt(d.forageCount, 0, 100000000, 0);
+    p.brewCount = clampInt(d.brewCount, 0, 100000000, 0);
+    p.bindX = typeof d.bindX === "number" && Number.isFinite(d.bindX) ? d.bindX : 0;
+    p.bindY = typeof d.bindY === "number" && Number.isFinite(d.bindY) ? d.bindY : 0;
     p.title = typeof d.title === "string" && ACHIEVEMENTS[d.title] && p.achs.has(d.title) ? d.title : "";
     if (d.eq && typeof d.eq === "object") {
       const eq = d.eq as Record<string, unknown>;
@@ -2476,6 +2586,31 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         sendYou(p);
         break;
       }
+      if (it.slot === "elixir") {
+        const edef = ELIXIR_DEFS[it.base];
+        if (!edef) return;
+        if (now < p.potCdUntil) return toast(p, "Aún estás digiriendo");
+        const d0 = derive(p);
+        p.hp = Math.min(d0.mhp, p.hp + d0.mhp * edef.heal);
+        p.potCdUntil = now + POTION_CD;
+        p.buffUntil = now + edef.dur;
+        p.buffDmgp = edef.dmgp || 0;
+        p.buffArm = edef.arm || 0;
+        p.buffSpd = edef.spd || 0;
+        p.buffXp = edef.xp || 0;
+        it.qty = (it.qty ?? 1) - 1;
+        if (it.qty <= 0) p.inv[slot] = null;
+        const bits: string[] = [];
+        if (edef.dmgp) bits.push(`+${edef.dmgp}% daño`);
+        if (edef.arm) bits.push(`+${edef.arm} armadura`);
+        if (edef.spd) bits.push(`+${edef.spd}% velocidad`);
+        if (edef.xp) bits.push(`+${edef.xp}% XP`);
+        toast(p, bits.length ? `Bebiste ${it.name} (${bits.join(", ")})` : `Bebiste ${it.name}`);
+        bcastAt(p.x, p.y, { t: "fx", k: "heal", i: p.id });
+        sendYou(p);
+        break;
+      }
+      if (it.slot === "herb") return toast(p, "Lleva la hierba a Kora y usa /brew (V)");
       if (it.slot === "food") {
         const fdef = FOOD_DEFS[it.base];
         if (!fdef) return;
@@ -2688,6 +2823,20 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       beginCook(p, now);
       break;
     }
+    case "forage": {
+      if (stunned) return;
+      beginForage(p, now);
+      break;
+    }
+    case "brew": {
+      if (stunned) return;
+      beginBrew(p, now);
+      break;
+    }
+    case "bind": {
+      tryBind(p);
+      break;
+    }
     case "title": {
       const id = typeof msg.id === "string" ? msg.id : "";
       if (!id) {
@@ -2765,6 +2914,18 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         beginCook(p, now);
         return;
       }
+      if (/^\/forage$/i.test(text) || /^\/recolectar$/i.test(text) || /^\/herbs$/i.test(text)) {
+        beginForage(p, now);
+        return;
+      }
+      if (/^\/brew$/i.test(text) || /^\/alquimia$/i.test(text) || /^\/pocima$/i.test(text)) {
+        beginBrew(p, now);
+        return;
+      }
+      if (/^\/bind$/i.test(text) || /^\/ligar$/i.test(text) || /^\/hogar$/i.test(text)) {
+        tryBind(p);
+        return;
+      }
       if (/^\/fish$/i.test(text) || /^\/pescar$/i.test(text)) {
         // Reuse fish action without chat broadcast
         if (p.dead) return;
@@ -2840,12 +3001,20 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       if (now < p.recallCdUntil) return toast(p, `Recall en enfriamiento (${Math.ceil((p.recallCdUntil - now) / 1000)}s)`);
       p.recallCdUntil = now + RECALL_CD;
-      // Random point in a ring just outside the fountain basin — always lands
-      // on plaza stone since the whole plaza around it is walkable by build.
-      const ang = Math.random() * Math.PI * 2;
-      const r = FOUNTAIN.r + 1 + Math.random() * 1.5;
-      p.x = FOUNTAIN.x + Math.cos(ang) * r;
-      p.y = FOUNTAIN.y + Math.sin(ang) * r;
+      if (p.mounted) dismount(p, true);
+      if (p.sitting) standUp(p, true);
+      const hasBind = __omp_shell("!(p.bindX || p.bindY);")
+      if (hasBind) {
+        p.x = p.bindX + (Math.random() - 0.5) * 0.4;
+        p.y = p.bindY + (Math.random() - 0.5) * 0.4;
+      } else {
+        // Random point in a ring just outside the fountain basin — always lands
+        // on plaza stone since the whole plaza around it is walkable by build.
+        const ang = Math.random() * Math.PI * 2;
+        const r = FOUNTAIN.r + 1 + Math.random() * 1.5;
+        p.x = FOUNTAIN.x + Math.cos(ang) * r;
+        p.y = FOUNTAIN.y + Math.sin(ang) * r;
+      }
       p.path = null;
       p.direct = null;
       p.vel = null;
@@ -2854,7 +3023,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.npcTarget = null;
       p.combatUntil = 0;
       bcastAt(p.x, p.y, { t: "fx", k: "recall", i: p.id });
-      toast(p, "Has vuelto a Helike");
+      toast(p, hasBind ? "Has vuelto a tu hogar ligado" : "Has vuelto a Helike");
       break;
     }
     default:
@@ -2942,6 +3111,7 @@ function simTick(): void {
     checkZoneVisit(p);
     tryFinishFish(p, now);
     tryFinishCook(p, now);
+    tryFinishForage(p, now);
     // Cancel fishing if the player starts moving / combat.
     if (p.fishUntil && (p.vel || p.path || p.direct || p.atkTarget != null || p.combatUntil > now)) {
       p.fishUntil = 0;

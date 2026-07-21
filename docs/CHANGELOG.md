@@ -1,3 +1,15 @@
+## 2026-09-12 — Recolección, alquimia, hogar y HUD de buffs
+
+- **Recolectar (T / `/forage` / `/recolectar`)**: junto a un árbol (fuera de la plaza)
+  recogés hoja de olivo, asfódelo, belladona o moly (~2.4s).
+- **Alquimia (V / `/brew`)**: cerca de Kora convertís hierbas en pociones (o elixir
+  de Moly con buff de daño/XP). Logros Herbolario / Alquimista.
+- **Hogar (`/bind` / `/ligar`)**: junto a la fuente ligás tu punto de recall; **B**
+  te lleva ahí (si no hay vínculo, sigue yendo a la plaza). Logro Hogar ligado.
+- **HUD de buffs**: chips centrados (montado, sentado, descanso, comida, hogar).
+- **Bots**: ahora cazan hombres lagarto, fuegos fatuos e Hidra en el pantano.
+- Cache bust `?v=20260912`.
+
 ## 2026-09-11 — Monturas, descanso y pago de oro
 
 - **Monturas (R / `/mount`)**: comprá mula, caballo o corcel en el Criadero.

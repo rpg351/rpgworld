@@ -84,6 +84,11 @@ Server replies to invalid/denied actions with `{t:"toast", msg}` (short human st
 - `{t:"mount"}` / `{t:"sit"}` — toggle mount or sitting rest.
 - `{t:"mount_buy", id}` / `{t:"mount_equip", id}` — buy/select mount at pet shop.
 - `{t:"pay", name, gold}` — send gold to a nearby online player (also `/pay Name N`).
+- `{t:"forage"}` — channel ~2.4s next to a tree (not in town) → `slot:"herb"`.
+- `{t:"brew"}` — near Kora, consume one herb → potion or `slot:"elixir"` (Moly).
+- `{t:"bind"}` — near fountain, set durable hearth; `{t:"recall"}` returns there if set.
+- `/forage|/recolectar`, `/brew|/alquimia`, `/bind|/ligar|/hogar` chat aliases.
+- `{t:"you"}` includes `bind:{x,y}|null` when a hearth is set.
 - Mounts: session `mounted` flag; combat/skills auto-dismount. Entity `s` bit 16=sitting, 32=mounted.
 - `{t:"fish"}` — start fishing if adjacent to water (not in town / not in combat); ~2.8s channel → fish item in inventory.
 - `/fish` or `/pescar` chat aliases for the same action.
