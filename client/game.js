@@ -4986,45 +4986,50 @@ function nearTown(x, y) {
   return tn && Math.hypot(x - tn.x, y - tn.y) < 14;
 }
 var CLS_ES = { warrior: "Guerrero", hunter: "Cazador", mage: "Mago", cleric: "Clérigo" };
-var inviteTimer = 0;
+
+
+function showInvitePrompt(boxId, timerKey, html, onYes, onNo, yesId, noId) {
+  const box = $(boxId);
+  if (!box) return;
+  const prev = window[timerKey];
+  if (prev) clearTimeout(prev);
+  box.innerHTML = html;
+  box.classList.remove("hidden");
+  const yes = $(yesId);
+  const no = $(noId);
+  if (yes) yes.addEventListener("click", () => { onYes(); box.classList.add("hidden"); });
+  if (no) no.addEventListener("click", () => { onNo(); box.classList.add("hidden"); });
+  window[timerKey] = setTimeout(() => box.classList.add("hidden"), 30000);
+}
 
 function showTradeInvite(m) {
-  clearTimeout(window._tradeInvTimer);
-  const box = $("tradeInviteBox");
-  if (!box) return;
   const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
-  box.innerHTML = `<div class="inv-txt"><b>${esc(m.from)}</b> (nivel ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("trade.invite")}</div>
+  showInvitePrompt(
+    "tradeInviteBox",
+    "_tradeInvTimer",
+    `<div class="inv-txt"><b>${esc(m.from)}</b> (nivel ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("trade.invite")}</div>
     <div class="inv-btns"><button class="btn green" id="trYes">${t("trade.accept")}</button>
-    <button class="btn ghost" id="trNo">${t("trade.decline")}</button></div>`;
-  box.classList.remove("hidden");
-  $("trYes").addEventListener("click", () => {
-    send({ t: "trade_accept", from: m.from });
-    box.classList.add("hidden");
-  });
-  $("trNo").addEventListener("click", () => {
-    send({ t: "trade_decline", from: m.from });
-    box.classList.add("hidden");
-  });
-  window._tradeInvTimer = setTimeout(() => box.classList.add("hidden"), 30000);
+    <button class="btn ghost" id="trNo">${t("trade.decline")}</button></div>`,
+    () => send({ t: "trade_accept", from: m.from }),
+    () => send({ t: "trade_decline", from: m.from }),
+    "trYes",
+    "trNo"
+  );
 }
 
 function showDuelInvite(m) {
-  clearTimeout(inviteTimer);
-  const box = $("inviteBox");
-  if (!box) return;
-  box.innerHTML = `<div class="inv-txt"><b>${m.from}</b> (Nv ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("duel.invite")}</div>
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  showInvitePrompt(
+    "inviteBox",
+    "_partyInvTimer",
+    `<div class="inv-txt"><b>${esc(m.from)}</b> (Nv ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("duel.invite")}</div>
     <div class="inv-btns"><button class="btn green" id="duelYes">${t("duel.accept")}</button>
-    <button class="btn ghost" id="duelNo">${t("duel.decline")}</button></div>`;
-  box.classList.remove("hidden");
-  $("duelYes").addEventListener("click", () => {
-    send({ t: "duel_accept", from: m.from });
-    box.classList.add("hidden");
-  });
-  $("duelNo").addEventListener("click", () => {
-    send({ t: "duel_decline", from: m.from });
-    box.classList.add("hidden");
-  });
-  inviteTimer = setTimeout(() => box.classList.add("hidden"), 30000);
+    <button class="btn ghost" id="duelNo">${t("duel.decline")}</button></div>`,
+    () => send({ t: "duel_accept", from: m.from }),
+    () => send({ t: "duel_decline", from: m.from }),
+    "duelYes",
+    "duelNo"
+  );
 }
 function onDuelMsg(m) {
   if (!m) return;
@@ -5131,6 +5136,15 @@ function onTradeEnd(_m) {
   if (box) box.classList.add("hidden");
 }
 
+
+function promptPayGold(name) {
+  const amt = prompt(t("pay.prompt"), "50");
+  if (amt == null) return;
+  const gold = Math.floor(Number(amt));
+  if (!Number.isFinite(gold) || gold < 1) return;
+  send({ t: "pay", name, gold });
+}
+
 function openPlayerMenu(e, entId) {
   const E = S.ents.get(entId);
   if (!E)
@@ -5181,11 +5195,7 @@ function openPlayerMenu(e, entId) {
   });
   const payBtn = $("pmPay");
   if (payBtn) payBtn.addEventListener("click", () => {
-    const amt = prompt(t("pay.prompt"), "50");
-    if (amt == null) return;
-    const gold = Math.floor(Number(amt));
-    if (!Number.isFinite(gold) || gold < 1) return;
-    send({ t: "pay", name: E.n || "", gold });
+    promptPayGold(E.n || "");
     closePlayerMenu();
   });
   const b = $("pmInvite");
@@ -5199,21 +5209,18 @@ function closePlayerMenu() {
   $("playerMenu").classList.add("hidden");
 }
 function showInvite(m) {
-  clearTimeout(inviteTimer);
-  const box = $("inviteBox");
-  box.innerHTML = `<div class="inv-txt"><b>${m.from}</b> (nivel ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) te invita a su grupo</div>
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  showInvitePrompt(
+    "inviteBox",
+    "_partyInvTimer",
+    `<div class="inv-txt"><b>${esc(m.from)}</b> (nivel ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) te invita a su grupo</div>
     <div class="inv-btns"><button class="btn green" id="invYes">Unirse</button>
-    <button class="btn ghost" id="invNo">Rechazar</button></div>`;
-  box.classList.remove("hidden");
-  $("invYes").addEventListener("click", () => {
-    send({ t: "party_accept", from: m.from });
-    box.classList.add("hidden");
-  });
-  $("invNo").addEventListener("click", () => {
-    send({ t: "party_decline", from: m.from });
-    box.classList.add("hidden");
-  });
-  inviteTimer = setTimeout(() => box.classList.add("hidden"), 30000);
+    <button class="btn ghost" id="invNo">Rechazar</button></div>`,
+    () => send({ t: "party_accept", from: m.from }),
+    () => send({ t: "party_decline", from: m.from }),
+    "invYes",
+    "invNo"
+  );
 }
 
 function setPartyMinimized(on) {
@@ -6568,11 +6575,7 @@ function renderWho() {
         const id = Number(btn.dataset.id);
         if (id) send({ t: "duel_req", id });
       } else if (act === "pay") {
-        const amt = prompt(t("pay.prompt"), "50");
-        if (amt == null) return;
-        const gold = Math.floor(Number(amt));
-        if (!Number.isFinite(gold) || gold < 1) return;
-        send({ t: "pay", name: btn.dataset.name, gold });
+        promptPayGold(btn.dataset.name);
       } else if (act === "friend") {
         toggleFriend(btn.dataset.name);
       }

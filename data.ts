@@ -248,7 +248,7 @@ export interface Item {
   id: number;
   base: string;
   name: string;
-  slot: string; // weapon|armor|helm|ring|potion|quest|fish|food|herb|elixir|fish|food
+  slot: string; // weapon|armor|helm|ring|potion|quest|fish|food|herb|elixir
   icon: string;
   tier: number;
   rarity: string; // common|magic|rare

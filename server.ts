@@ -5,7 +5,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ServerWebSocket } from "bun";
 import {
-  ACHIEVEMENTS, BREW_MAP, CLASS_BASE, CLASS_WEAPON, ELIXIR_DEFS, FISH_DEFS, FOOD_DEFS, HERB_DEFS, MOB_DEFS, MOUNT_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
+  ACHIEVEMENTS, BREW_MAP, CLASS_BASE, CLASS_WEAPON, ELIXIR_DEFS, FISH_DEFS, FOOD_DEFS, MOB_DEFS, MOUNT_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
   SKILLS, TREES, WEAPON_SCALING, foodFromFish, freshItemId, makeElixir, makeFish, makeFood, makeHerb, makePotion, makeQuestItem, mobStats,
   rollFish, rollHerb, rollItem, rollRarity,
 } from "./data";
@@ -1239,8 +1239,7 @@ function applySlow(t: StatusHolder, pct: number, ms: number): void {
 function useSkill(p: Player, n: number, targetId: number | null, px: number | null, py: number | null): void {
   const def = SKILLS[p.cls]?.find((s) => s.n === n);
   if (!def) return;
-  if (p.mounted) dismount(p, true);
-  if (p.sitting) standUp(p, true);
+  dismountAndStand(p);
   const now = Date.now();
   // Nodo activo del árbol: rango >= 1 desbloquea la habilidad (n=1 siempre
   // disponible como habilidad básica); los rangos 2-5 suben daño/curación.
@@ -1371,6 +1370,40 @@ function mobById(id: number): Mob | null {
 }
 
 /** Sale value at the merchant: 25% of an item's base value, scaled by stack size. */
+
+function playerByName(name: string, onlineOnly = false): Player | null {
+  const key = String(name || "").trim().toLowerCase();
+  if (!key) return null;
+  for (const q of players.values()) {
+    if (q.name.toLowerCase() !== key) continue;
+    if (onlineOnly && !q.ws) continue;
+    return q;
+  }
+  return null;
+}
+
+/** Stop movement / chase so a channelled action can start cleanly. */
+function clearMobility(p: Player): void {
+  p.path = null;
+  p.direct = null;
+  p.vel = null;
+  p.atkTarget = null;
+  p.lootTarget = null;
+  p.npcTarget = null;
+}
+
+function dismountAndStand(p: Player): void {
+  dismountAndStand(p);
+}
+
+function channelBusy(p: Player, now: number): boolean {
+  return Boolean((p.fishUntil && now < p.fishUntil) || (p.cookUntil && now < p.cookUntil) || (p.forageUntil && now < p.forageUntil));
+}
+
+function channelInterrupted(p: Player, now: number): boolean {
+  return Boolean(p.vel || p.path || p.direct || p.atkTarget != null || p.combatUntil > now);
+}
+
 function sellValue(it: Item): number {
   return Math.floor(it.val / 4) * (it.qty ?? 1);
 }
@@ -1420,27 +1453,41 @@ function tryFinishForage(p: Player, now: number): void {
   sendYou(p);
 }
 
+
+function beginFish(p: Player, now: number): void {
+  if (p.dead) return;
+  dismountAndStand(p);
+  if (p.fishUntil && now < p.fishUntil) return toast(p, "Ya estás pescando…");
+  if (p.cookUntil && now < p.cookUntil) return toast(p, "Estás cocinando…");
+  if (p.forageUntil && now < p.forageUntil) return toast(p, "Estás recolectando…");
+  if (now < p.combatUntil) return toast(p, "No puedes pescar en combate");
+  if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
+  if (inTown(p.x, p.y)) return toast(p, "No se puede pescar en la plaza");
+  clearMobility(p);
+  p.fishUntil = now + 2800;
+  toast(p, "Lanzas el sedal…");
+  bcastAt(p.x, p.y, { t: "fx", k: "fishcast", i: p.id });
+}
+
 function beginForage(p: Player, now: number): void {
   if (p.dead) return;
-  if (p.mounted) dismount(p, true);
-  if (p.sitting) standUp(p, true);
+  dismountAndStand(p);
   if (p.forageUntil && now < p.forageUntil) return toast(p, "Ya estás recolectando…");
-  if (p.fishUntil && now < p.fishUntil) return toast(p, "Estás pescando…");
-  if (p.cookUntil && now < p.cookUntil) return toast(p, "Estás cocinando…");
+  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
   if (now < p.combatUntil) return toast(p, "No puedes recolectar en combate");
   if (!nearTree(p)) return toast(p, "Debes estar junto a un árbol");
   if (inTown(p.x, p.y)) return toast(p, "No se recolecta en la plaza");
-  p.path = null; p.direct = null; p.vel = null;
-  p.atkTarget = null; p.lootTarget = null; p.npcTarget = null;
+  clearMobility(p);
   p.forageUntil = now + 2400;
   toast(p, "Buscas hierbas…");
   bcastAt(p.x, p.y, { t: "fx", k: "foragecast", i: p.id });
 }
 
+
+
 function beginBrew(p: Player, now: number): void {
   if (p.dead) return;
-  if (p.mounted) dismount(p, true);
-  if (p.sitting) standUp(p, true);
+  dismountAndStand(p);
   if (now < p.combatUntil) return toast(p, "No puedes preparar brebajes en combate");
   if (!nearNpc(p, kora)) return toast(p, "Prepara brebajes junto a Kora");
   let slot = -1;
@@ -1597,18 +1644,13 @@ function tryDuelAccept(p: Player, fromName: string, now: number): void {
     return toast(p, "El desafío expiró");
   }
   p.duelInvites.delete(name);
-  let other: Player | null = null;
-  for (const q of players.values()) {
-    if (q.name.toLowerCase() === name.toLowerCase()) { other = q; break; }
-  }
-  if (!other || !other.ws) return toast(p, "Ese jugador ya no está en línea");
+  const other = playerByName(name, true);
+  if (!other) return toast(p, "Ese jugador ya no está en línea");
   if (other.duelWith) return toast(p, `${other.name} ya está en un duelo`);
   if (other.dead) return toast(p, "Ese jugador ha caído");
   if (dist(p.x, p.y, other.x, other.y) > 16) return toast(p, "Está demasiado lejos");
-  if (p.mounted) dismount(p, true);
-  if (other.mounted) dismount(other, true);
-  if (p.sitting) standUp(p, true);
-  if (other.sitting) standUp(other, true);
+  dismountAndStand(p);
+  dismountAndStand(other);
   if (p.tradeId) cancelTrade(p, "Intercambio cancelado");
   if (other.tradeId) cancelTrade(other, "Intercambio cancelado");
   p.duelWith = other.id;
@@ -1627,12 +1669,8 @@ function tryDuelAccept(p: Player, fromName: string, now: number): void {
 function tryDuelDecline(p: Player, fromName: string): void {
   const name = String(fromName || "").trim();
   p.duelInvites.delete(name);
-  for (const q of players.values()) {
-    if (q.name.toLowerCase() === name.toLowerCase() && q.ws) {
-      toast(q, `${p.name} rechazó el duelo`);
-      break;
-    }
-  }
+  const requester = playerByName(name, true);
+  if (requester) toast(requester, `${p.name} rechazó el duelo`);
   toast(p, "Desafío rechazado");
 }
 
@@ -1846,10 +1884,8 @@ function tryTradeAccept(p: Player, fromName: string, now: number): void {
   trades.set(id, sess);
   other.tradeId = id;
   p.tradeId = id;
-  if (other.mounted) dismount(other, true);
-  if (p.mounted) dismount(p, true);
-  if (other.sitting) standUp(other, true);
-  if (p.sitting) standUp(p, true);
+  dismountAndStand(other);
+  dismountAndStand(p);
   toast(other, `${p.name} aceptó el intercambio`);
   toast(p, `Intercambio con ${other.name}`);
   syncTrade(sess);
@@ -2095,10 +2131,9 @@ function tryFinishCook(p: Player, now: number): void {
 
 function beginCook(p: Player, now: number): void {
   if (p.dead) return;
-  if (p.mounted) dismount(p, true);
-  if (p.sitting) standUp(p, true);
+  dismountAndStand(p);
   if (p.cookUntil && now < p.cookUntil) return toast(p, "Ya estás cocinando…");
-  if (p.fishUntil && now < p.fishUntil) return toast(p, "Estás pescando…");
+  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
   if (now < p.combatUntil) return toast(p, "No puedes cocinar en combate");
   if (!nearNpc(p, bront)) return toast(p, "Cocina junto a la forja de Bront");
   let slot = -1;
@@ -2107,14 +2142,15 @@ function beginCook(p: Player, now: number): void {
     if (it && it.slot === "fish" && foodFromFish(it.base)) { slot = i; break; }
   }
   if (slot < 0) return toast(p, "No tienes pescado para cocinar");
-  p.path = null; p.direct = null; p.vel = null;
-  p.atkTarget = null; p.lootTarget = null; p.npcTarget = null;
+  clearMobility(p);
   p.cookSlot = slot;
   p.cookUntil = now + 2200;
-  const name = p.inv[slot]?.name || "pescado";
-  toast(p, `Cocinando ${name}…`);
+  const name = p.inv[slot]!.name;
+  toast(p, `Cocinas ${name}…`);
   bcastAt(p.x, p.y, { t: "fx", k: "cookcast", i: p.id });
 }
+
+
 
 function r2(v: number): number {
   return Math.round(v * 100) / 100;
@@ -2237,11 +2273,8 @@ function tryPay(p: Player, targetName: string, amount: number, now: number): voi
   if (gold > 50000) return toast(p, "Máximo 50.000 de oro por envío");
   if (now - p.lastPayAt < 1500) return toast(p, "Esperá un momento…");
   if (name.toLowerCase() === p.name.toLowerCase()) return toast(p, "No podés pagarte a vos mismo");
-  let target: Player | null = null;
-  for (const q of players.values()) {
-    if (q.name.toLowerCase() === name.toLowerCase()) { target = q; break; }
-  }
-  if (!target || !target.ws) return toast(p, "Ese jugador no está en línea");
+  const target = playerByName(name, true);
+  if (!target) return toast(p, "Ese jugador no está en línea");
   if (dist(p.x, p.y, target.x, target.y) > 14) return toast(p, "Está demasiado lejos");
   if (p.gold < gold) return toast(p, "No tenés suficiente oro");
   p.gold -= gold;
@@ -2745,8 +2778,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "attack": {
       if (p.dead || stunned) return;
-      if (p.mounted) dismount(p, true);
-      if (p.sitting) standUp(p, true);
+      dismountAndStand(p);
       const id = num(msg.id);
       if (id == null) return;
       // id:0 = explicit cancel (empty-ground click / drop target).
@@ -3396,18 +3428,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "fish": {
-      if (p.dead || stunned) return;
-      if (p.mounted) dismount(p, true);
-      if (p.sitting) standUp(p, true);
-      if (p.fishUntil && now < p.fishUntil) return toast(p, "Ya estás pescando…");
-      if (now < p.combatUntil) return toast(p, "No puedes pescar en combate");
-      if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
-      if (inTown(p.x, p.y)) return toast(p, "No se puede pescar en la plaza");
-      p.path = null; p.direct = null; p.vel = null;
-      p.atkTarget = null; p.lootTarget = null; p.npcTarget = null;
-      p.fishUntil = now + 2800;
-      toast(p, "Lanzas el sedal…");
-      bcastAt(p.x, p.y, { t: "fx", k: "fishcast", i: p.id });
+      if (stunned) return;
+      beginFish(p, now);
       break;
     }
     case "cook": {
@@ -3596,10 +3618,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (/^\/trade\s+(.+)$/i.test(text) || /^\/comercio\s+(.+)$/i.test(text) || /^\/intercambiar\s+(.+)$/i.test(text)) {
         const m = text.match(/^\/(?:trade|comercio|intercambiar)\s+(.+)$/i);
         const name = (m && m[1] || "").trim();
-        let target: Player | null = null;
-        for (const q of players.values()) {
-          if (q.name.toLowerCase() === name.toLowerCase()) { target = q; break; }
-        }
+        const target = playerByName(name);
         if (!target) return toast(p, "Jugador no encontrado");
         tryTradeReq(p, target.id, now);
         return;
@@ -3612,11 +3631,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         const duel = text.match(/^\/(?:duel|desafiar|reto)\s+(.+)$/i);
         if (duel) {
           const nm = duel[1].trim();
-          let target: Player | null = null;
-          for (const q of players.values()) {
-            if (q.name.toLowerCase() === nm.toLowerCase()) { target = q; break; }
-          }
-          if (!target || !target.ws) { toast(p, "Ese jugador no está en línea"); return; }
+          const target = playerByName(nm, true);
+          if (!target) { toast(p, "Ese jugador no está en línea"); return; }
           tryDuelReq(p, target.id, now);
           return;
         }
@@ -3632,20 +3648,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         return;
       }
       if (/^\/fish$/i.test(text) || /^\/pescar$/i.test(text)) {
-        // Reuse fish action without chat broadcast
-        if (p.dead) return;
-        if (p.mounted) dismount(p, true);
-        if (p.sitting) standUp(p, true);
-        if (p.fishUntil && now < p.fishUntil) return toast(p, "Ya estás pescando…");
-        if (now < p.combatUntil) return toast(p, "No puedes pescar en combate");
-        if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
-        if (inTown(p.x, p.y)) return toast(p, "No se puede pescar en la plaza");
-        p.path = null; p.direct = null; p.vel = null;
-        p.atkTarget = null; p.lootTarget = null; p.npcTarget = null;
-        p.fishUntil = now + 2800;
-        toast(p, "Lanzas el sedal…");
-        bcastAt(p.x, p.y, { t: "fx", k: "fishcast", i: p.id });
-        break;
+        beginFish(p, now);
+        return;
       }
       // Party chat: /p|/g|/grupo message
       const pm = text.match(/^\/(?:p|g|grupo)\s+(.+)$/i);
@@ -3661,11 +3665,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (wm) {
         const targetName = wm[1];
         const body = wm[2].slice(0, 180);
-        let target: Player | null = null;
-        for (const q of players.values()) {
-          if (q.name.toLowerCase() === targetName.toLowerCase()) { target = q; break; }
-        }
-        if (!target || !target.ws) return toast(p, `No hay nadie online llamado ${targetName}`);
+        const target = playerByName(targetName, true);
+        if (!target) return toast(p, `No hay nadie online llamado ${targetName}`);
         if (target.id === p.id) return toast(p, "No puedes susurrarte a ti mismo");
         send(p.ws, { t: "chat", from: `Para ${target.name}`, text: body, whisper: 1 });
         send(target.ws, { t: "chat", from: `De ${p.name}`, text: body, whisper: 1 });
@@ -3706,8 +3707,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       if (now < p.recallCdUntil) return toast(p, `Recall en enfriamiento (${Math.ceil((p.recallCdUntil - now) / 1000)}s)`);
       p.recallCdUntil = now + RECALL_CD;
-      if (p.mounted) dismount(p, true);
-      if (p.sitting) standUp(p, true);
+      dismountAndStand(p);
       const hasBind = __omp_shell("!(p.bindX || p.bindY);")
       if (hasBind) {
         p.x = p.bindX + (Math.random() - 0.5) * 0.4;
@@ -3819,12 +3819,21 @@ function simTick(): void {
     tryFinishFish(p, now);
     tryFinishCook(p, now);
     tryFinishForage(p, now);
-    // Cancel fishing if the player starts moving / combat.
-    if (p.fishUntil && (p.vel || p.path || p.direct || p.atkTarget != null || p.combatUntil > now)) {
+    // Cancel channelled actions if the player moves / fights / leaves the station.
+    if (p.fishUntil && channelInterrupted(p, now)) {
       p.fishUntil = 0;
       toast(p, "Dejas de pescar");
     }
-    if (p.sitting && (p.vel || p.path || p.direct || p.atkTarget != null || p.combatUntil > now || p.moving)) {
+    if (p.forageUntil && channelInterrupted(p, now)) {
+      p.forageUntil = 0;
+      toast(p, "Dejas de recolectar");
+    }
+    if (p.cookUntil && (channelInterrupted(p, now) || !nearNpc(p, bront))) {
+      p.cookUntil = 0;
+      p.cookSlot = -1;
+      toast(p, "Dejas de cocinar");
+    }
+    if (p.sitting && (channelInterrupted(p, now) || p.moving)) {
       p.sitting = false;
       toast(p, "Te levantás");
       sendYou(p);
@@ -3835,11 +3844,6 @@ function simTick(): void {
       sendYou(p);
     }
     if (p.tradeId && p.combatUntil > now) cancelTrade(p, "Combate — intercambio cancelado");
-    if (p.cookUntil && (p.vel || p.path || p.direct || p.atkTarget != null || p.combatUntil > now || !nearNpc(p, bront))) {
-      p.cookUntil = 0;
-      p.cookSlot = -1;
-      toast(p, "Dejas de cocinar");
-    }
 
     // Regen: 2%/s hp + 3%/s mp out of combat (5s), 1%/s mp in combat. Near
     // the plaza fountain (sanctuary — town already blocks all incoming

@@ -1,3 +1,13 @@
+## 2026-09-15 — Limpieza: canales, invites y lookups
+
+- **Bugfix**: la recolección (T) ahora se cancela al moverse o entrar en combate,
+  igual que pesca/cocina (antes solo fallaba al terminar lejos del árbol).
+- **Deduplicación**: `beginFish` unifica pesca por tecla/chat; helpers compartidos
+  `clearMobility` / `dismountAndStand` / `channelInterrupted` / `playerByName`.
+- Cliente: un solo `showInvitePrompt` para grupo/comercio/duelo; `promptPayGold` único.
+- Import muerto `HERB_DEFS` y comentario duplicado de `Item.slot` limpiados.
+- Cache bust `?v=20260915`.
+
 ## 2026-09-14 — Duelos y desguace
 
 - **Duelos**: menú de jugador / Quién (O) / `/duel Nombre` (`/desafiar`). Aceptá el
