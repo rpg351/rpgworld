@@ -1,3 +1,11 @@
+## 2026-09-25 — Logs de bots + clearPath/repathTo
+
+- **Logs**: subidas de nivel y anuncios de jefes ya no se publican en el chat
+  cuando el autor es un bot del squad (menos spam).
+- Helpers `clearPath` / `repathTo` unifican llegada y repath de chase/loot/NPC/seguir.
+- Toast de misión "Aún no podés…"; i18n del tablón alineado (tenés/esperá).
+- Cache bust `?v=20260925`.
+
 ## 2026-09-24 — setPathTo + oro de ventas + toasts
 
 - **Bugfix**: vender / desguazar / venta por rareza ahora cuentan en `noteGold`

@@ -732,7 +732,7 @@ function addXp(p: Player, amount: number): void {
     p.pts += 3;
     p.abilityPts += 1;
     leveled = true;
-    sysChat(`¡${p.name} subió al nivel ${p.lvl}!`);
+    if (!BOT_SQUAD.has(p.name)) sysChat(`¡${p.name} subió al nivel ${p.lvl}!`);
     bcastAt(p.x, p.y, { t: "fx", k: "level", i: p.id });
   }
   if (leveled) {
@@ -805,17 +805,17 @@ function mobDie(m: Mob, killer: Player): void {
     sendYou(member);
   }
   if (m.kind === "cyclops") {
-    sysChat(`¡${killer.name} ha derrotado a Polifemo, el terror del este!`);
+    if (!BOT_SQUAD.has(killer.name)) sysChat(`¡${killer.name} ha derrotado a Polifemo, el terror del este!`);
     unlockPortal(killer, "asfodelos", true);
     for (const q of sharers) unlockPortal(q, "asfodelos", true);
   } else if (m.kind === "hydra") {
     const msg = BOSS_KILL_MSG.hydra;
-    if (msg) sysChat(msg(killer.name));
+    if (msg && !BOT_SQUAD.has(killer.name)) sysChat(msg(killer.name));
     unlockPortal(killer, "hidra", true);
     for (const q of sharers) unlockPortal(q, "hidra", true);
   } else {
     const msg = BOSS_KILL_MSG[m.kind];
-    if (msg) sysChat(msg(killer.name));
+    if (msg && !BOT_SQUAD.has(killer.name)) sysChat(msg(killer.name));
   }
 }
 
@@ -1436,6 +1436,17 @@ function setPathTo(p: Player, x: number, y: number): void {
     p.path = null;
     p.direct = { x, y };
   }
+}
+
+function clearPath(p: Player): void {
+  p.path = null;
+  p.direct = null;
+}
+
+function repathTo(p: Player, x: number, y: number, now: number, cd = 500): void {
+  if (now < p.repathAt) return;
+  p.repathAt = now + cd;
+  setPathTo(p, x, y);
 }
 
 function alreadyBusy(p: Player, until: number, now: number, msg: string): boolean {
@@ -3383,7 +3394,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const qid = typeof msg.qid === "string" ? msg.qid : "";
       if (!QUESTS[qid]) return;
       if (needNpc(p, elder, "Debes hablar con Nikandros")) return;
-      if (questState(p, qid) !== "available") return toast(p, "Aún no puedes aceptar esa misión");
+      if (questState(p, qid) !== "available") return toast(p, "Aún no podés aceptar esa misión");
       p.quests[qid] = { n: 0, done: false, turned: false };
       if (QUESTS[qid].kind === "collect") updateCollect(p);
       toast(p, `Misión aceptada: ${QUESTS[qid].name}`);
@@ -3992,15 +4003,14 @@ function simTick(): void {
       })() : null;
       if ((!m || m.dead) && !foe) {
         p.atkTarget = null;
-        p.path = null;
+        clearPath(p);
       } else {
         const tx = m && !m.dead ? m.x : foe!.x;
         const ty = m && !m.dead ? m.y : foe!.y;
         const range = weaponRange(p);
         const dd = dist(p.x, p.y, tx, ty);
         if (dd <= range) {
-          p.path = null;
-          p.direct = null;
+          clearPath(p);
           p.d = tx < p.x ? 1 : 0;
           if (now >= p.nextAtk) {
             p.nextAtk = now + ATTACK_CD;
@@ -4013,10 +4023,7 @@ function simTick(): void {
             else if (foe) playerHitPlayer(p, foe, d.lo + Math.random() * (d.hi - d.lo), d);
           }
         } else if (!p.vel) {
-          if (now >= p.repathAt) {
-            p.repathAt = now + 500;
-            setPathTo(p, tx, ty);
-          }
+          repathTo(p, tx, ty, now);
           if (p.path) followPath(p, speed, dt);
           else if (p.direct && !stepToward(p, p.direct.x, p.direct.y, speed * dt)) p.direct = null;
           else if (p.direct) p.moving = true;
@@ -4026,18 +4033,14 @@ function simTick(): void {
       const l = loot.get(p.lootTarget);
       if (!l) {
         p.lootTarget = null;
-        p.path = null;
+        clearPath(p);
       } else {
         const dd = dist(p.x, p.y, l.x, l.y);
         if (dd <= 2) {
-          p.path = null;
-          p.direct = null;
+          clearPath(p);
           if (tryPickupLoot(p, p.lootTarget)) p.lootTarget = null;
         } else if (!p.vel) {
-          if (now >= p.repathAt) {
-            p.repathAt = now + 500;
-            setPathTo(p, l.x, l.y);
-          }
+          repathTo(p, l.x, l.y, now);
           if (p.path) followPath(p, speed, dt);
           else if (p.direct && !stepToward(p, p.direct.x, p.direct.y, speed * dt)) p.direct = null;
           else if (p.direct) p.moving = true;
@@ -4047,17 +4050,13 @@ function simTick(): void {
       const npc = npcs.find((n) => n.id === p.npcTarget);
       if (!npc) {
         p.npcTarget = null;
-        p.path = null;
+        clearPath(p);
       } else if (nearNpc(p, npc)) {
-        p.path = null;
-        p.direct = null;
+        clearPath(p);
         openNpcDialog(p, npc);
         p.npcTarget = null;
       } else if (!p.vel) {
-        if (now >= p.repathAt) {
-          p.repathAt = now + 500;
-          setPathTo(p, npc.x, npc.y);
-        }
+        repathTo(p, npc.x, npc.y, now);
         if (p.path) followPath(p, speed, dt);
         else if (p.direct && !stepToward(p, p.direct.x, p.direct.y, speed * dt)) p.direct = null;
         else if (p.direct) p.moving = true;
@@ -4072,15 +4071,12 @@ function simTick(): void {
       // Seguir: A* around walls instead of a straight shove that freezes on obstacles.
       const fd = dist(p.x, p.y, followLeader.x, followLeader.y);
       if (fd <= 2) {
-        p.path = null;
+        clearPath(p);
         p.followStuck = 0;
       } else {
         const end = p.path && p.path.length ? p.path[p.path.length - 1] : null;
-        const drifted = !end || dist(end.x, end.y, followLeader.x, followLeader.y) > 2.5;
-        if (drifted && now >= p.repathAt) {
-          p.repathAt = now + 400;
-          p.path = astar(world.walk, p.x, p.y, followLeader.x, followLeader.y);
-        }
+        const drifted = __omp_shell("end || dist(end.x, end.y, followLeader.x, followLeader.y) > 2.5;")
+        if (drifted) repathTo(p, followLeader.x, followLeader.y, now, 400);
         const ox = p.x, oy = p.y;
         if (p.path && p.path.length) {
           followPath(p, speed, dt);
@@ -4091,7 +4087,7 @@ function simTick(): void {
           p.followStuck = 0;
         } else if (++p.followStuck > 40) {
           // Path went stale / wedged — drop it and force a fresh repath next tick.
-          p.path = null;
+          clearPath(p);
           p.followStuck = 0;
           p.repathAt = 0;
         }

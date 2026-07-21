@@ -251,7 +251,7 @@ var I18N = {
     "board.submit": "Publicar",
     "board.empty": "Aún no hay peticiones. ¡Sé el primero!",
     "board.posted": (n, d) => `${n} · ${d}`,
-    "board.hasActive": "Ya tienes una petición activa — espera a que un moderador la resuelva antes de publicar otra.",
+    "board.hasActive": "Ya tenés una petición activa — esperá a que un moderador la resuelva antes de publicar otra.",
     "board.cooldown": (s) => `Puedes publicar de nuevo en ${s}s.`,
     "board.edit": "Editar",
     "board.delete": "Borrar",
