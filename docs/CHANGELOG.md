@@ -1,3 +1,10 @@
+## 2026-09-31 — Duel invite box + rewardBossKill
+
+- **Bugfix**: duelo y party ya no comparten `inviteBox` (se pisaban las invitaciones).
+- Helper `rewardBossKill` + mapas `BOSS_ACH` / `BOSS_PORTAL` unifican logro/anuncio/portal.
+- Toast de recall en español ("Regreso en enfriamiento"); salvage bounds simplificados.
+- Cache bust `?v=20260931`.
+
 ## 2026-09-30 — toastReject + brew gate + consumeInvSlot
 
 - `beginBrew` usa `beginChannelGate`; brew/cocina consumen con `consumeInvSlot`.

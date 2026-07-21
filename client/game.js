@@ -5034,7 +5034,7 @@ function showTradeInvite(m) {
   showRoleInvite(m, "tradeInviteBox", "_tradeInvTimer", t("trade.invite"), "trYes", "trNo", t("trade.accept"), t("trade.decline"), "trade_accept", "trade_decline");
 }
 function showDuelInvite(m) {
-  showRoleInvite(m, "inviteBox", "_partyInvTimer", t("duel.invite"), "duelYes", "duelNo", t("duel.accept"), t("duel.decline"), "duel_accept", "duel_decline");
+  showRoleInvite(m, "duelInviteBox", "_duelInvTimer", t("duel.invite"), "duelYes", "duelNo", t("duel.accept"), t("duel.decline"), "duel_accept", "duel_decline");
 }
 function onDuelMsg(m) {
   if (!m) return;
@@ -5293,7 +5293,7 @@ function initMobileUi() {
     const tag = (el.tagName || "").toLowerCase();
     if (tag === "button" || tag === "input" || tag === "textarea" || tag === "a" || tag === "select") return true;
     if (el.closest) {
-      if (el.closest("button, input, textarea, a, select, .panel, .mob-btn, .skill, #hud, #partyFrames, #playerMenu, #inviteBox, #chat, #minimap, #deathOverlay, #reconnect, #tooltip, #invDragGhost"))
+      if (el.closest("button, input, textarea, a, select, .panel, .mob-btn, .skill, #hud, #partyFrames, #playerMenu, #inviteBox, #duelInviteBox, #chat, #minimap, #deathOverlay, #reconnect, #tooltip, #invDragGhost"))
         return true;
     }
     return false;

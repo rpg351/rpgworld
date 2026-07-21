@@ -695,9 +695,28 @@ const BOSS_KILL_MSG: Record<string, (killer: string) => string> = {
   hydra: (k) => `¡${k} ha decapitado a la Hidra de Lerna en lo hondo del pantano!`,
 };
 
+const BOSS_ACH: Record<string, string> = {
+  cyclops: "boss_cyclops",
+  minotaur: "boss_minotaur",
+  hydra: "boss_hydra",
+};
+
+const BOSS_PORTAL: Record<string, string> = {
+  cyclops: "asfodelos",
+  hydra: "hidra",
+};
+
 function announceBossKill(killer: Player, kind: string): void {
   const msg = BOSS_KILL_MSG[kind];
   if (msg && !BOT_SQUAD.has(killer.name)) sysChat(msg(killer.name));
+}
+
+function rewardBossKill(killer: Player, sharers: Player[], kind: string): void {
+  announceBossKill(killer, kind);
+  const portal = BOSS_PORTAL[kind];
+  if (!portal) return;
+  unlockPortal(killer, portal, true);
+  for (const q of sharers) unlockPortal(q, portal, true);
 }
 
 function rollDrops(m: Mob, killer: Player): void {
@@ -803,9 +822,8 @@ function mobDie(m: Mob, killer: Player): void {
   if (killer.killCount >= 50) grantAch(killer, "kills_50");
   if (killer.killCount >= 200) grantAch(killer, "kills_200");
   if (killer.killCount >= 500) grantAch(killer, "kills_500");
-  if (m.kind === "cyclops") grantAch(killer, "boss_cyclops");
-  if (m.kind === "minotaur") grantAch(killer, "boss_minotaur");
-  if (m.kind === "hydra") grantAch(killer, "boss_hydra");
+  const bossAch = BOSS_ACH[m.kind];
+  if (bossAch) grantAch(killer, bossAch);
   sendMeter(killer);
   rollDrops(m, killer);
   // Crédito de misiones de caza para todos los miembros cercanos.
@@ -822,17 +840,7 @@ function mobDie(m: Mob, killer: Player): void {
     }
     sendYou(member);
   }
-  if (m.kind === "cyclops") {
-    announceBossKill(killer, "cyclops");
-    unlockPortal(killer, "asfodelos", true);
-    for (const q of sharers) unlockPortal(q, "asfodelos", true);
-  } else if (m.kind === "hydra") {
-    announceBossKill(killer, "hydra");
-    unlockPortal(killer, "hidra", true);
-    for (const q of sharers) unlockPortal(q, "hidra", true);
-  } else {
-    announceBossKill(killer, m.kind);
-  }
+  rewardBossKill(killer, sharers, m.kind);
 }
 
 function noteHitTaken(p: Player, src: string, dmg: number): void {
@@ -1930,7 +1938,7 @@ function salvageValue(it: Item): number {
 function trySalvage(p: Player, slot: number): void {
   if (p.dead) return;
   if (needNpc(p, bront, "Desguazá equipo en la forja de Bront")) return;
-  if (!Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+  if (slot < 0 || slot >= INV_SIZE) return;
   const it = p.inv[slot];
   if (!it) return;
   if (!SALVAGE_SLOTS.has(it.slot)) return toast(p, "Solo se desguaza armas y armaduras");
@@ -3833,7 +3841,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "recall": {
       if (p.dead || stunned) return;
-      if (now < p.recallCdUntil) return toast(p, `Recall en enfriamiento (${Math.ceil((p.recallCdUntil - now) / 1000)}s)`);
+      if (now < p.recallCdUntil) return toast(p, `Regreso en enfriamiento (${Math.ceil((p.recallCdUntil - now) / 1000)}s)`);
       p.recallCdUntil = now + RECALL_CD;
       dismountAndStand(p);
       const hasBind = Boolean(p.bindX || p.bindY);

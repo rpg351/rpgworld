@@ -447,7 +447,7 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .pm-name{font-size:13px;color:var(--bronze-bright);margin-bottom:7px;text-align:center}
 #playerMenu .btn{width:100%;font-size:12px}
 
-#inviteBox{position:absolute;top:70px;left:50%;transform:translateX(-50%);width:300px;
+#inviteBox,#duelInviteBox{position:absolute;top:70px;left:50%;transform:translateX(-50%);width:300px;
   background:rgba(24,18,10,.94);border:1px solid var(--bronze,#8a6a2f);border-radius:4px;
   padding:12px 14px;z-index:60;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.6)}
 .inv-txt{font-size:13px;color:var(--ink);margin-bottom:9px}
@@ -527,7 +527,7 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
   #questPanel,#charPanel{left:8px!important}
   #dialogPanel{width:auto!important}
   #zoneBanner{font-size:22px;letter-spacing:3px;top:12%}
-  #inviteBox{width:min(300px,92vw);top:56px}
+  #inviteBox,#duelInviteBox{width:min(300px,92vw);top:56px}
   #playerMenu{max-width:calc(100vw - 16px)}
   #mobileHud{display:block}
   #world{touch-action:none}
@@ -692,5 +692,5 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 #tradeInviteBox.hidden{display:none}
 .trade-hint{font-size:11px;color:#a8946a}
 
-/* Duel invite uses inviteBox; partner targeting uses enemy tint via isEnemyEnt */
+/* Duel invite has its own box so it does not clobber party invites; enemy tint via isEnemyEnt */
 
