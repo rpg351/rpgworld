@@ -1,3 +1,20 @@
+## 2026-07-21 — Rachas, auto-pociones, minimapa y descanso en la fuente
+
+- **Racha de bajas**: kills seguidos en ≤8s acumulan racha; HUD centrado desde ×2;
+  hitos ×5/×10/×20 dan oro extra. Se reinicia al morir.
+- **Auto-pociones** (menú Opciones): bebe sola con vida ≤35% y, en modo completo,
+  maná ≤22%. No spamea avisos si no quedan pociones.
+- **Comparar equipo**: el tooltip de un arma/armadura/yelmo/anillo muestra el
+  delta frente a lo que ya llevas equipado (verde/rojo).
+- **Minimapa**: jefes siempre marcados (diamante dorado); objetivos de misión
+  activa resaltados en rosa; anillo si el jefe es el objetivo.
+- **Descanso en la fuente**: 12s junto a la fuente fuera de combate → +20% XP
+  durante 8 minutos (toast al activarse).
+- **Loot raro**: toast al recoger un objeto raro.
+- **Logs**: bot ya no imprime SIGTERM/SIGINT ni errores WS ruidosos de reconexión.
+- Cache bust `?v=20260901`.
+
+
 ## 2026-07-21 — Misiones del Pantano, mascotas nuevas y logs limpios
 
 - **Cadena de misiones q10–q12 (Pantano de la Hidra)**: tras Asterión, Nikandros

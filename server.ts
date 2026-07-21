@@ -140,6 +140,8 @@ interface Player extends StatusHolder {
   vel: { x: number; y: number } | null; // WASD velocity (normalized), overrides path/chase
   atkTarget: number | null; lootTarget: number | null; npcTarget: number | null; nextAtk: number; repathAt: number;
   skillCds: number[]; potCdUntil: number; combatUntil: number; recallCdUntil: number;
+  killStreak: number; killStreakAt: number; // consecutive kills within a short window
+  restedUntil: number; restAccum: number; // fountain rest XP buff
   dead: boolean; deadAt: number; lastChat: number; dirty: boolean;
   visitedZones: string[]; // portal destinations unlocked by visiting regions
   party: Party | null; partyId: string | null; // live party + durable id (survives logout/restart)
@@ -393,6 +395,7 @@ function sendYou(p: Player): void {
     inv: p.inv, eq: p.eq, quests: p.quests, visitedZones: p.visitedZones,
     abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
     pets: [...p.pets], activePet: p.activePet,
+    rested: p.restedUntil > Date.now() ? Math.ceil((p.restedUntil - Date.now()) / 1000) : 0,
   });
   p.dirty = true;
 }
@@ -523,6 +526,7 @@ function rollDrops(m: Mob, killer: Player): void {
 // ---------------------------------------------------------------------------
 function addXp(p: Player, amount: number): void {
   if (p.lvl >= LEVEL_CAP) return;
+  if (Date.now() < p.restedUntil) amount = Math.max(1, Math.round(amount * 1.2));
   p.xp += amount;
   let leveled = false;
   while (p.lvl < LEVEL_CAP && p.xp >= xpNext(p.lvl)) {
@@ -543,6 +547,20 @@ function addXp(p: Player, amount: number): void {
   if (p.lvl >= LEVEL_CAP) p.xp = 0;
 }
 
+function noteKillStreak(p: Player): void {
+  const now = Date.now();
+  if (now - p.killStreakAt > 8000) p.killStreak = 0;
+  p.killStreak++;
+  p.killStreakAt = now;
+  send(p.ws, { t: "streak", n: p.killStreak });
+  const bonus = p.killStreak === 5 ? 15 : p.killStreak === 10 ? 40 : p.killStreak === 20 ? 100 : 0;
+  if (bonus) {
+    p.gold += bonus;
+    toast(p, `¡Racha ×${p.killStreak}! +${bonus} oro`);
+    sendYou(p);
+  }
+}
+
 function mobDie(m: Mob, killer: Player): void {
   m.dead = true;
   m.target = null;
@@ -560,6 +578,7 @@ function mobDie(m: Mob, killer: Player): void {
     const mult = gap > 4 ? Math.max(0.1, 1 - 0.2 * (gap - 4)) : 1;
     addXp(q, Math.max(1, Math.round((m.xp * mult * bonus) / sharers.length)));
   }
+  noteKillStreak(killer);
   rollDrops(m, killer);
   // Crédito de misiones de caza para todos los miembros cercanos.
   for (const member of sharers) {
@@ -593,6 +612,9 @@ function mobDie(m: Mob, killer: Player): void {
 function playerDie(p: Player): void {
   p.dead = true;
   p.deadAt = Date.now();
+  p.killStreak = 0;
+  p.killStreakAt = 0;
+  send(p.ws, { t: "streak", n: 0 });
   p.hp = 0;
   p.path = null;
   p.direct = null;
@@ -1310,6 +1332,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     visitedZones: ["helike"],
     path: null, direct: null, vel: null, atkTarget: null, lootTarget: null, npcTarget: null, nextAtk: 0, repathAt: 0,
     skillCds: [0, 0, 0, 0, 0], potCdUntil: 0, combatUntil: 0, recallCdUntil: 0,
+    killStreak: 0, killStreakAt: 0, restedUntil: 0, restAccum: 0,
     dead: false, deadAt: 0, lastChat: 0, dirty: true, seen: new Set(),
     party: null, partyId: null, invites: new Map(), disconnectedAt: null, followId: null,
     followStuck: 0,
@@ -1558,6 +1581,7 @@ function tryPickupLoot(p: Player, id: number): boolean {
     return true;
   }
   loot.delete(id);
+  if (l.item.rarity === "rare") toast(p, `¡Raro! Recogiste ${l.item.name}`);
   updateCollect(p);
   sendYou(p);
   return true;
@@ -2218,7 +2242,19 @@ function simTick(): void {
     if (nearFountain) {
       if (p.hp < d.mhp) p.hp = Math.min(d.mhp, p.hp + d.mhp * FOUNTAIN_HP_REGEN * dt);
       if (p.mp < d.mmp) p.mp = Math.min(d.mmp, p.mp + d.mmp * FOUNTAIN_MP_REGEN * dt);
+      if (!inCombat) {
+        p.restAccum += dt;
+        if (p.restAccum >= 12) {
+          const fresh = p.restedUntil < now;
+          p.restedUntil = now + 480000;
+          p.restAccum = 0;
+          if (fresh) toast(p, "Descansas en la fuente — +20% XP (8 min)");
+        }
+      } else {
+        p.restAccum = 0;
+      }
     } else {
+      p.restAccum = 0;
       const hpRegenPct = 0.02 + 0.004 * abilityRank(p, "toque_asclepio");
       const mpRegenPct = (inCombat ? 0.01 : 0.03) + 0.002 * abilityRank(p, "m_regen");
       if (!inCombat && p.hp < d.mhp) p.hp = Math.min(d.mhp, p.hp + d.mhp * hpRegenPct * dt);

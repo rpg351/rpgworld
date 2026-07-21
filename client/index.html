@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>La Era de los Titanes — Ideitas</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a140c'/%3E%3Cpath d='M6 8h20v4h-7v14h-6V12H6z' fill='%23c8933b'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=20260831">
+<link rel="stylesheet" href="style.css?v=20260901">
 </head>
 <body>
 
@@ -70,6 +70,7 @@
     <div id="targetName"></div>
     <div class="target-bar"><div id="targetFill"></div></div>
   </div>
+  <div id="streakHud" class="hidden"></div>
   <div id="toasts"></div>
 
   <div id="chat">
@@ -222,6 +223,13 @@
           <option value="rare" data-i18n="opt.autoloot.rare">Solo raro</option>
         </select>
       </label>
+      <label class="menu-opt"><span data-i18n="opt.autopotion">Auto-pociones</span>
+        <select id="autoPotionSelect">
+          <option value="off" data-i18n="opt.autopotion.off">Desactivadas</option>
+          <option value="on" data-i18n="opt.autopotion.on">Vida y maná bajos</option>
+          <option value="hp" data-i18n="opt.autopotion.hp">Solo vida baja</option>
+        </select>
+      </label>
       <label class="menu-opt"><span data-i18n="opt.lang">Idioma</span>
         <select id="langSelect"><option value="es">Español</option><option value="en">English</option></select>
       </label>
@@ -266,7 +274,7 @@ if (!document.getElementById("respawnBtn") && !location.search.includes("v=")) {
   location.replace(location.pathname + "?v=" + Date.now());
 }
 </script>
-<script src="audio.js?v=20260831"></script>
-<script src="game.js?v=20260831"></script>
+<script src="audio.js?v=20260901"></script>
+<script src="game.js?v=20260901"></script>
 </body>
 </html>

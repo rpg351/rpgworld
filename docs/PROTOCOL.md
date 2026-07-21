@@ -66,6 +66,7 @@ Server replies to invalid/denied actions with `{t:"toast", msg}` (short human st
 - `{t:"shop", npc, name, items:[{idx, item, price}]}` — sent with dialog for merchants; re-sent after buy (stock without the bought unique item; potions infinite).
 - `{t:"chat", from, text, sys?}` — `sys:1` for system lines (joins, level-ups, boss kills; `from` omitted).
 - `{t:"dead"}` — you died (client shows overlay + Respawn button).
+- `{t:"streak", n}` — killer-only kill-streak counter (`n=0` on death).
 - `{t:"toast", msg}` — transient info/error line.
 - `{t:"err", msg}` — login-level failure.
 - `{t:"party_invited", from, cls, lvl}` — you received an invite (client shows join/decline prompt).

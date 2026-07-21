@@ -162,7 +162,7 @@ class Companion {
         }
       };
 
-      ws.onerror = () => console.error(`[bot:${NAME}] ws error`);
+      ws.onerror = () => { /* reconnect loop logs the failure */ };
 
       ws.onclose = () => {
         cleanup();
@@ -515,8 +515,8 @@ class Companion {
 }
 
 const bot = new Companion();
-process.on("SIGTERM", () => { console.log(`[bot:${NAME}] SIGTERM`); bot.stop(); });
-process.on("SIGINT", () => { console.log(`[bot:${NAME}] SIGINT`); bot.stop(); });
+process.on("SIGTERM", () => { bot.stop(); });
+process.on("SIGINT", () => { bot.stop(); });
 
 console.log(`[bot:${NAME}] start ${BOT_CLS} → ${WS_URL}`);
 await bot.start();

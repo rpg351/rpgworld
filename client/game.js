@@ -1,6 +1,11 @@
 // ../var/www/ideitas.online/rpg/game.js
 var $ = (id) => document.getElementById(id);
 var BOSS_KINDS = new Set(["cyclops", "minotaur", "hydra"]);
+var BOSS_MARKERS = [
+  { k: "cyclops", x: 145.5, y: 115.5, n: "Polifemo" },
+  { k: "minotaur", x: 140.5, y: 30.5, n: "Asterión" },
+  { k: "hydra", x: 196.5, y: 100.5, n: "Hidra" },
+];
 
 function requireDom() {
   const need = ["loginForm", "game", "respawnBtn", "hpOrb", "mpOrb", "world"];
@@ -115,6 +120,9 @@ var I18N = {
     "opt.autoloot": "Auto-recogida",
     "opt.autoloot.off": "Desactivada", "opt.autoloot.all": "Todo",
     "opt.autoloot.magic": "Mágico o mejor", "opt.autoloot.rare": "Solo raro",
+    "opt.autopotion": "Auto-pociones",
+    "opt.autopotion.off": "Desactivadas", "opt.autopotion.on": "Vida y maná bajos",
+    "opt.autopotion.hp": "Solo vida baja",
     "hud.autoatk.on": "Ataque automático ON — ataca al enemigo más cercano (clic para apagar)",
     "hud.autoatk.off": "Ataque automático OFF — clic para atacar al enemigo más cercano",
     "board.title": "Tablón de peticiones",
@@ -223,6 +231,9 @@ var I18N = {
     "opt.autoloot": "Auto-loot",
     "opt.autoloot.off": "Off", "opt.autoloot.all": "Everything",
     "opt.autoloot.magic": "Magic or better", "opt.autoloot.rare": "Rare only",
+    "opt.autopotion": "Auto-potions",
+    "opt.autopotion.off": "Off", "opt.autopotion.on": "Low HP and MP",
+    "opt.autopotion.hp": "Low HP only",
     "hud.autoatk.on": "Auto-attack ON — attacks the nearest enemy (click to turn off)",
     "hud.autoatk.off": "Auto-attack OFF — click to attack the nearest enemy",
     "board.title": "Request board",
@@ -311,6 +322,8 @@ var S = {
   boardEntries: null,
   boardMeta: { isMod: false, hasActive: false, cooldownUntil: 0 },
   autoLoot: "off",
+  autoPotion: "off",
+  streak: 0,
   shakeMag: 0,
   targetId: 0,
   autoAtk: false,
@@ -426,6 +439,8 @@ function handle(m) {
       S.followId = null;
       S.dead = false;
       S.reviveAt = 0;
+      S.streak = 0;
+      updateStreakHud();
       $("deathOverlay").classList.add("hidden");
       enterGame();
       break;
@@ -603,6 +618,11 @@ function handleWorld(m) {
       const ov = $("deathOverlay");
       if (ov) ov.classList.remove("hidden");
       if (window.AOTAudio) AOTAudio.sfx("dead");
+      break;
+    }
+    case "streak": {
+      S.streak = Math.max(0, Number(m.n) || 0);
+      updateStreakHud();
       break;
     }
     case "toast": {
@@ -2824,6 +2844,7 @@ function frame() {
   const dt = Math.min(0.05, Math.max(0, (t - (_lastFrameT || t)) / 1000));
   _lastFrameT = t;
   tickAutoAtk(t);
+  tickAutoPotion(t);
   const rt = t - INTERP_DELAY;
   for (const [, E] of S.ents)
     sampleEnt(E, rt);
@@ -3043,11 +3064,18 @@ function castSkill(n) {
   S.cds[n] = t + sk.cd;
 }
 var LS_AUTOLOOT = "aot_autoloot";
+var LS_AUTOPOTION = "aot_autopotion";
 function loadAutoLoot() {
   try {
     const v = localStorage.getItem(LS_AUTOLOOT);
     S.autoLoot = v === "all" || v === "magic" || v === "rare" ? v : "off";
   } catch (e) { S.autoLoot = "off"; }
+}
+function loadAutoPotion() {
+  try {
+    const v = localStorage.getItem(LS_AUTOPOTION);
+    S.autoPotion = v === "on" || v === "hp" ? v : "off";
+  } catch (e) { S.autoPotion = "off"; }
 }
 var RARITY_RANK = { common: 0, magic: 1, rare: 2 };
 function lootMatchesAutoFilter(item) {
@@ -3057,13 +3085,14 @@ function lootMatchesAutoFilter(item) {
   return (RARITY_RANK[item.rarity] ?? 0) >= need;
 }
 function syncMenuControls() {
-  const vm = $("volMusic"), vf = $("volFx"), lang = $("langSelect"), al = $("autoLootSelect");
+  const vm = $("volMusic"), vf = $("volFx"), lang = $("langSelect"), al = $("autoLootSelect"), ap = $("autoPotionSelect");
   if (window.AOTAudio) {
     if (vm) vm.value = Math.round((AOTAudio.musicVol ?? 1) * 100);
     if (vf) vf.value = Math.round((AOTAudio.sfxVol ?? 1) * 100);
   }
   if (lang) lang.value = getLang();
   if (al) al.value = S.autoLoot;
+  if (ap) ap.value = S.autoPotion;
 }
 function logout() {
   try { localStorage.removeItem("aot_creds"); } catch (e) {}
@@ -3073,6 +3102,7 @@ function logout() {
 }
 function initMenu() {
   loadAutoLoot();
+  loadAutoPotion();
   document.querySelectorAll(".menu-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".menu-tab").forEach((b) => b.classList.toggle("sel", b === btn));
@@ -3080,7 +3110,7 @@ function initMenu() {
       ["menuHelp", "menuOptions"].forEach((id) => $(id).classList.toggle("hidden", id !== target));
     });
   });
-  const vm = $("volMusic"), vf = $("volFx"), lang = $("langSelect"), logoutBtn = $("logoutBtn"), al = $("autoLootSelect");
+  const vm = $("volMusic"), vf = $("volFx"), lang = $("langSelect"), logoutBtn = $("logoutBtn"), al = $("autoLootSelect"), ap = $("autoPotionSelect");
   if (vm) vm.addEventListener("input", () => { if (window.AOTAudio) AOTAudio.setMusicVolume(vm.value / 100); });
   if (vf) vf.addEventListener("input", () => {
     if (window.AOTAudio) { AOTAudio.setSfxVolume(vf.value / 100); AOTAudio.sfx("ui"); }
@@ -3089,6 +3119,10 @@ function initMenu() {
   if (al) al.addEventListener("change", () => {
     S.autoLoot = al.value;
     try { localStorage.setItem(LS_AUTOLOOT, S.autoLoot); } catch (e) {}
+  });
+  if (ap) ap.addEventListener("change", () => {
+    S.autoPotion = ap.value;
+    try { localStorage.setItem(LS_AUTOPOTION, S.autoPotion); } catch (e) {}
   });
   if (logoutBtn) logoutBtn.addEventListener("click", () => logout());
   syncMenuControls();
@@ -3189,14 +3223,51 @@ window.addEventListener("keyup", (e) => {
   }
 });
 window.addEventListener("blur", stopMove);
-function quickPotion(icon) {
+function quickPotion(icon, silent) {
   const inv = S.you && S.you.inv;
   if (!inv)
-    return;
+    return false;
   const slot = inv.findIndex((it) => it && it.icon === icon);
-  if (slot < 0)
-    return toast(icon === "potion_hp" ? "Sin pociones de vida" : "Sin pociones de maná");
+  if (slot < 0) {
+    if (!silent) toast(icon === "potion_hp" ? "Sin pociones de vida" : "Sin pociones de maná");
+    return false;
+  }
   send({ t: "use", slot });
+  return true;
+}
+var _autoPotAt = 0;
+function tickAutoPotion(t) {
+  if (S.autoPotion === "off" || S.dead || !S.you) return;
+  if (t - _autoPotAt < 480) return;
+  const y = S.you;
+  if (S.autoPotion !== "mp" && y.mhp > 0 && y.hp / y.mhp <= 0.35) {
+    if (quickPotion("potion_hp", true)) { _autoPotAt = t; return; }
+  }
+  if (S.autoPotion === "on" && y.mmp > 0 && y.mp / y.mmp <= 0.22) {
+    if (quickPotion("potion_mp", true)) { _autoPotAt = t; return; }
+  }
+}
+function updateStreakHud() {
+  const el = $("streakHud");
+  if (!el) return;
+  if (S.streak >= 2) {
+    el.textContent = `Racha ×${S.streak}`;
+    el.classList.remove("hidden");
+  } else {
+    el.classList.add("hidden");
+  }
+}
+function activeQuestTargets() {
+  const y = S.you;
+  const set = new Set();
+  if (!y || !y.quests) return set;
+  for (const qid in y.quests) {
+    const q = y.quests[qid];
+    const meta = QUEST_META[qid];
+    if (!q || q.turned || q.done || !meta || !meta.target) continue;
+    set.add(meta.target);
+  }
+  return set;
 }
 window.addEventListener("keydown", (e) => {
   if (!S.loggedIn)
@@ -4580,6 +4651,25 @@ function drawMinimapDots() {
   mmCtx.imageSmoothingEnabled = false;
   mmCtx.drawImage(mmBase, 0, 0, W, H);
   const kx = W / S.map.w, ky = H / S.map.h;
+  const questTargets = activeQuestTargets();
+  for (const b of BOSS_MARKERS) {
+    const x = b.x * kx, y = b.y * ky;
+    mmCtx.fillStyle = "#ffb04a";
+    mmCtx.beginPath();
+    mmCtx.moveTo(x, y - 3.2);
+    mmCtx.lineTo(x + 2.6, y);
+    mmCtx.lineTo(x, y + 3.2);
+    mmCtx.lineTo(x - 2.6, y);
+    mmCtx.closePath();
+    mmCtx.fill();
+    if (questTargets.has(b.k)) {
+      mmCtx.strokeStyle = "rgba(255,220,120,.95)";
+      mmCtx.lineWidth = 1;
+      mmCtx.beginPath();
+      mmCtx.arc(x, y, 5, 0, 7);
+      mmCtx.stroke();
+    }
+  }
   for (const [id, E] of S.ents) {
     if (E.dieT)
       continue;
@@ -4590,11 +4680,18 @@ function drawMinimapDots() {
       col = S.partyIds.has(id) ? "#5ade6a" : "#6aa8ff";
     else if (NPC_KINDS[E.k])
       col = "#ffd94a";
+    else if (BOSS_KINDS.has(E.k))
+      col = "#ffb04a";
     else
-      col = "#e0483a";
+      col = questTargets.has(E.k) ? "#ff7ad9" : "#e0483a";
     mmCtx.fillStyle = col;
-    const r = id === S.myId ? 2.4 : 1.8;
+    const r = id === S.myId ? 2.4 : BOSS_KINDS.has(E.k) ? 2.6 : questTargets.has(E.k) ? 2.3 : 1.8;
     mmCtx.fillRect(E.rx * kx - r / 2, E.ry * ky - r / 2, r, r);
+    if (!PLAYER_KINDS[E.k] && !NPC_KINDS[E.k] && questTargets.has(E.k) && !BOSS_KINDS.has(E.k)) {
+      mmCtx.strokeStyle = "rgba(255,170,220,.9)";
+      mmCtx.lineWidth = 1;
+      mmCtx.strokeRect(E.rx * kx - r, E.ry * ky - r, r * 2, r * 2);
+    }
   }
 }
 function toast(msg) {
@@ -4835,6 +4932,33 @@ function renderInventory() {
   refreshHoverTooltip();
 }
 var tipXY = { x: 0, y: 0, on: false };
+function compareItemHtml(item) {
+  if (!S.you || !S.you.eq) return "";
+  const slot = item.slot;
+  if (slot !== "weapon" && slot !== "armor" && slot !== "helm" && slot !== "ring") return "";
+  const cur = S.you.eq[slot];
+  if (!cur || cur.id === item.id) return "";
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  let html = `<div class="tt-cmp">vs equipado (${esc(cur.name)})</div>`;
+  const line = (label, d) => {
+    if (!d) return "";
+    const cls = d > 0 ? "up" : "down";
+    const sign = d > 0 ? "+" : "";
+    return `<div class="tt-mod ${cls}">${sign}${d} ${label}</div>`;
+  };
+  if (item.dmg || cur.dmg) {
+    const a = item.dmg ? (item.dmg[0] + item.dmg[1]) / 2 : 0;
+    const b = cur.dmg ? (cur.dmg[0] + cur.dmg[1]) / 2 : 0;
+    html += line("daño medio", Math.round(a - b));
+  }
+  html += line("armadura", (item.arm || 0) - (cur.arm || 0));
+  const keys = new Set([...(item.mods ? Object.keys(item.mods) : []), ...(cur.mods ? Object.keys(cur.mods) : [])]);
+  for (const k of keys) {
+    const d = ((item.mods && item.mods[k]) || 0) - ((cur.mods && cur.mods[k]) || 0);
+    html += line(MOD_NAMES[k] || k, d);
+  }
+  return html;
+}
 function showTooltip(e, item, action) {
   tipXY.x = e.clientX;
   tipXY.y = e.clientY;
@@ -4850,6 +4974,7 @@ function showTooltip(e, item, action) {
   if (item.mods)
     for (const [k, v] of Object.entries(item.mods))
       html += `<div class="tt-mod">+${v} ${MOD_NAMES[k] || k}</div>`;
+  html += compareItemHtml(item);
   if (item.lvl > 1) {
     const met = S.you && S.you.lvl >= item.lvl;
     html += `<div class="${met ? "tt-stat" : "tt-req"}">Requiere nivel ${item.lvl}</div>`;
@@ -4908,6 +5033,9 @@ function renderChar() {
   const petLine = petInfo
     ? `<div class="stat-row"><span>Mascota</span><b>${esc(petInfo.name)} · ${esc(petInfo.desc)}</b></div>`
     : "";
+  const restedLine = y.rested > 0
+    ? `<div class="stat-row"><span>Descanso</span><b>+20% XP · ${Math.ceil(y.rested / 60)} min</b></div>`
+    : "";
   html += `<div class="derived">
     <div class="stat-row"><span>Daño</span><b>${y.dmg[0]}–${y.dmg[1]}</b></div>
     <div class="stat-row"><span>Prob. de crítico</span><b>${(+y.crit).toFixed(1)}%</b></div>
@@ -4917,6 +5045,7 @@ function renderChar() {
     <div class="stat-row"><span>Velocidad</span><b>${y.spd}</b></div>
     <div class="stat-row"><span>Oro</span><b>${y.gold}</b></div>
     ${petLine}
+    ${restedLine}
   </div>`;
   b.innerHTML = html;
   b.querySelectorAll(".plus").forEach((btn) => btn.addEventListener("click", () => send({ t: "allot", stat: btn.dataset.st })));
@@ -4927,18 +5056,18 @@ function renderChar() {
   });
 }
 var QUEST_META = {
-  q1: { name: "Jabalíes revoltosos", goal: "Mata 8 jabalíes", count: 8 },
-  q2: { name: "Cuernos salvajes", goal: "Reúne 5 cuernos de sátiro", count: 5 },
-  q3: { name: "Los muertos inquietos", goal: "Mata 10 esqueletos", count: 10 },
-  q4: { name: "Plumas y furia", goal: "Mata 8 arpías", count: 8 },
-  q5: { name: "Mirada de piedra", goal: "Mata 6 gorgonas", count: 6 },
-  q6: { name: "El ojo de la tormenta", goal: "Derrota a Polifemo", count: 1 },
-  q7: { name: "Sombras del Asfódelo", goal: "Disuelve 12 sombras", count: 12 },
-  q8: { name: "Alas de venganza", goal: "Derriba 10 furias", count: 10 },
-  q9: { name: "El laberinto de Asterión", goal: "Derrota al Minotauro", count: 1 },
-  q10: { name: "Escamas del pantano", goal: "Elimina 12 hombres lagarto", count: 12 },
-  q11: { name: "Luces engañosas", goal: "Apaga 10 fuegos fatuos", count: 10 },
-  q12: { name: "Las siete cabezas", goal: "Derrota a la Hidra de Lerna", count: 1 }
+  q1: { name: "Jabalíes revoltosos", goal: "Mata 8 jabalíes", target: "boar", count: 8 },
+  q2: { name: "Cuernos salvajes", goal: "Reúne 5 cuernos de sátiro", target: "satyr", count: 5 },
+  q3: { name: "Los muertos inquietos", goal: "Mata 10 esqueletos", target: "skeleton", count: 10 },
+  q4: { name: "Plumas y furia", goal: "Mata 8 arpías", target: "harpy", count: 8 },
+  q5: { name: "Mirada de piedra", goal: "Mata 6 gorgonas", target: "gorgon", count: 6 },
+  q6: { name: "El ojo de la tormenta", goal: "Derrota a Polifemo", target: "cyclops", count: 1 },
+  q7: { name: "Sombras del Asfódelo", goal: "Disuelve 12 sombras", target: "shade", count: 12 },
+  q8: { name: "Alas de venganza", goal: "Derriba 10 furias", target: "fury", count: 10 },
+  q9: { name: "El laberinto de Asterión", goal: "Derrota al Minotauro", target: "minotaur", count: 1 },
+  q10: { name: "Escamas del pantano", goal: "Elimina 12 hombres lagarto", target: "lizardman", count: 12 },
+  q11: { name: "Luces engañosas", goal: "Apaga 10 fuegos fatuos", target: "wisp", count: 10 },
+  q12: { name: "Las siete cabezas", goal: "Derrota a la Hidra de Lerna", target: "hydra", count: 1 }
 };
 function renderAbilities() {
   const pts = $("abilityPts"), b = $("abilityBody");
