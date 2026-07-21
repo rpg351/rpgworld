@@ -144,6 +144,7 @@ interface Player extends StatusHolder {
   restedUntil: number; restAccum: number; // fountain rest XP buff
   buyback: { item: Item; price: number }[]; // last sold items this session (vendor repurchase)
   lastPingAt: number; // party map-ping rate limit
+  lastWhoAt: number; // who-list rate limit
   recentHits: { n: string; a: number; t: number }[]; // last hits taken (death recap)
   lootHist: { name: string; rarity: string; icon: string; gold?: number; at: number }[]; // session loot feed
   combatLog: { src: string; dmg: number; at: number }[]; // session hits taken
@@ -340,6 +341,27 @@ function sendAchs(p: Player): void {
     killCount: p.killCount,
     goldEarned: p.goldEarned,
   });
+}
+
+function zoneNameAt(x: number, y: number): string {
+  const zx = Math.floor(x), zy = Math.floor(y);
+  if (inTown(x, y)) return "Helike";
+  for (const z of ZONES) if (inRect(zx, zy, z)) return z.name;
+  return "Ermos";
+}
+
+function sendWho(p: Player): void {
+  const list = [];
+  for (const q of players.values()) {
+    if (!q.ws || q.ws.readyState !== 1) continue;
+    list.push({
+      id: q.id, name: q.name, cls: q.cls, lvl: q.lvl,
+      zone: zoneNameAt(q.x, q.y),
+      bot: BOT_SQUAD.has(q.name) ? 1 : 0,
+    });
+  }
+  list.sort((a, b) => a.lvl !== b.lvl ? b.lvl - a.lvl : a.name.localeCompare(b.name));
+  send(p.ws, { t: "who", players: list });
 }
 
 function grantAch(p: Player, id: string): void {
@@ -1469,7 +1491,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     path: null, direct: null, vel: null, atkTarget: null, lootTarget: null, npcTarget: null, nextAtk: 0, repathAt: 0,
     skillCds: [0, 0, 0, 0, 0], potCdUntil: 0, combatUntil: 0, recallCdUntil: 0,
     killStreak: 0, killStreakAt: 0, restedUntil: 0, restAccum: 0,
-    buyback: [], lastPingAt: 0,
+    buyback: [], lastPingAt: 0, lastWhoAt: 0,
     recentHits: [], lootHist: [], combatLog: [], lastDaily: "", lastEmoteAt: 0,
     achs: new Set<string>(), killCount: 0, goldEarned: 0,
     session: { dealt: 0, taken: 0, healed: 0, kills: 0, deaths: 0, t0: Date.now() },
@@ -2333,6 +2355,12 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "achs": {
       sendAchs(p);
+      break;
+    }
+    case "who": {
+      if (now - p.lastWhoAt < 1500) return;
+      p.lastWhoAt = now;
+      sendWho(p);
       break;
     }
     case "party_ping": {

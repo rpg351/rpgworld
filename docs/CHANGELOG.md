@@ -1,3 +1,12 @@
+## 2026-07-21 — Lista de jugadores y amigos (O)
+
+- **Jugadores (O)**: panel con todos los conectados (nivel, clase, zona), botón
+  para susurrar o invitar al grupo, y marcador de compañeros IA.
+- **Amigos**: favoritos guardados en el navegador (★); pestaña Amigos muestra
+  online/offline.
+- Cache bust `?v=20260907`.
+
+
 ## 2026-07-21 — Logros, medidor de sesión, chat de grupo y pestañas
 
 - **Logros (Y)**: 20 logros persistentes (bajas, jefes, niveles, misiones, mascota,

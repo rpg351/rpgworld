@@ -98,6 +98,17 @@ var I18N = {
     "chat.tab.sys": "Sistema",
     "opt.meter": "Mostrar medidor de sesión",
     "help.achs": "Logros",
+    "help.who": "Lista de jugadores / amigos",
+    "panel.who": "Jugadores",
+    "who.tab.online": "En línea",
+    "who.tab.friends": "Amigos",
+    "who.empty": "Nadie en línea",
+    "who.friendsEmpty": "Sin amigos aún — usa ★ en la lista",
+    "who.whisper": "Susurrar",
+    "who.invite": "Invitar",
+    "who.friendAdd": "Amigo",
+    "who.friendDel": "Quitar",
+    "who.refresh": "Actualizar",
     "help.partychat": "Chat de grupo: /p mensaje (también /g o /grupo)",
     "help.worldmap": "Abrir mapa del mundo",
     "help.waypoint": "Marca personal (se guarda en este navegador)",
@@ -256,6 +267,17 @@ var I18N = {
     "chat.tab.sys": "System",
     "opt.meter": "Show session meter",
     "help.achs": "Achievements",
+    "help.who": "Players / friends list",
+    "panel.who": "Players",
+    "who.tab.online": "Online",
+    "who.tab.friends": "Friends",
+    "who.empty": "Nobody online",
+    "who.friendsEmpty": "No friends yet — tap ★ on the list",
+    "who.whisper": "Whisper",
+    "who.invite": "Invite",
+    "who.friendAdd": "Friend",
+    "who.friendDel": "Remove",
+    "who.refresh": "Refresh",
     "help.partychat": "Party chat: /p message (also /g or /grupo)",
     "help.worldmap": "Open the world map",
     "help.waypoint": "Personal marker (saved in this browser)",
@@ -429,6 +451,9 @@ var S = {
   meter: { dealt: 0, taken: 0, healed: 0, kills: 0, deaths: 0, t0: 0 },
   achs: { unlocked: [], defs: [], killCount: 0, goldEarned: 0 },
   chatTab: "all",
+  whoList: [],
+  whoTab: "online",
+  friends: [],
   waypoint: null,
   _fpsFrames: 0,
   _fpsAt: 0,
@@ -797,6 +822,11 @@ function handleWorld(m) {
         goldEarned: Number(m.goldEarned) || 0,
       };
       renderAchs();
+      break;
+    }
+    case "who": {
+      S.whoList = Array.isArray(m.players) ? m.players.slice() : [];
+      renderWho();
       break;
     }
     case "toast": {
@@ -3443,7 +3473,7 @@ function initMenu() {
   renderLootLog();
   renderCombatLog();
 }
-var PANEL_ORDER = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "achPanel", "inspectPanel"];
+var PANEL_ORDER = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "achPanel", "whoPanel", "inspectPanel"];
 function closeTopPanel() {
   for (const id of PANEL_ORDER) {
     const el = $(id);
@@ -3686,6 +3716,10 @@ window.addEventListener("keydown", (e) => {
       togglePanel("achPanel");
       if (!$("achPanel").classList.contains("hidden")) renderAchs();
       break;
+    case "o":
+    case "O":
+      toggleWhoPanel();
+      break;
     case "b":
     case "B":
       if (!S.dead)
@@ -3713,6 +3747,10 @@ window.addEventListener("keydown", (e) => {
 document.querySelectorAll(".chat-tab").forEach((b) => {
   b.addEventListener("click", () => setChatTab(b.dataset.ch || "all"));
 });
+document.querySelectorAll(".who-tab").forEach((b) => {
+  b.addEventListener("click", () => setWhoTab(b.dataset.who || "online"));
+});
+loadFriends();
 document.querySelectorAll(".panel-x").forEach((x) => x.addEventListener("click", () => {
   const id = x.dataset.close;
   $(id).classList.add("hidden");
@@ -5812,6 +5850,106 @@ function renderAchs() {
     return `<div class="ach-row${on ? " on" : ""}"><span class="ach-name">${on ? "✓ " : ""}${d.name}</span><span class="ach-gold">+${d.gold}g</span><span class="ach-desc">${d.desc}</span></div>`;
   }).join("");
   body.innerHTML = stats + rows;
+}
+var LS_FRIENDS = "aot_friends";
+function loadFriends() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_FRIENDS) || "[]");
+    S.friends = Array.isArray(raw) ? raw.filter((n) => typeof n === "string").slice(0, 40) : [];
+  } catch (_) { S.friends = []; }
+}
+function saveFriends() {
+  try { localStorage.setItem(LS_FRIENDS, JSON.stringify(S.friends || [])); } catch (_) {}
+}
+function isFriend(name) {
+  return (S.friends || []).some((n) => n.toLowerCase() === String(name || "").toLowerCase());
+}
+function toggleFriend(name) {
+  if (!name || name === S.myName) return;
+  const key = String(name);
+  if (isFriend(key)) S.friends = S.friends.filter((n) => n.toLowerCase() !== key.toLowerCase());
+  else {
+    S.friends.push(key);
+    if (S.friends.length > 40) S.friends = S.friends.slice(-40);
+  }
+  saveFriends();
+  renderWho();
+}
+function toggleWhoPanel() {
+  const was = $("whoPanel").classList.contains("hidden");
+  togglePanel("whoPanel");
+  if (was) {
+    send({ t: "who" });
+    renderWho();
+  }
+}
+function setWhoTab(tab) {
+  S.whoTab = tab === "friends" ? "friends" : "online";
+  document.querySelectorAll(".who-tab").forEach((b) => b.classList.toggle("active", b.dataset.who === S.whoTab));
+  renderWho();
+}
+function renderWho() {
+  const body = $("whoBody");
+  if (!body) return;
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const online = S.whoList || [];
+  const byName = new Map(online.map((p) => [String(p.name).toLowerCase(), p]));
+  let rows = [];
+  if (S.whoTab === "friends") {
+    const friends = S.friends || [];
+    if (!friends.length) {
+      body.innerHTML = `<div class="who-empty">${t("who.friendsEmpty")}</div>`;
+      return;
+    }
+    rows = friends.map((name) => {
+      const p = byName.get(name.toLowerCase());
+      return p || { name, cls: "?", lvl: "?", zone: "—", id: 0, bot: 0, offline: true };
+    });
+  } else {
+    rows = online.slice();
+  }
+  if (!rows.length) {
+    body.innerHTML = `<div class="who-empty">${t("who.empty")}</div>`;
+    return;
+  }
+  const clsName = (c) => (CLS_ES[c] || c || "?");
+  body.innerHTML = `<div class="who-acts" style="justify-content:flex-end;margin-bottom:4px"><button type="button" id="whoRefresh">${t("who.refresh")}</button></div>` + rows.map((p) => {
+    const friend = isFriend(p.name);
+    const self = p.name === S.myName;
+    const offline = !!p.offline && !p.id;
+    const bot = !!p.bot;
+    const acts = [];
+    if (!self && !offline) {
+      acts.push(`<button type="button" data-wact="whisper" data-name="${esc(p.name)}">${t("who.whisper")}</button>`);
+      if (p.id) acts.push(`<button type="button" data-wact="invite" data-id="${p.id}">${t("who.invite")}</button>`);
+    }
+    if (!self) acts.push(`<button type="button" data-wact="friend" data-name="${esc(p.name)}">${friend ? t("who.friendDel") : "★ " + t("who.friendAdd")}</button>`);
+    return `<div class="who-row${bot ? " bot" : ""}${friend ? " friend" : ""}">
+      <span class="who-name">${esc(p.name)}${bot ? " · IA" : ""}${offline ? " · offline" : ""}</span>
+      <span class="who-acts">${acts.join("")}</span>
+      <span class="who-meta">Nv ${p.lvl} · ${esc(clsName(p.cls))} · ${esc(p.zone || "—")}</span>
+    </div>`;
+  }).join("");
+  const ref = $("whoRefresh");
+  if (ref) ref.onclick = () => send({ t: "who" });
+  body.querySelectorAll("[data-wact]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const act = btn.dataset.wact;
+      if (act === "whisper") {
+        const inp = $("chatInput");
+        if (inp) {
+          inp.value = `/w ${btn.dataset.name} `;
+          inp.focus();
+          if (isMobileUi()) setChatOpen(true);
+        }
+      } else if (act === "invite") {
+        const id = Number(btn.dataset.id);
+        if (id) send({ t: "party_invite", id });
+      } else if (act === "friend") {
+        toggleFriend(btn.dataset.name);
+      }
+    });
+  });
 }
 function updateQuestTracker() {
   const el = $("questTracker");
