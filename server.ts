@@ -656,7 +656,7 @@ function updateCollect(p: Player): void {
     q.n = n;
     const wasDone = q.done;
     q.done = n >= def.count;
-    if (q.done && !wasDone) toast(p, `Misión completada: ${def.name} — vuelve con Nikandros`);
+    if (q.done && !wasDone) toast(p, `Misión completada: ${def.name} — volvé con Nikandros`);
   }
 }
 
@@ -817,7 +817,7 @@ function mobDie(m: Mob, killer: Player): void {
       q.n++;
       if (q.n >= def.count) {
         q.done = true;
-        toast(member, `Misión completada: ${def.name} — vuelve con Nikandros`);
+        toast(member, `Misión completada: ${def.name} — volvé con Nikandros`);
       }
     }
     sendYou(member);
@@ -1542,6 +1542,11 @@ function needOnline(p: Player, q: Player | null, msg = "Ese jugador no está en 
   return false;
 }
 
+function toastReject(p: Player, other: Player | null | undefined, otherMsg: string, selfMsg: string): void {
+  if (other && other.ws) toast(other, otherMsg);
+  toast(p, selfMsg);
+}
+
 function dismountAndStand(p: Player): void {
   dismount(p, true);
   standUp(p, true);
@@ -1690,10 +1695,7 @@ function beginForage(p: Player, now: number): void {
 
 
 function beginBrew(p: Player, now: number): void {
-  if (p.dead) return;
-  dismountAndStand(p);
-  if (channelBlocked(p, now)) return;
-  if (inCombatBlock(p, now, "No podés preparar brebajes en combate")) return;
+  if (beginChannelGate(p, now, 0, "Ya estás preparando…", "No podés preparar brebajes en combate")) return;
   if (needNpc(p, kora, "Prepara brebajes junto a Kora")) return;
   const slot = findInvSlot(p, (it) => it.slot === "herb" && Boolean(BREW_MAP[it.base]));
   if (slot < 0) return toast(p, "No tenés hierbas para preparar");
@@ -1701,8 +1703,7 @@ function beginBrew(p: Player, now: number): void {
   const herbBase = it.base;
   const herbName = it.name;
   const recipe = BREW_MAP[herbBase];
-  it.qty = (it.qty ?? 1) - 1;
-  if (it.qty <= 0) p.inv[slot] = null;
+  consumeInvSlot(p, slot);
   const outItem = recipe.kind === "potion" ? makePotion(recipe.id) : makeElixir(recipe.id);
   if (!invAdd(p, outItem)) {
     invAdd(p, makeHerb(herbBase));
@@ -1737,7 +1738,6 @@ const TRADE_SLOTS = 6;
 const TRADE_RANGE = 12;
 const DUEL_RANGE = 14;
 const INVITE_MS = 30000;
-const TRADE_INVITE_MS = INVITE_MS;
 
 interface TradeSide {
   items: (Item | null)[];
@@ -1873,8 +1873,7 @@ function tryDuelDecline(p: Player, fromName: string): void {
   const name = String(fromName || "").trim();
   p.duelInvites.delete(name);
   const requester = playerByName(name, true);
-  if (requester) toast(requester, `${p.name} rechazó el duelo`);
-  toast(p, "Desafío rechazado");
+  toastReject(p, requester, `${p.name} rechazó el duelo`, "Desafío rechazado");
 }
 
 function playerHitPlayer(p: Player, q: Player, raw: number, d: Derived = derive(p)): void {
@@ -2069,7 +2068,7 @@ function tryTradeReq(p: Player, targetId: number, now: number): void {
   if (target.dead) return toast(p, "Ese jugador no puede comerciar ahora");
   if (target.tradeId) return toast(p, `${target.name} ya está intercambiando`);
   p.lastTradeReqAt = now;
-  tradeInvites.set(target.name.toLowerCase(), { fromId: p.id, fromName: p.name, until: now + TRADE_INVITE_MS });
+  tradeInvites.set(target.name.toLowerCase(), { fromId: p.id, fromName: p.name, until: now + INVITE_MS });
   send(target.ws, { t: "trade_invited", from: p.name, fromId: p.id, cls: p.cls, lvl: p.lvl });
   toast(p, `Propuesta de intercambio enviada a ${target.name}`);
 }
@@ -2107,8 +2106,7 @@ function tryTradeDecline(p: Player, fromName: string): void {
   if (!inv) return;
   tradeInvites.delete(key);
   const other = playerById(inv.fromId);
-  if (other) toast(other, `${p.name} rechazó el intercambio`);
-  toast(p, "Intercambio rechazado");
+  toastReject(p, other, `${p.name} rechazó el intercambio`, "Intercambio rechazado");
 }
 
 function tradePut(p: Player, tradeSlot: number, invSlot: number): void {
@@ -2313,8 +2311,7 @@ function tryFinishCook(p: Player, now: number): void {
   if (!foodId) return toast(p, "No podés cocinar eso");
   const fishBase = it.base;
   const food = makeFood(foodId);
-  it.qty = (it.qty ?? 1) - 1;
-  if (it.qty <= 0) p.inv[slot] = null;
+  consumeInvSlot(p, slot);
   if (!invAdd(p, food)) {
     // refund the consumed fish unit if inventory is somehow full
     invAdd(p, makeFish(fishBase));
@@ -3525,8 +3522,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const from = typeof msg.from === "string" ? msg.from : null;
       if (!from) return;
       if (p.invites.delete(from)) {
-        const inviter = players.get(from);
-        if (inviter && inviter.ws) toast(inviter, `${p.name} rechazó la invitación`);
+        const inviter = players.get(from) || null;
+        toastReject(p, inviter, `${p.name} rechazó la invitación`, "Invitación rechazada");
       }
       break;
     }
@@ -3665,6 +3662,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "bind": {
+      if (p.dead || stunned) return;
       tryBind(p);
       break;
     }
@@ -3704,7 +3702,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const wp = PORTAL_WAYPOINTS[dest];
       if (!wp) return;
       if (dest !== "helike" && !p.visitedZones.includes(dest))
-        return toast(p, "Primero debes visitar esa región a pie");
+        return toast(p, "Primero tenés que visitar esa región a pie");
       if (needNpc(p, portalNpc, "Tenés que estar junto al Portal")) return;
       if (inCombatBlock(p, now, "No podés viajar en combate")) return;
       p.x = wp.x;
@@ -3834,7 +3832,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "recall": {
-      if (p.dead) return;
+      if (p.dead || stunned) return;
       if (now < p.recallCdUntil) return toast(p, `Recall en enfriamiento (${Math.ceil((p.recallCdUntil - now) / 1000)}s)`);
       p.recallCdUntil = now + RECALL_CD;
       dismountAndStand(p);

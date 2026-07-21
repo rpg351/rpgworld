@@ -1,3 +1,12 @@
+## 2026-09-30 — toastReject + brew gate + consumeInvSlot
+
+- `beginBrew` usa `beginChannelGate`; brew/cocina consumen con `consumeInvSlot`.
+- Helper `toastReject` unifica rechazos de trade/duelo/party (toast a ambos).
+- `INVITE_MS` único (sin alias TRADE); bind/recall respetan stun.
+- Toasts: "tenés que visitar…", "volvé con Nikandros/Anciano".
+- Cliente: `requestById` para trade/duelo/party.
+- Cache bust `?v=20260930`.
+
 ## 2026-09-29 — readSlot + grantCountAchs + beginChannelGate
 
 - Helper `readSlot` unifica validación de slots de inventario/cofre (sell/drop/equip/use/stash/salvage).

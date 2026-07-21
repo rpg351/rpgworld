@@ -5148,15 +5148,12 @@ function promptPayGold(name) {
   if (!Number.isFinite(gold) || gold < 1) return;
   send({ t: "pay", name, gold });
 }
-function requestTrade(id) {
-  if (id) send({ t: "trade_req", id: id });
+function requestById(type, id) {
+  if (id) send({ t: type, id: id });
 }
-function requestDuel(id) {
-  if (id) send({ t: "duel_req", id: id });
-}
-function requestParty(id) {
-  if (id) send({ t: "party_invite", id: id });
-}
+function requestTrade(id) { requestById("trade_req", id); }
+function requestDuel(id) { requestById("duel_req", id); }
+function requestParty(id) { requestById("party_invite", id); }
 function startWhisper(name) {
   const inp = $("chatInput");
   if (!inp) return;
@@ -6361,7 +6358,7 @@ function renderQuests() {
     const pc = clamp(prog / cnt, 0, 1) * 100;
     const complete = Boolean(q.done) || prog >= cnt;
     html += `<div class="quest">
-      <div class="q-name${complete ? " done" : ""}">${meta.name}${complete ? " — vuelve con el Anciano" : ""}</div>
+      <div class="q-name${complete ? " done" : ""}">${meta.name}${complete ? " — volvé con el Anciano" : ""}</div>
       <div class="q-desc">${meta.goal}</div>
       <div class="q-prog"><div style="width:${pc}%"></div></div>
       <div class="q-prog-label">${Math.min(prog, cnt)} / ${cnt}</div>
