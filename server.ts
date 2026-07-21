@@ -5,7 +5,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ServerWebSocket } from "bun";
 import {
-  ACHIEVEMENTS, CLASS_BASE, CLASS_WEAPON, FISH_DEFS, FOOD_DEFS, MOB_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
+  ACHIEVEMENTS, CLASS_BASE, CLASS_WEAPON, FISH_DEFS, FOOD_DEFS, MOB_DEFS, MOUNT_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
   SKILLS, TREES, WEAPON_SCALING, foodFromFish, freshItemId, makeFish, makeFood, makePotion, makeQuestItem, mobStats,
   rollFish, rollItem, rollRarity,
 } from "./data";
@@ -131,6 +131,10 @@ interface Player extends StatusHolder {
   abilityPts: number; abilities: Map<string, number>; // class ability tree: unspent points + node ranks (id -> 1..5)
   loadout: number[]; // 4 SkillDef.n values equipped to skill-bar slots 1-4
   pets: Set<string>; activePet: string | null; // owned pet ids + the one currently following (cosmetic only)
+  mounts: Set<string>; activeMount: string | null; // owned mounts + preferred mount
+  mounted: boolean; // session: currently riding activeMount
+  sitting: boolean; // session: sitting for OOC regen
+  lastPayAt: number; // gold /pay rate limit
   str: number; dex: number; int: number;
   hp: number; mp: number; x: number; y: number;
   inv: (Item | null)[]; stash: (Item | null)[]; eq: Record<string, Item | null>;
@@ -289,6 +293,7 @@ function serialize(p: Player): string {
     visitedZones: p.visitedZones,
     abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
     pets: [...p.pets], activePet: p.activePet,
+    mounts: [...p.mounts], activeMount: p.activeMount,
     lastDaily: p.lastDaily || "",
     achs: [...p.achs],
     killCount: p.killCount,
@@ -490,7 +495,8 @@ function derive(p: Player): Derived {
     lo: (lo0 + bonus) * dm, hi: (hi0 + bonus) * dm,
     crit: 5 + 0.15 * dex + crit,
     dmgp,
-    spd: PLAYER_SPD * (1 + 0.01 * abilityRank(p, "h_veloz") + petSpdPct / 100 + ((Date.now() < p.buffUntil ? p.buffSpd : 0) / 100)),
+    spd: PLAYER_SPD * (1 + 0.01 * abilityRank(p, "h_veloz") + petSpdPct / 100 + ((Date.now() < p.buffUntil ? p.buffSpd : 0) / 100)
+      + (p.mounted && p.activeMount && MOUNT_DEFS[p.activeMount] ? MOUNT_DEFS[p.activeMount].spd / 100 : 0)),
   };
 }
 
@@ -517,6 +523,7 @@ function sendYou(p: Player): void {
     inv: p.inv, eq: p.eq, quests: p.quests, visitedZones: p.visitedZones,
     abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
     pets: [...p.pets], activePet: p.activePet,
+    mounts: [...p.mounts], activeMount: p.activeMount, mounted: !!p.mounted, sitting: !!p.sitting,
     rested: p.restedUntil > Date.now() ? Math.ceil((p.restedUntil - Date.now()) / 1000) : 0,
     title: p.title || "",
     buff: p.buffUntil > Date.now() ? {
@@ -779,6 +786,8 @@ function playerDie(p: Player): void {
   p.lootTarget = null;
   p.npcTarget = null;
   p.moving = false;
+  p.mounted = false;
+  p.sitting = false;
   const recap = p.recentHits.slice(-5).map((h) => ({ n: h.n, a: h.a }));
   send(p.ws, { t: "dead", reviveAt: p.deadAt + REVIVE_MS, recap });
 }
@@ -1209,6 +1218,8 @@ function applySlow(t: StatusHolder, pct: number, ms: number): void {
 function useSkill(p: Player, n: number, targetId: number | null, px: number | null, py: number | null): void {
   const def = SKILLS[p.cls]?.find((s) => s.n === n);
   if (!def) return;
+  if (p.mounted) dismount(p, true);
+  if (p.sitting) standUp(p, true);
   const now = Date.now();
   // Nodo activo del árbol: rango >= 1 desbloquea la habilidad (n=1 siempre
   // disponible como habilidad básica); los rangos 2-5 suben daño/curación.
@@ -1403,6 +1414,8 @@ function tryFinishCook(p: Player, now: number): void {
 
 function beginCook(p: Player, now: number): void {
   if (p.dead) return;
+  if (p.mounted) dismount(p, true);
+  if (p.sitting) standUp(p, true);
   if (p.cookUntil && now < p.cookUntil) return toast(p, "Ya estás cocinando…");
   if (p.fishUntil && now < p.fishUntil) return toast(p, "Estás pescando…");
   if (now < p.combatUntil) return toast(p, "No puedes cocinar en combate");
@@ -1484,7 +1497,82 @@ function sendPetShop(p: Player): void {
     t: "petshop",
     defs: Object.entries(PET_DEFS).map(([id, d]) => ({ id, name: d.name, cost: d.cost, desc: d.desc })),
     owned: [...p.pets], active: p.activePet,
+    mounts: Object.entries(MOUNT_DEFS).map(([id, d]) => ({ id, name: d.name, cost: d.cost, desc: d.desc })),
+    ownedMounts: [...p.mounts], activeMount: p.activeMount, mounted: !!p.mounted,
   });
+}
+
+function dismount(p: Player, quiet = false): void {
+  if (!p.mounted) return;
+  p.mounted = false;
+  if (!quiet) toast(p, "Te apeás");
+  sendYou(p);
+}
+
+function standUp(p: Player, quiet = false): void {
+  if (!p.sitting) return;
+  p.sitting = false;
+  if (!quiet) toast(p, "Te levantás");
+  sendYou(p);
+}
+
+function tryMount(p: Player): void {
+  if (p.dead) return;
+  if (p.mounted) { dismount(p); return; }
+  if (!p.activeMount || !p.mounts.has(p.activeMount) || !MOUNT_DEFS[p.activeMount]) {
+    // Prefer saved mount; else first owned.
+    const first = [...p.mounts][0];
+    if (!first) return toast(p, "No tenés montura — comprá una en el Criadero");
+    p.activeMount = first;
+  }
+  if (Date.now() < p.combatUntil) return toast(p, "No podés montar en combate");
+  if (p.fishUntil || p.cookUntil) return toast(p, "Terminá lo que estás haciendo primero");
+  standUp(p, true);
+  p.sitting = false;
+  p.mounted = true;
+  p.dirty = true;
+  toast(p, `Montás: ${MOUNT_DEFS[p.activeMount!].name}`);
+  sendYou(p);
+}
+
+function trySit(p: Player): void {
+  if (p.dead) return;
+  if (p.sitting) { standUp(p); return; }
+  if (Date.now() < p.combatUntil) return toast(p, "No podés sentarte en combate");
+  if (p.mounted) return toast(p, "Apeate antes de sentarte");
+  if (p.fishUntil || p.cookUntil) return toast(p, "Terminá lo que estás haciendo primero");
+  p.path = null; p.direct = null; p.vel = null;
+  p.atkTarget = null; p.lootTarget = null; p.npcTarget = null;
+  p.sitting = true;
+  toast(p, "Te sentás a descansar");
+  sendYou(p);
+}
+
+function tryPay(p: Player, targetName: string, amount: number, now: number): void {
+  if (p.dead) return;
+  const name = String(targetName || "").trim();
+  const gold = Math.floor(amount);
+  if (!name || !Number.isFinite(gold) || gold < 1) return toast(p, "Uso: /pay Nombre cantidad");
+  if (gold > 50000) return toast(p, "Máximo 50.000 de oro por envío");
+  if (now - p.lastPayAt < 1500) return toast(p, "Esperá un momento…");
+  if (name.toLowerCase() === p.name.toLowerCase()) return toast(p, "No podés pagarte a vos mismo");
+  let target: Player | null = null;
+  for (const q of players.values()) {
+    if (q.name.toLowerCase() === name.toLowerCase()) { target = q; break; }
+  }
+  if (!target || !target.ws) return toast(p, "Ese jugador no está en línea");
+  if (dist(p.x, p.y, target.x, target.y) > 14) return toast(p, "Está demasiado lejos");
+  if (p.gold < gold) return toast(p, "No tenés suficiente oro");
+  p.gold -= gold;
+  target.gold += gold;
+  noteGold(target, gold);
+  p.lastPayAt = now;
+  p.dirty = true;
+  target.dirty = true;
+  toast(p, `Le diste ${gold} de oro a ${target.name}`);
+  toast(target, `${p.name} te dio ${gold} de oro`);
+  sendYou(p);
+  sendYou(target);
 }
 
 // ---------------------------------------------------------------------------
@@ -1598,6 +1686,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     lvl: 1, xp: 0, gold: 25, pts: 0,
     abilityPts: 0, abilities: new Map<string, number>(), loadout: [1, 2, 3, 4],
     pets: new Set<string>(), activePet: null,
+    mounts: new Set<string>(), activeMount: null, mounted: false, sitting: false, lastPayAt: 0,
     str: base.str, dex: base.dex, int: base.int,
     hp: 0, mp: 0,
     x: TOWN.x + 0.5 + (Math.random() - 0.5) * 2, y: TOWN.y + 3.5,
@@ -1708,6 +1797,9 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
     if (Array.isArray(d.pets))
       p.pets = new Set((d.pets as unknown[]).filter((v): v is string => typeof v === "string" && !!PET_DEFS[v]));
     if (typeof d.activePet === "string" && p.pets.has(d.activePet)) p.activePet = d.activePet;
+    if (Array.isArray(d.mounts))
+      p.mounts = new Set((d.mounts as unknown[]).filter((v): v is string => typeof v === "string" && !!MOUNT_DEFS[v]));
+    if (typeof d.activeMount === "string" && p.mounts.has(d.activeMount)) p.activeMount = d.activeMount;
     if (typeof d.lastDaily === "string") p.lastDaily = d.lastDaily.slice(0, 16);
     if (Array.isArray(d.achs))
       p.achs = new Set((d.achs as unknown[]).filter((v): v is string => typeof v === "string" && !!ACHIEVEMENTS[v]));
@@ -1951,6 +2043,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const cy = Math.max(-1, Math.min(1, dy));
       const mag = Math.hypot(cx, cy);
       if (mag < 0.2) { p.vel = null; break; }
+      if (p.sitting) { p.sitting = false; toast(p, "Te levantás"); sendYou(p); }
       // Keep direction continuous (no 4/8-way snap) so mobile joystick feels natural.
       p.vel = { x: cx / mag, y: cy / mag };
       p.path = null;
@@ -1962,6 +2055,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "attack": {
       if (p.dead || stunned) return;
+      if (p.mounted) dismount(p, true);
+      if (p.sitting) standUp(p, true);
       const id = num(msg.id);
       if (id == null) return;
       // id:0 = explicit cancel (empty-ground click / drop target).
@@ -2263,6 +2358,54 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       sendPetShop(p);
       break;
     }
+    case "mount_buy": {
+      if (p.dead) return;
+      if (!nearNpc(p, petshopNpc)) return toast(p, "Debes estar junto al criadero");
+      const id = typeof msg.id === "string" ? msg.id : "";
+      const def = MOUNT_DEFS[id];
+      if (!def) return;
+      if (p.mounts.has(id)) return toast(p, "Ya tienes esa montura");
+      if (p.gold < def.cost) return toast(p, "No tienes suficiente oro");
+      p.gold -= def.cost;
+      p.mounts.add(id);
+      if (!p.activeMount) p.activeMount = id;
+      p.dirty = true;
+      grantAch(p, "mount_1");
+      sendYou(p);
+      sendPetShop(p);
+      toast(p, `Compraste: ${def.name}`);
+      break;
+    }
+    case "mount_equip": {
+      if (p.dead) return;
+      const id = typeof msg.id === "string" ? msg.id : "";
+      if (id && (!MOUNT_DEFS[id] || !p.mounts.has(id))) return;
+      p.activeMount = id || null;
+      if (p.mounted && (!p.activeMount)) p.mounted = false;
+      p.dirty = true;
+      if (p.activeMount) toast(p, `Montura lista: ${MOUNT_DEFS[p.activeMount].name}`);
+      else { p.mounted = false; toast(p, "Sin montura activa"); }
+      sendYou(p);
+      sendPetShop(p);
+      break;
+    }
+    case "mount": {
+      if (stunned) return;
+      tryMount(p);
+      break;
+    }
+    case "sit": {
+      if (stunned) return;
+      trySit(p);
+      break;
+    }
+    case "pay": {
+      const name = typeof msg.name === "string" ? msg.name : "";
+      const gold = num(msg.gold);
+      if (gold == null) return;
+      tryPay(p, name, gold, now);
+      break;
+    }
     case "drop": {
       if (p.dead || stunned) return;
       const slot = num(msg.slot);
@@ -2527,6 +2670,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "fish": {
       if (p.dead || stunned) return;
+      if (p.mounted) dismount(p, true);
+      if (p.sitting) standUp(p, true);
       if (p.fishUntil && now < p.fishUntil) return toast(p, "Ya estás pescando…");
       if (now < p.combatUntil) return toast(p, "No puedes pescar en combate");
       if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
@@ -2601,6 +2746,21 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!text) return;
       if (now - p.lastChat < 1000) return toast(p, "Estás escribiendo demasiado rápido");
       p.lastChat = now;
+      if (/^\/mount$/i.test(text) || /^\/montar$/i.test(text) || /^\/dismount$/i.test(text) || /^\/apear$/i.test(text)) {
+        tryMount(p);
+        return;
+      }
+      if (/^\/sit$/i.test(text) || /^\/sentar$/i.test(text) || /^\/rest$/i.test(text)) {
+        trySit(p);
+        return;
+      }
+      {
+        const pay = text.match(/^\/(?:pay|dar|pagar)\s+(\S+)\s+(\d+)\s*$/i);
+        if (pay) {
+          tryPay(p, pay[1], Number(pay[2]), now);
+          return;
+        }
+      }
       if (/^\/cook$/i.test(text) || /^\/cocinar$/i.test(text)) {
         beginCook(p, now);
         return;
@@ -2608,6 +2768,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (/^\/fish$/i.test(text) || /^\/pescar$/i.test(text)) {
         // Reuse fish action without chat broadcast
         if (p.dead) return;
+        if (p.mounted) dismount(p, true);
+        if (p.sitting) standUp(p, true);
         if (p.fishUntil && now < p.fishUntil) return toast(p, "Ya estás pescando…");
         if (now < p.combatUntil) return toast(p, "No puedes pescar en combate");
         if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
@@ -2785,6 +2947,16 @@ function simTick(): void {
       p.fishUntil = 0;
       toast(p, "Dejas de pescar");
     }
+    if (p.sitting && (p.vel || p.path || p.direct || p.atkTarget != null || p.combatUntil > now || p.moving)) {
+      p.sitting = false;
+      toast(p, "Te levantás");
+      sendYou(p);
+    }
+    if (p.mounted && p.combatUntil > now) {
+      p.mounted = false;
+      toast(p, "El combate te apeó");
+      sendYou(p);
+    }
     if (p.cookUntil && (p.vel || p.path || p.direct || p.atkTarget != null || p.combatUntil > now || !nearNpc(p, bront))) {
       p.cookUntil = 0;
       p.cookSlot = -1;
@@ -2812,9 +2984,21 @@ function simTick(): void {
         p.restAccum = 0;
       }
     } else {
-      p.restAccum = 0;
-      const hpRegenPct = 0.02 + 0.004 * abilityRank(p, "toque_asclepio");
-      const mpRegenPct = (inCombat ? 0.01 : 0.03) + 0.002 * abilityRank(p, "m_regen");
+      const sitting = p.sitting && !inCombat;
+      if (!sitting) p.restAccum = 0;
+      const hpRegenPct = (sitting ? 0.05 : 0.02) + 0.004 * abilityRank(p, "toque_asclepio");
+      const mpRegenPct = (inCombat ? 0.01 : (sitting ? 0.06 : 0.03)) + 0.002 * abilityRank(p, "m_regen");
+      if (sitting) {
+        p.restAccum += dt;
+        if (p.restAccum >= 18) {
+          const fresh = p.restedUntil < now;
+          // Camp rest is shorter than fountain rest; don't shorten an active fountain buff.
+          if (p.restedUntil < now + 240000) p.restedUntil = Math.max(p.restedUntil, now + 240000);
+          p.restAccum = 0;
+          if (fresh) toast(p, "Descanso de campamento — +20% XP (4 min)");
+          sendYou(p);
+        }
+      }
       if (!inCombat && p.hp < d.mhp) p.hp = Math.min(d.mhp, p.hp + d.mhp * hpRegenPct * dt);
       if (p.mp < d.mmp) p.mp = Math.min(d.mmp, p.mp + d.mmp * mpRegenPct * dt);
     }
@@ -3125,11 +3309,14 @@ function simTick(): void {
 // Snapshots (10 Hz)
 // ---------------------------------------------------------------------------
 function entFlags(e: StatusHolder, now: number): number {
+  const pl = e as Player;
   return (
     (e.moving ? 1 : 0) |
     (now - e.lastAtk < 500 ? 2 : 0) |
     (now < e.slowUntil ? 4 : 0) |
-    (now < e.stunUntil ? 8 : 0)
+    (now < e.stunUntil ? 8 : 0) |
+    (pl.sitting ? 16 : 0) |
+    (pl.mounted ? 32 : 0)
   );
 }
 
@@ -3181,6 +3368,7 @@ function snapshotTick(): void {
         s: entFlags(q, now), d: q.d,
       };
       if (q.activePet) e.pet = q.activePet;
+      if (q.mounted && q.activeMount) e.mount = q.activeMount;
       if (q.title && ACHIEVEMENTS[q.title]) e.title = ACHIEVEMENTS[q.title].name;
       if (q === p) {
         e.m = Math.round(q.mp);

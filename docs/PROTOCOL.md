@@ -81,6 +81,10 @@ Server replies to invalid/denied actions with `{t:"toast", msg}` (short human st
 - `{t:"meter", dealt, taken, healed, kills, deaths, t0}` — session combat meter (throttled).
 - `{t:"achs"}` / `{t:"meter"}` — client requests current achievement book / session meter.
 - `{t:"who"}` — request online roster (1.5s cooldown) → `{t:"who", players:[{id,name,cls,lvl,zone,bot?}]}`.
+- `{t:"mount"}` / `{t:"sit"}` — toggle mount or sitting rest.
+- `{t:"mount_buy", id}` / `{t:"mount_equip", id}` — buy/select mount at pet shop.
+- `{t:"pay", name, gold}` — send gold to a nearby online player (also `/pay Name N`).
+- Mounts: session `mounted` flag; combat/skills auto-dismount. Entity `s` bit 16=sitting, 32=mounted.
 - `{t:"fish"}` — start fishing if adjacent to water (not in town / not in combat); ~2.8s channel → fish item in inventory.
 - `/fish` or `/pescar` chat aliases for the same action.
 - Fish items: `slot:"fish"`, `icon:"fish"`, edible via `{t:"use",slot}` (small HP) or sellable.

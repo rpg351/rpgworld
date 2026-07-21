@@ -1,3 +1,13 @@
+## 2026-09-11 — Monturas, descanso y pago de oro
+
+- **Monturas (R / `/mount`)**: comprá mula, caballo o corcel en el Criadero.
+  Montado sumás mucha velocidad; el combate o lanzar habilidades te apea.
+- **Sentarse (Z / `/sit`)**: fuera de combate regenerás más rápido; ~18s sentado
+  otorgan buff de descanso de campamento (+20% XP, 4 min).
+- **Pagar oro**: `/pay Nombre cantidad` (también `/dar`) o botón en menú de
+  jugador / panel Quién. Debe estar cerca y en línea.
+- Logro **Jinete**. Cache bust `?v=20260911`.
+
 ## 2026-09-10 — Cocina y títulos
 
 - **Cocina (U / `/cook` / `/cocinar`)**: junto a la forja de Bront cocinas pescado

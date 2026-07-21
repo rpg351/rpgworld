@@ -466,6 +466,15 @@ export function rollFish(): Item {
 // which instead boosts gold earned from kills (applied in rollDrops).
 // Pets also have a small chance to "fetch" bonus gold on kill (server).
 // ---------------------------------------------------------------------------
+
+// Mounts — bought at the pet shop. Provide a large move-speed boost while mounted
+// (session toggle). Combat / casting auto-dismounts.
+export const MOUNT_DEFS: Record<string, { name: string; cost: number; spd: number; desc: string }> = {
+  mule: { name: "Mula", cost: 400, spd: 22, desc: "+22% velocidad montado" },
+  horse: { name: "Caballo", cost: 900, spd: 35, desc: "+35% velocidad montado" },
+  steed: { name: "Corcel de guerra", cost: 1800, spd: 45, desc: "+45% velocidad montado" },
+};
+
 export type PetStat = "arm" | "crit" | "hp" | "gold" | "spd" | "dmgp" | "mp";
 export const PET_DEFS: Record<string, { name: string; cost: number; stat: PetStat; amount: number; desc: string }> = {
   dog: { name: "Perro", cost: 150, stat: "arm", amount: 4, desc: "+4 armadura" },
@@ -517,6 +526,7 @@ export const ACHIEVEMENTS: Record<string, { name: string; desc: string; gold: nu
   fish_50: { name: "Señor del mar", desc: "Pesca 50 capturas", gold: 180 },
   cook_10: { name: "Cocinero", desc: "Cocina 10 platos en la forja", gold: 70 },
   cook_40: { name: "Chef de Helike", desc: "Cocina 40 platos en la forja", gold: 200 },
+  mount_1: { name: "Jinete", desc: "Compra tu primera montura", gold: 80 },
 };
 
 export const QUEST_ORDER = ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12"];
@@ -571,6 +581,7 @@ export const NPC_LINES: Record<string, string[]> = {
   ],
   petshop: [
     "Criaturas de Helike, domesticadas y leales. Elige bien: solo una te sigue a la vez.",
+    "También criamos monturas: mula, caballo y corcel. Montá con R cuando estés lejos del peligro.",
     "Un buen compañero no solo alegra el camino — también te fortalece en combate.",
   ],
   board: [

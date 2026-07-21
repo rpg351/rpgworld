@@ -39,6 +39,11 @@ var PET_LABELS = {
   hawk: { name: "Halcón", desc: "+8% daño" },
   raven: { name: "Cuervo", desc: "+30 maná" },
 };
+var MOUNT_LABELS = {
+  mule: { name: "Mula", desc: "+22% velocidad" },
+  horse: { name: "Caballo", desc: "+35% velocidad" },
+  steed: { name: "Corcel de guerra", desc: "+45% velocidad" },
+};
 var RARITY_ES = { common: "común", magic: "mágico", rare: "raro" };
 var SLOT_ES = { weapon: "arma", armor: "armadura", helm: "yelmo", ring: "anillo", potion: "poción", quest: "misión" };
 // ---------------------------------------------------------------------------
@@ -101,6 +106,16 @@ var I18N = {
     "help.who": "Lista de jugadores / amigos",
     "help.fish": "Pescar junto al agua (/fish o /pescar)",
     "help.cook": "Cocinar pescado en la forja de Bront (/cook o /cocinar)",
+    "help.mount": "Montar / apear (comprá monturas en el Criadero)",
+    "help.sit": "Sentarte a descansar (regen + XP de campamento)",
+    "help.pay": "Enviar oro a un jugador cercano (/pay Nombre cantidad)",
+    "mount.buy": "Comprar",
+    "mount.ready": "Usar",
+    "mount.active": "Activa",
+    "mount.section": "Monturas",
+    "pet.section": "Mascotas",
+    "pay.btn": "Enviar oro",
+    "pay.prompt": "¿Cuánto oro le enviás?",
     "help.title": "Equipar título desde Logros (Y)",
     "title.equip": "Usar título",
     "title.clear": "Quitar título",
@@ -280,6 +295,16 @@ var I18N = {
     "help.who": "Players / friends list",
     "help.fish": "Fish next to water (/fish or /pescar)",
     "help.cook": "Cook fish at Bront's forge (/cook)",
+    "help.mount": "Mount / dismount (buy mounts at the Pet shop)",
+    "help.sit": "Sit to rest (regen + camp XP buff)",
+    "help.pay": "Send gold to a nearby player (/pay Name amount)",
+    "mount.buy": "Buy",
+    "mount.ready": "Use",
+    "mount.active": "Active",
+    "mount.section": "Mounts",
+    "pet.section": "Pets",
+    "pay.btn": "Send gold",
+    "pay.prompt": "How much gold to send?",
     "help.title": "Equip a title from Achievements (Y)",
     "title.equip": "Use title",
     "title.clear": "Clear title",
@@ -681,6 +706,7 @@ function handleWorld(m) {
         if (e.n !== undefined)
           E.n = e.n;
         E.pet = e.pet || null;
+        E.mount = e.mount || null;
         E.title = e.title || null;
         if (e.m !== undefined) {
           E.m = e.m;
@@ -2180,7 +2206,20 @@ function drawEntity(E, t) {
     ctx.ellipse(0, 12, 7, 2.6, 0, 0, 7);
     ctx.fill();
   }
-  if (E.pet && isPlayer && !E.dieT) {
+  const mounted = isPlayer && (E.s & 32) && E.mount && !E.dieT;
+  const sitting = isPlayer && (E.s & 16) && !E.dieT;
+  if (mounted) {
+    const pb = Math.sin(t / 420 + E.bobP) * 0.8;
+    ctx.save();
+    ctx.translate(0, 6 + pb);
+    ctx.fillStyle = "rgba(0,0,0,.28)";
+    ctx.beginPath();
+    ctx.ellipse(0, 6, 11, 3.5, 0, 0, 7);
+    ctx.fill();
+    drawMountIcon(ctx, E.mount, 0, 0, 22);
+    ctx.restore();
+  }
+  if (E.pet && isPlayer && !E.dieT && !mounted) {
     const pb = Math.sin(t / 380 + E.bobP + 1.7) * 1.2;
     ctx.save();
     ctx.translate(-13, 9 + pb);
@@ -2216,8 +2255,10 @@ function drawEntity(E, t) {
     ctx.ellipse(0, 12 * scale, 11 * scale, 4.5 * scale, 0, 0, 7);
     ctx.stroke();
   }
+  if (sitting) ctx.translate(0, 5);
+  if (mounted) ctx.translate(0, -7);
   if (isPlayer)
-    drawHumanoid(ctx, E.k, bob, walk, t, E.d);
+    drawHumanoid(ctx, E.k, bob, sitting ? 0 : walk, t, E.d);
   else if (isNpc)
     drawNpc(ctx, E.k, bob, t);
   else
@@ -3819,6 +3860,14 @@ window.addEventListener("keydown", (e) => {
     case "U":
       if (!S.dead) send({ t: "cook" });
       break;
+    case "r":
+    case "R":
+      if (!S.dead) send({ t: "mount" });
+      break;
+    case "z":
+    case "Z":
+      if (!S.dead) send({ t: "sit" });
+      break;
     case "b":
     case "B":
       if (!S.dead)
@@ -4749,13 +4798,23 @@ function openPlayerMenu(e, entId) {
   const inParty = S.partyIds.has(entId);
   pm.innerHTML = `<div class="pm-name">${E.n || ""} · Nv ${E.l}</div>`
     + `<button class="btn" id="pmInspect">${t("inspect.btn")}</button>`
-    + (inParty ? '<button class="btn ghost" disabled>Ya está en tu grupo</button>' : '<button class="btn" id="pmInvite">Invitar al grupo</button>');
+    + (inParty ? '<button class="btn ghost" disabled>Ya está en tu grupo</button>' : '<button class="btn" id="pmInvite">Invitar al grupo</button>')
+    + `<button class="btn ghost" id="pmPay">${t("pay.btn")}</button>`;
   pm.classList.remove("hidden");
   pm.style.left = Math.min(window.innerWidth - 200, e.clientX + 6) + "px";
-  pm.style.top = Math.min(window.innerHeight - 130, e.clientY + 6) + "px";
+  pm.style.top = Math.min(window.innerHeight - 160, e.clientY + 6) + "px";
   const insp = $("pmInspect");
   if (insp) insp.addEventListener("click", () => {
     send({ t: "inspect", id: entId });
+    closePlayerMenu();
+  });
+  const payBtn = $("pmPay");
+  if (payBtn) payBtn.addEventListener("click", () => {
+    const amt = prompt(t("pay.prompt"), "50");
+    if (amt == null) return;
+    const gold = Math.floor(Number(amt));
+    if (!Number.isFinite(gold) || gold < 1) return;
+    send({ t: "pay", name: E.n || "", gold });
     closePlayerMenu();
   });
   const b = $("pmInvite");
@@ -5748,6 +5807,13 @@ function renderChar() {
   const petLine = petInfo
     ? `<div class="stat-row"><span>Mascota</span><b>${esc(petInfo.name)} · ${esc(petInfo.desc)}</b></div>`
     : "";
+  const mountInfo = y.activeMount && MOUNT_LABELS[y.activeMount];
+  const mountLine = mountInfo
+    ? `<div class="stat-row"><span>Montura</span><b>${esc(mountInfo.name)}${y.mounted ? " · montado" : ""} · ${esc(mountInfo.desc)}</b></div>`
+    : "";
+  const sitLine = y.sitting
+    ? `<div class="stat-row"><span>Estado</span><b>Sentado — regen rápida</b></div>`
+    : "";
   const restedLine = y.rested > 0
     ? `<div class="stat-row"><span>Descanso</span><b>+20% XP · ${Math.ceil(y.rested / 60)} min</b></div>`
     : "";
@@ -5774,6 +5840,8 @@ function renderChar() {
     <div class="stat-row"><span>Velocidad</span><b>${y.spd}</b></div>
     <div class="stat-row"><span>Oro</span><b>${y.gold}</b></div>
     ${petLine}
+    ${mountLine}
+    ${sitLine}
     ${titleLine}
     ${restedLine}
     ${buffLine}
@@ -6070,6 +6138,7 @@ function renderWho() {
     if (!self && !offline) {
       acts.push(`<button type="button" data-wact="whisper" data-name="${esc(p.name)}">${t("who.whisper")}</button>`);
       if (p.id) acts.push(`<button type="button" data-wact="invite" data-id="${p.id}">${t("who.invite")}</button>`);
+      acts.push(`<button type="button" data-wact="pay" data-name="${esc(p.name)}">${t("pay.btn")}</button>`);
     }
     if (!self) acts.push(`<button type="button" data-wact="friend" data-name="${esc(p.name)}">${friend ? t("who.friendDel") : "★ " + t("who.friendAdd")}</button>`);
     return `<div class="who-row${bot ? " bot" : ""}${friend ? " friend" : ""}">
@@ -6093,6 +6162,12 @@ function renderWho() {
       } else if (act === "invite") {
         const id = Number(btn.dataset.id);
         if (id) send({ t: "party_invite", id });
+      } else if (act === "pay") {
+        const amt = prompt(t("pay.prompt"), "50");
+        if (amt == null) return;
+        const gold = Math.floor(Number(amt));
+        if (!Number.isFinite(gold) || gold < 1) return;
+        send({ t: "pay", name: btn.dataset.name, gold });
       } else if (act === "friend") {
         toggleFriend(btn.dataset.name);
       }
@@ -6391,6 +6466,39 @@ function showStash(m) {
   revealPanel("invPanel");
   renderInventory();
 }
+function drawMountIcon(g, id, cx, cy, size) {
+  const s = size / 20;
+  g.save();
+  g.translate(cx, cy);
+  g.scale(s, s);
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  const body = id === "steed" ? "#4a3a2a" : id === "horse" ? "#8a6238" : "#9a7a4a";
+  g.fillStyle = body;
+  g.beginPath();
+  g.ellipse(0, 1.5, 8, 4.2, 0, 0, 7);
+  g.fill();
+  g.beginPath();
+  g.ellipse(6.5, -2.5, 3.2, 2.6, -0.4, 0, 7);
+  g.fill();
+  g.fillStyle = "rgba(0,0,0,.2)";
+  g.beginPath();
+  g.ellipse(-1, 2.5, 5, 2, 0, 0, 7);
+  g.fill();
+  g.strokeStyle = "#2a1a0c";
+  g.lineWidth = 1.2;
+  g.beginPath();
+  g.moveTo(-5, 4); g.lineTo(-5, 8);
+  g.moveTo(-1.5, 4.5); g.lineTo(-1.5, 8.5);
+  g.moveTo(2, 4.5); g.lineTo(2, 8.5);
+  g.moveTo(5, 4); g.lineTo(5, 8);
+  g.stroke();
+  if (id === "steed") {
+    g.fillStyle = "#c8933b";
+    g.fillRect(-2, -1, 5, 2);
+  }
+  g.restore();
+}
 function drawPetIcon(g, id, cx, cy, size) {
   const s = size / 20;
   g.save();
@@ -6545,7 +6653,10 @@ function renderStash() {
 }
 function showPetShop(m) {
   closeCityPanels("petPanel");
-  S.petShop = { defs: m.defs || [], owned: m.owned || [], active: m.active || null };
+  S.petShop = {
+    defs: m.defs || [], owned: m.owned || [], active: m.active || null,
+    mounts: m.mounts || [], ownedMounts: m.ownedMounts || [], activeMount: m.activeMount || null,
+  };
   renderPetShop();
   revealPanel("petPanel");
 }
@@ -6553,14 +6664,20 @@ function renderPetShop() {
   const b = $("petBody");
   if (!b) return;
   b.innerHTML = "";
-  const { defs, owned, active } = S.petShop;
-  for (const def of defs) {
-    const has = owned.includes(def.id);
+  const shop = S.petShop || { defs: [], owned: [], active: null, mounts: [], ownedMounts: [], activeMount: null };
+  const addSection = (title) => {
+    const h = document.createElement("div");
+    h.className = "shop-buyback-title";
+    h.textContent = title;
+    b.appendChild(h);
+  };
+  addSection(t("pet.section"));
+  for (const def of (shop.defs || [])) {
+    const has = (shop.owned || []).includes(def.id);
     const row = document.createElement("div");
     row.className = "shop-item";
     const cv = document.createElement("canvas");
-    cv.width = 34;
-    cv.height = 34;
+    cv.width = 34; cv.height = 34;
     drawPetIcon(cv.getContext("2d"), def.id, 17, 17, 24);
     row.appendChild(cv);
     const nm = document.createElement("div");
@@ -6586,16 +6703,55 @@ function renderPetShop() {
       row.appendChild(buy);
     } else {
       const eq = document.createElement("button");
-      const equipped = active === def.id;
-      eq.className = "btn" + (equipped ? " ghost" : "");
-      eq.textContent = equipped ? "Equipada" : "Equipar";
-      if (!equipped) eq.addEventListener("click", () => send({ t: "pet_equip", id: def.id }));
-      else eq.addEventListener("click", () => send({ t: "pet_equip", id: "" }));
+      eq.className = "btn" + (shop.active === def.id ? " green" : "");
+      eq.textContent = shop.active === def.id ? "Activa" : "Seguir";
+      eq.addEventListener("click", () => send({ t: "pet_equip", id: shop.active === def.id ? "" : def.id }));
+      row.appendChild(eq);
+    }
+    b.appendChild(row);
+  }
+  addSection(t("mount.section"));
+  for (const def of (shop.mounts || [])) {
+    const has = (shop.ownedMounts || []).includes(def.id);
+    const row = document.createElement("div");
+    row.className = "shop-item";
+    const cv = document.createElement("canvas");
+    cv.width = 34; cv.height = 34;
+    drawMountIcon(cv.getContext("2d"), def.id, 17, 17, 24);
+    row.appendChild(cv);
+    const nm = document.createElement("div");
+    nm.className = "si-name";
+    nm.textContent = def.name;
+    if (def.desc) {
+      const desc = document.createElement("div");
+      desc.className = "si-desc";
+      desc.textContent = def.desc;
+      nm.appendChild(desc);
+    }
+    row.appendChild(nm);
+    if (!has) {
+      const pr = document.createElement("div");
+      pr.className = "si-price";
+      pr.textContent = `${def.cost} g`;
+      row.appendChild(pr);
+      const buy = document.createElement("button");
+      buy.className = "btn";
+      buy.textContent = t("mount.buy");
+      if (S.you && S.you.gold < def.cost) buy.className = "btn ghost";
+      else buy.addEventListener("click", () => send({ t: "mount_buy", id: def.id }));
+      row.appendChild(buy);
+    } else {
+      const eq = document.createElement("button");
+      const on = shop.activeMount === def.id;
+      eq.className = "btn" + (on ? " green" : "");
+      eq.textContent = on ? t("mount.active") : t("mount.ready");
+      eq.addEventListener("click", () => send({ t: "mount_equip", id: on ? "" : def.id }));
       row.appendChild(eq);
     }
     b.appendChild(row);
   }
 }
+
 requireDom();
 initLogin();
 initMenu();
