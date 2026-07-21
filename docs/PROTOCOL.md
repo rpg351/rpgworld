@@ -84,6 +84,10 @@ Server replies to invalid/denied actions with `{t:"toast", msg}` (short human st
 - `{t:"fish"}` — start fishing if adjacent to water (not in town / not in combat); ~2.8s channel → fish item in inventory.
 - `/fish` or `/pescar` chat aliases for the same action.
 - Fish items: `slot:"fish"`, `icon:"fish"`, edible via `{t:"use",slot}` (small HP) or sellable.
+- `{t:"cook"}` — near Bront's forge, channel ~2.2s to turn one fish into cooked `slot:"food"` (`icon:"food"`) with stronger heal + short buff.
+- `/cook` or `/cocinar` chat aliases for cooking.
+- Food buff fields on `{t:"you"}`: `buff:{left,dmgp,arm,spd,xp}` (session-only).
+- `{t:"title", id}` — equip achievement id as nameplate title (empty id clears). Mirrored on `{t:"achs"}` / `{t:"you"}` as `title`, and on entity snapshots as display name.
 - `{t:"dmg", i, a, c?, s?}` — damage on entity `i`; optional `s` = source entity id.
 - `{t:"ping", from, x, y}` — party map ping (client shows world + minimap marker ~6s).
 - `{t:"buyback", items:[{idx,item,price}]}` — session vendor repurchase list (sent with shop / after sells).

@@ -248,7 +248,7 @@ export interface Item {
   id: number;
   base: string;
   name: string;
-  slot: string; // weapon|armor|helm|ring|potion|quest
+  slot: string; // weapon|armor|helm|ring|potion|quest|fish|food
   icon: string;
   tier: number;
   rarity: string; // common|magic|rare
@@ -421,9 +421,31 @@ export const FISH_DEFS: Record<string, { name: string; val: number; heal: number
   pearl: { name: "Ostra perlada", val: 90, heal: 0.05, weight: 5 },
 };
 
+// Cooked food — made at Bront's forge from raw fish. Better heal + short combat buffs.
+export const FOOD_DEFS: Record<string, {
+  name: string; from: string; val: number; heal: number;
+  dmgp?: number; arm?: number; spd?: number; xp?: number; dur: number;
+}> = {
+  grilled_sardine: { name: "Sardina asada", from: "sardine", val: 20, heal: 0.16, dmgp: 5, dur: 60000 },
+  grilled_bass: { name: "Lubina a la brasa", from: "bass", val: 45, heal: 0.24, arm: 8, dur: 90000 },
+  smoked_tuna: { name: "Atún ahumado", from: "tuna", val: 95, heal: 0.32, dmgp: 8, spd: 4, dur: 120000 },
+  pearl_broth: { name: "Caldo de perla", from: "pearl", val: 180, heal: 0.14, xp: 15, dur: 180000 },
+};
+
 export function makeFish(base: string, qty = 1): Item {
   const f = FISH_DEFS[base] || FISH_DEFS.sardine;
   return { id: nextItemId++, base, name: f.name, slot: "fish", icon: "fish", tier: 1, rarity: base === "pearl" ? "magic" : "common", lvl: 1, val: f.val, qty };
+}
+
+export function makeFood(base: string, qty = 1): Item {
+  const f = FOOD_DEFS[base] || FOOD_DEFS.grilled_sardine;
+  const rare = f.from === "pearl" || f.from === "tuna" ? "magic" : "common";
+  return { id: nextItemId++, base, name: f.name, slot: "food", icon: "food", tier: 1, rarity: rare, lvl: 1, val: f.val, qty };
+}
+
+export function foodFromFish(fishBase: string): string | null {
+  for (const [id, d] of Object.entries(FOOD_DEFS)) if (d.from === fishBase) return id;
+  return null;
 }
 
 export function rollFish(): Item {
@@ -493,6 +515,8 @@ export const ACHIEVEMENTS: Record<string, { name: string; desc: string; gold: nu
   portals: { name: "Explorador", desc: "Desbloquea todos los portales", gold: 200 },
   fish_10: { name: "Pescador", desc: "Pesca 10 capturas", gold: 60 },
   fish_50: { name: "Señor del mar", desc: "Pesca 50 capturas", gold: 180 },
+  cook_10: { name: "Cocinero", desc: "Cocina 10 platos en la forja", gold: 70 },
+  cook_40: { name: "Chef de Helike", desc: "Cocina 40 platos en la forja", gold: 200 },
 };
 
 export const QUEST_ORDER = ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12"];

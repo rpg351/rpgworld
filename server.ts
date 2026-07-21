@@ -5,8 +5,8 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ServerWebSocket } from "bun";
 import {
-  ACHIEVEMENTS, CLASS_BASE, CLASS_WEAPON, FISH_DEFS, MOB_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
-  SKILLS, TREES, WEAPON_SCALING, freshItemId, makeFish, makePotion, makeQuestItem, mobStats,
+  ACHIEVEMENTS, CLASS_BASE, CLASS_WEAPON, FISH_DEFS, FOOD_DEFS, MOB_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
+  SKILLS, TREES, WEAPON_SCALING, foodFromFish, freshItemId, makeFish, makeFood, makePotion, makeQuestItem, mobStats,
   rollFish, rollItem, rollRarity,
 } from "./data";
 import type { AbilityDef, Item, SkillDef } from "./data";
@@ -155,6 +155,12 @@ interface Player extends StatusHolder {
   goldEarned: number; // lifetime gold gained (for achievements)
   fishCount: number; // lifetime fish caught
   fishUntil: number; // fishing channel end time
+  cookCount: number; // lifetime meals cooked
+  cookUntil: number; // cooking channel end
+  cookSlot: number; // inv slot being cooked
+  title: string; // equipped achievement title
+  buffUntil: number; // food buff expiry
+  buffDmgp: number; buffArm: number; buffSpd: number; buffXp: number;
   session: { dealt: number; taken: number; healed: number; kills: number; deaths: number; t0: number };
   meterAt: number; // last meter push timestamp
   dead: boolean; deadAt: number; lastChat: number; dirty: boolean;
@@ -288,6 +294,8 @@ function serialize(p: Player): string {
     killCount: p.killCount,
     goldEarned: p.goldEarned,
     fishCount: p.fishCount,
+    cookCount: p.cookCount,
+    title: p.title || "",
   });
 }
 
@@ -343,6 +351,7 @@ function sendAchs(p: Player): void {
     defs: Object.entries(ACHIEVEMENTS).map(([id, d]) => ({ id, name: d.name, desc: d.desc, gold: d.gold })),
     killCount: p.killCount,
     goldEarned: p.goldEarned,
+    title: p.title || "",
   });
 }
 
@@ -463,6 +472,11 @@ function derive(p: Player): Derived {
   if (pet?.stat === "mp") mpB += pet.amount;
   if (pet?.stat === "dmgp") dmgp += pet.amount;
   const petSpdPct = pet?.stat === "spd" ? pet.amount : 0;
+  // Active cooked-food buff (session-only).
+  if (Date.now() < p.buffUntil) {
+    dmgp += p.buffDmgp || 0;
+    arm += p.buffArm || 0;
+  }
   const w = p.eq.weapon;
   const [lo0, hi0] = w?.dmg ?? [1, 3];
   const [stat, mult] = WEAPON_SCALING[w?.icon ?? "sword"] ?? ["str", 0.5];
@@ -476,7 +490,7 @@ function derive(p: Player): Derived {
     lo: (lo0 + bonus) * dm, hi: (hi0 + bonus) * dm,
     crit: 5 + 0.15 * dex + crit,
     dmgp,
-    spd: PLAYER_SPD * (1 + 0.01 * abilityRank(p, "h_veloz") + petSpdPct / 100),
+    spd: PLAYER_SPD * (1 + 0.01 * abilityRank(p, "h_veloz") + petSpdPct / 100 + ((Date.now() < p.buffUntil ? p.buffSpd : 0) / 100)),
   };
 }
 
@@ -504,6 +518,11 @@ function sendYou(p: Player): void {
     abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
     pets: [...p.pets], activePet: p.activePet,
     rested: p.restedUntil > Date.now() ? Math.ceil((p.restedUntil - Date.now()) / 1000) : 0,
+    title: p.title || "",
+    buff: p.buffUntil > Date.now() ? {
+      left: Math.ceil((p.buffUntil - Date.now()) / 1000),
+      dmgp: p.buffDmgp, arm: p.buffArm, spd: p.buffSpd, xp: p.buffXp,
+    } : null,
   });
   p.dirty = true;
 }
@@ -513,7 +532,7 @@ function sendYou(p: Player): void {
 // ---------------------------------------------------------------------------
 /** Add item to a slot array (stacks potions/quest items to 10). False = full. */
 function addToSlots(arr: (Item | null)[], item: Item): boolean {
-  if (item.slot === "potion" || item.slot === "quest" || item.slot === "fish") {
+  if (item.slot === "potion" || item.slot === "quest" || item.slot === "fish" || item.slot === "food") {
     for (const it of arr) {
       if (it && it.base === item.base && (it.qty ?? 1) < 10) {
         it.qty = (it.qty ?? 1) + (item.qty ?? 1);
@@ -639,6 +658,7 @@ function rollDrops(m: Mob, killer: Player): void {
 function addXp(p: Player, amount: number): void {
   if (p.lvl >= LEVEL_CAP) return;
   if (Date.now() < p.restedUntil) amount = Math.max(1, Math.round(amount * 1.2));
+  if (Date.now() < p.buffUntil && p.buffXp > 0) amount = Math.max(1, Math.round(amount * (1 + p.buffXp / 100)));
   p.xp += amount;
   let leveled = false;
   while (p.lvl < LEVEL_CAP && p.xp >= xpNext(p.lvl)) {
@@ -1344,6 +1364,64 @@ function tryFinishFish(p: Player, now: number): void {
   sendYou(p);
 }
 
+function tryFinishCook(p: Player, now: number): void {
+  if (!p.cookUntil || now < p.cookUntil) return;
+  p.cookUntil = 0;
+  const slot = p.cookSlot;
+  p.cookSlot = -1;
+  if (p.dead || !nearNpc(p, bront)) {
+    toast(p, "La cocina se interrumpió");
+    return;
+  }
+  if (slot < 0 || slot >= INV_SIZE) return;
+  const it = p.inv[slot];
+  if (!it || it.slot !== "fish") {
+    toast(p, "Ya no tienes ese pescado");
+    return;
+  }
+  const foodId = foodFromFish(it.base);
+  if (!foodId) return toast(p, "No se puede cocinar eso");
+  const fishBase = it.base;
+  const food = makeFood(foodId);
+  it.qty = (it.qty ?? 1) - 1;
+  if (it.qty <= 0) p.inv[slot] = null;
+  if (!invAdd(p, food)) {
+    // refund the consumed fish unit if inventory is somehow full
+    invAdd(p, makeFish(fishBase));
+    toast(p, "Inventario lleno — no pudiste cocinar");
+    return;
+  }
+  p.cookCount++;
+  p.dirty = true;
+  if (p.cookCount >= 10) grantAch(p, "cook_10");
+  if (p.cookCount >= 40) grantAch(p, "cook_40");
+  toast(p, `Cocinaste: ${food.name}`);
+  pushLootLog(p, { name: food.name, rarity: food.rarity, icon: "food" });
+  bcastAt(p.x, p.y, { t: "fx", k: "cook", i: p.id });
+  sendYou(p);
+}
+
+function beginCook(p: Player, now: number): void {
+  if (p.dead) return;
+  if (p.cookUntil && now < p.cookUntil) return toast(p, "Ya estás cocinando…");
+  if (p.fishUntil && now < p.fishUntil) return toast(p, "Estás pescando…");
+  if (now < p.combatUntil) return toast(p, "No puedes cocinar en combate");
+  if (!nearNpc(p, bront)) return toast(p, "Cocina junto a la forja de Bront");
+  let slot = -1;
+  for (let i = 0; i < p.inv.length; i++) {
+    const it = p.inv[i];
+    if (it && it.slot === "fish" && foodFromFish(it.base)) { slot = i; break; }
+  }
+  if (slot < 0) return toast(p, "No tienes pescado para cocinar");
+  p.path = null; p.direct = null; p.vel = null;
+  p.atkTarget = null; p.lootTarget = null; p.npcTarget = null;
+  p.cookSlot = slot;
+  p.cookUntil = now + 2200;
+  const name = p.inv[slot]?.name || "pescado";
+  toast(p, `Cocinando ${name}…`);
+  bcastAt(p.x, p.y, { t: "fx", k: "cookcast", i: p.id });
+}
+
 function r2(v: number): number {
   return Math.round(v * 100) / 100;
 }
@@ -1534,6 +1612,8 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     buyback: [], lastPingAt: 0, lastWhoAt: 0,
     recentHits: [], lootHist: [], combatLog: [], lastDaily: "", lastEmoteAt: 0,
     achs: new Set<string>(), killCount: 0, goldEarned: 0, fishCount: 0, fishUntil: 0,
+    cookCount: 0, cookUntil: 0, cookSlot: -1, title: "",
+    buffUntil: 0, buffDmgp: 0, buffArm: 0, buffSpd: 0, buffXp: 0,
     session: { dealt: 0, taken: 0, healed: 0, kills: 0, deaths: 0, t0: Date.now() },
     meterAt: 0,
     dead: false, deadAt: 0, lastChat: 0, dirty: true, seen: new Set(),
@@ -1634,6 +1714,8 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
     p.killCount = clampInt(d.killCount, 0, 100000000, 0);
     p.goldEarned = clampInt(d.goldEarned, 0, 100000000, 0);
     p.fishCount = clampInt(d.fishCount, 0, 100000000, 0);
+    p.cookCount = clampInt(d.cookCount, 0, 100000000, 0);
+    p.title = typeof d.title === "string" && ACHIEVEMENTS[d.title] && p.achs.has(d.title) ? d.title : "";
     if (d.eq && typeof d.eq === "object") {
       const eq = d.eq as Record<string, unknown>;
       for (const slot of EQUIP_SLOTS) {
@@ -2251,6 +2333,30 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         sendYou(p);
         break;
       }
+      if (it.slot === "food") {
+        const fdef = FOOD_DEFS[it.base];
+        if (!fdef) return;
+        if (now < p.potCdUntil) return toast(p, "Aún estás digiriendo");
+        const d0 = derive(p);
+        p.hp = Math.min(d0.mhp, p.hp + d0.mhp * fdef.heal);
+        p.potCdUntil = now + POTION_CD;
+        p.buffUntil = now + fdef.dur;
+        p.buffDmgp = fdef.dmgp || 0;
+        p.buffArm = fdef.arm || 0;
+        p.buffSpd = fdef.spd || 0;
+        p.buffXp = fdef.xp || 0;
+        it.qty = (it.qty ?? 1) - 1;
+        if (it.qty <= 0) p.inv[slot] = null;
+        const bits: string[] = [];
+        if (fdef.dmgp) bits.push(`+${fdef.dmgp}% daño`);
+        if (fdef.arm) bits.push(`+${fdef.arm} armadura`);
+        if (fdef.spd) bits.push(`+${fdef.spd}% velocidad`);
+        if (fdef.xp) bits.push(`+${fdef.xp}% XP`);
+        toast(p, bits.length ? `Comiste ${it.name} (${bits.join(", ")})` : `Comiste ${it.name}`);
+        bcastAt(p.x, p.y, { t: "fx", k: "heal", i: p.id });
+        sendYou(p);
+        break;
+      }
       if (it.slot !== "potion") return;
       if (now < p.potCdUntil) return toast(p, "Las pociones están en enfriamiento");
       const def = POTION_DEFS[it.base];
@@ -2327,7 +2433,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       }
       send(p.ws, {
         t: "inspect",
-        id: target.id, name: target.name, cls: target.cls, lvl: target.lvl,
+        id: target.id, name: target.name, cls: target.cls, title: target.title && ACHIEVEMENTS[target.title] ? ACHIEVEMENTS[target.title].name : "", lvl: target.lvl,
         pet: target.activePet, eq,
       });
       break;
@@ -2432,6 +2538,29 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       bcastAt(p.x, p.y, { t: "fx", k: "fishcast", i: p.id });
       break;
     }
+    case "cook": {
+      if (stunned) return;
+      beginCook(p, now);
+      break;
+    }
+    case "title": {
+      const id = typeof msg.id === "string" ? msg.id : "";
+      if (!id) {
+        p.title = "";
+        p.dirty = true;
+        toast(p, "Título quitado");
+        sendAchs(p);
+        sendYou(p);
+        break;
+      }
+      if (!ACHIEVEMENTS[id] || !p.achs.has(id)) return toast(p, "Aún no tienes ese logro");
+      p.title = id;
+      p.dirty = true;
+      toast(p, `Título: ${ACHIEVEMENTS[id].name}`);
+      sendAchs(p);
+      sendYou(p);
+      break;
+    }
     case "party_ping": {
       if (p.dead) return;
       if (!p.party) return toast(p, "No estás en un grupo");
@@ -2472,6 +2601,10 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!text) return;
       if (now - p.lastChat < 1000) return toast(p, "Estás escribiendo demasiado rápido");
       p.lastChat = now;
+      if (/^\/cook$/i.test(text) || /^\/cocinar$/i.test(text)) {
+        beginCook(p, now);
+        return;
+      }
       if (/^\/fish$/i.test(text) || /^\/pescar$/i.test(text)) {
         // Reuse fish action without chat broadcast
         if (p.dead) return;
@@ -2646,10 +2779,16 @@ function simTick(): void {
     }
     checkZoneVisit(p);
     tryFinishFish(p, now);
+    tryFinishCook(p, now);
     // Cancel fishing if the player starts moving / combat.
     if (p.fishUntil && (p.vel || p.path || p.direct || p.atkTarget != null || p.combatUntil > now)) {
       p.fishUntil = 0;
       toast(p, "Dejas de pescar");
+    }
+    if (p.cookUntil && (p.vel || p.path || p.direct || p.atkTarget != null || p.combatUntil > now || !nearNpc(p, bront))) {
+      p.cookUntil = 0;
+      p.cookSlot = -1;
+      toast(p, "Dejas de cocinar");
     }
 
     // Regen: 2%/s hp + 3%/s mp out of combat (5s), 1%/s mp in combat. Near
@@ -3042,6 +3181,7 @@ function snapshotTick(): void {
         s: entFlags(q, now), d: q.d,
       };
       if (q.activePet) e.pet = q.activePet;
+      if (q.title && ACHIEVEMENTS[q.title]) e.title = ACHIEVEMENTS[q.title].name;
       if (q === p) {
         e.m = Math.round(q.mp);
         e.M = d.mmp;

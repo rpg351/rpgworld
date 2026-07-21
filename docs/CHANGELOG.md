@@ -1,3 +1,12 @@
+## 2026-09-10 — Cocina y títulos
+
+- **Cocina (U / `/cook` / `/cocinar`)**: junto a la forja de Bront cocinas pescado
+  (~2.2s) en sardina asada / lubina a la brasa / atún ahumado / caldo de perla.
+  Comer comida cura más y da un buff corto (daño, armadura, velocidad o XP).
+- **Títulos**: desde Logros (Y) podés equipar el nombre de un logro desbloqueado;
+  se muestra sobre tu personaje y al inspeccionar. Logros Cocinero / Chef de Helike.
+- Cache bust `?v=20260910`.
+
 ## 2026-09-09 — Ventanas sin solapamiento
 
 - Al abrir cualquier ventana (inventario, personaje, misiones, tienda, mapa, logros, quién, inspeccionar, etc.) se coloca automáticamente en una posición libre que no solapa otras ventanas abiertas.

@@ -100,6 +100,14 @@ var I18N = {
     "help.achs": "Logros",
     "help.who": "Lista de jugadores / amigos",
     "help.fish": "Pescar junto al agua (/fish o /pescar)",
+    "help.cook": "Cocinar pescado en la forja de Bront (/cook o /cocinar)",
+    "help.title": "Equipar título desde Logros (Y)",
+    "title.equip": "Usar título",
+    "title.clear": "Quitar título",
+    "title.active": "Título activo",
+    "title.none": "Sin título",
+    "buff.food": "Buff de comida",
+    "cook.hint": "Clic: cocinar en la forja (cerca de Bront)",
     "help.deathmark": "Al morir queda una marca en el mapa hasta revivir",
     "panel.who": "Jugadores",
     "who.tab.online": "En línea",
@@ -271,6 +279,14 @@ var I18N = {
     "help.achs": "Achievements",
     "help.who": "Players / friends list",
     "help.fish": "Fish next to water (/fish or /pescar)",
+    "help.cook": "Cook fish at Bront's forge (/cook)",
+    "help.title": "Equip a title from Achievements (Y)",
+    "title.equip": "Use title",
+    "title.clear": "Clear title",
+    "title.active": "Active title",
+    "title.none": "No title",
+    "buff.food": "Food buff",
+    "cook.hint": "Click: cook at the forge (near Bront)",
     "help.deathmark": "On death a map mark stays until you revive",
     "panel.who": "Players",
     "who.tab.online": "Online",
@@ -453,7 +469,7 @@ var S = {
   showMeter: true,
   showFps: false,
   meter: { dealt: 0, taken: 0, healed: 0, kills: 0, deaths: 0, t0: 0 },
-  achs: { unlocked: [], defs: [], killCount: 0, goldEarned: 0 },
+  achs: { unlocked: [], defs: [], killCount: 0, goldEarned: 0, title: "" },
   chatTab: "all",
   whoList: [],
   whoTab: "online",
@@ -613,6 +629,7 @@ function handleWorld(m) {
     case "you": {
       const prevLvl = S.you ? S.you.lvl : 0;
       S.you = m;
+      if (typeof m.title === "string" && S.achs) S.achs.title = m.title;
       if (Array.isArray(m.loadout) && m.loadout.length === 4 && m.loadout.some((v, i) => v !== S.loadout[i])) {
         S.loadout = m.loadout.slice();
         buildSkillbar();
@@ -664,6 +681,7 @@ function handleWorld(m) {
         if (e.n !== undefined)
           E.n = e.n;
         E.pet = e.pet || null;
+        E.title = e.title || null;
         if (e.m !== undefined) {
           E.m = e.m;
           E.M = e.M;
@@ -832,6 +850,7 @@ function handleWorld(m) {
         defs: Array.isArray(m.defs) ? m.defs.slice() : (S.achs.defs || []),
         killCount: Number(m.killCount) || 0,
         goldEarned: Number(m.goldEarned) || 0,
+        title: typeof m.title === "string" ? m.title : (S.achs.title || ""),
       };
       renderAchs();
       break;
@@ -2283,9 +2302,18 @@ function drawEntity(E, t) {
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(0,0,0,.7)";
     const label = `${E.n || ""} · ${E.l}`;
-    ctx.fillText(label, 1, topY - 5 + 1);
+    const titleY = E.title ? topY - 16 : topY - 5;
+    if (E.title) {
+      ctx.font = "10px Georgia";
+      ctx.fillStyle = "rgba(0,0,0,.7)";
+      ctx.fillText(E.title, 1, topY - 5 + 1);
+      ctx.fillStyle = "#c8a45a";
+      ctx.fillText(E.title, 0, topY - 5);
+      ctx.font = "12px Georgia";
+    }
+    ctx.fillText(label, 1, titleY + 1);
     ctx.fillStyle = idOf(E) === S.myId ? "#ecc16e" : S.partyIds.has(idOf(E)) ? "#7de08a" : BOSS_KINDS.has(E.k) ? "#ff9a5e" : "#cfe0ff";
-    ctx.fillText(label, 0, topY - 5);
+    ctx.fillText(label, 0, titleY);
   } else if (isNpc) {
     ctx.font = "11px Georgia";
     ctx.textAlign = "center";
@@ -2560,6 +2588,27 @@ function drawItemIcon(g, icon, rarity, cx, cy, size) {
       g.arc(-3, -0.5, 1.1, 0, 7);
       g.fill();
       break;
+    case "food":
+      g.fillStyle = "#c4783a";
+      g.beginPath();
+      g.ellipse(0, 1, 7.5, 3.2, 0.15, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = "#e8b060";
+      g.beginPath();
+      g.ellipse(-1, -1, 5.5, 2.4, 0.15, 0, Math.PI * 2);
+      g.fill();
+      g.strokeStyle = "#6a3a18";
+      g.lineWidth = 0.8;
+      g.beginPath();
+      g.moveTo(-5, -2);
+      g.quadraticCurveTo(0, -5, 6, -1);
+      g.stroke();
+      g.fillStyle = "#8c231a";
+      g.beginPath();
+      g.arc(2.5, 0.5, 1.2, 0, 7);
+      g.fill();
+      break;
+
     case "eye":
       g.fillStyle = "#e8e2d2";
       g.beginPath();
@@ -2654,6 +2703,14 @@ function addFx(m) {
   const t = now();
   if (m.k === "emote") {
     if (m.i) S.emotes[m.i] = { e: m.e || "wave", t0: t };
+    return;
+  }
+  if (m.k === "fishcast" || m.k === "fish" || m.k === "cookcast" || m.k === "cook") {
+    const E = m.i ? S.ents.get(m.i) : null;
+    const wx = E ? E.rx : (S.you && S.cam ? S.cam.x : 0);
+    const wy = E ? E.ry : (S.you && S.cam ? S.cam.y : 0);
+    const col = (m.k === "cook" || m.k === "cookcast") ? "#e8a050" : "#7ec8ff";
+    spawnParticles(wx, wy - 0.4, m.k.endsWith("cast") ? 6 : 10, { color: col, life: 520, size: 2.1, spread: 1.6, grav: 1.4 });
     return;
   }
   if (m.k === "proj") {
@@ -3757,6 +3814,10 @@ window.addEventListener("keydown", (e) => {
     case "n":
     case "N":
       if (!S.dead) send({ t: "fish" });
+      break;
+    case "u":
+    case "U":
+      if (!S.dead) send({ t: "cook" });
       break;
     case "b":
     case "B":
@@ -5536,9 +5597,13 @@ function renderInventory() {
           ? "Clic para guardar en el cofre"
           : item.slot === "potion"
             ? "Clic: beber · Arrastra fuera: tirar"
-            : item.slot === "quest"
-              ? "Objeto de misión"
-              : "Clic: equipar · Arrastra fuera: tirar";
+            : item.slot === "fish"
+              ? "Clic: comer · U cerca de Bront: cocinar · Arrastra: tirar"
+              : item.slot === "food"
+                ? "Clic: comer (buff) · Arrastra fuera: tirar"
+                : item.slot === "quest"
+                  ? "Objeto de misión"
+                  : "Clic: equipar · Arrastra fuera: tirar";
       d._tip = { item, action: act };
       d.addEventListener("mousemove", (e) => showTooltip(e, item, act));
       d.addEventListener("mouseleave", hideTooltip);
@@ -5555,7 +5620,7 @@ function renderInventory() {
         } else if (S.stashOpen) {
           if (item.slot === "quest") return toast("No puedes guardar objetos de misión");
           send({ t: "stash_deposit", slot });
-        } else if (item.slot === "potion")
+        } else if (item.slot === "potion" || item.slot === "fish" || item.slot === "food")
           send({ t: "use", slot });
         else if (item.slot === "quest")
           toast("Objeto de misión — el Anciano los querrá.");
@@ -5686,6 +5751,20 @@ function renderChar() {
   const restedLine = y.rested > 0
     ? `<div class="stat-row"><span>Descanso</span><b>+20% XP · ${Math.ceil(y.rested / 60)} min</b></div>`
     : "";
+  const titleDef = (S.achs && S.achs.defs || []).find((d) => d.id === (y.title || (S.achs && S.achs.title)));
+  const titleLine = (y.title || (S.achs && S.achs.title))
+    ? `<div class="stat-row"><span>${t("title.active")}</span><b>${titleDef ? titleDef.name : (y.title || S.achs.title)}</b></div>`
+    : "";
+  const buff = y.buff;
+  let buffLine = "";
+  if (buff && buff.left > 0) {
+    const bits = [];
+    if (buff.dmgp) bits.push(`+${buff.dmgp}% dmg`);
+    if (buff.arm) bits.push(`+${buff.arm} arm`);
+    if (buff.spd) bits.push(`+${buff.spd}% spd`);
+    if (buff.xp) bits.push(`+${buff.xp}% XP`);
+    buffLine = `<div class="stat-row"><span>${t("buff.food")}</span><b>${bits.join(" · ") || "—"} · ${buff.left}s</b></div>`;
+  }
   html += `<div class="derived">
     <div class="stat-row"><span>Daño</span><b>${y.dmg[0]}–${y.dmg[1]}</b></div>
     <div class="stat-row"><span>Prob. de crítico</span><b>${(+y.crit).toFixed(1)}%</b></div>
@@ -5695,7 +5774,9 @@ function renderChar() {
     <div class="stat-row"><span>Velocidad</span><b>${y.spd}</b></div>
     <div class="stat-row"><span>Oro</span><b>${y.gold}</b></div>
     ${petLine}
+    ${titleLine}
     ${restedLine}
+    ${buffLine}
   </div>`;
   b.innerHTML = html;
   b.querySelectorAll(".plus").forEach((btn) => btn.addEventListener("click", () => send({ t: "allot", stat: btn.dataset.st })));
@@ -5893,19 +5974,30 @@ function renderMeter() {
 function renderAchs() {
   const body = $("achBody");
   if (!body) return;
-  const a = S.achs || { unlocked: [], defs: [], killCount: 0, goldEarned: 0 };
+  const a = S.achs || { unlocked: [], defs: [], killCount: 0, goldEarned: 0, title: "" };
   const unlocked = new Set(a.unlocked || []);
   const defs = a.defs || [];
   if (!defs.length) {
     body.innerHTML = `<div class="log-empty">${t("achs.empty")}</div>`;
     return;
   }
+  const active = a.title || "";
+  const activeName = active && defs.find((d) => d.id === active)?.name;
+  const titleBar = `<div class="ach-titlebar"><span>${t("title.active")}: <b>${activeName || t("title.none")}</b></span>` +
+    (active ? `<button type="button" class="btn ghost" id="titleClearBtn">${t("title.clear")}</button>` : "") + `</div>`;
   const stats = `<div class="ach-stats">${t("achs.stats", a.killCount || 0, a.goldEarned || 0)}</div>`;
   const rows = defs.map((d) => {
     const on = unlocked.has(d.id);
-    return `<div class="ach-row${on ? " on" : ""}"><span class="ach-name">${on ? "✓ " : ""}${d.name}</span><span class="ach-gold">+${d.gold}g</span><span class="ach-desc">${d.desc}</span></div>`;
+    const equipped = active === d.id;
+    const btn = on ? `<button type="button" class="ach-title-btn${equipped ? " on" : ""}" data-title="${d.id}">${equipped ? "★" : t("title.equip")}</button>` : "";
+    return `<div class="ach-row${on ? " on" : ""}${equipped ? " titled" : ""}"><span class="ach-name">${on ? "✓ " : ""}${d.name}</span><span class="ach-gold">+${d.gold}g</span><span class="ach-desc">${d.desc}</span>${btn}</div>`;
   }).join("");
-  body.innerHTML = stats + rows;
+  body.innerHTML = titleBar + stats + rows;
+  const clear = $("titleClearBtn");
+  if (clear) clear.onclick = () => send({ t: "title", id: "" });
+  body.querySelectorAll("[data-title]").forEach((btn) => {
+    btn.addEventListener("click", () => send({ t: "title", id: btn.dataset.title || "" }));
+  });
 }
 var LS_FRIENDS = "aot_friends";
 function loadFriends() {
@@ -6047,6 +6139,7 @@ function showInspect(m) {
   const cls = CLS_ES[m.cls] || m.cls || "";
   let html = `<div class="panel-title"><span>${t("inspect.title")}</span> <span class="panel-x" data-close="inspectPanel">✕</span></div>`;
   html += `<div class="inspect-head"><b>${esc(m.name || "")}</b> · ${esc(cls)} · Nv ${m.lvl || "?"}</div>`;
+  if (m.title) html += `<div class="inspect-pet">${t("title.active")}: ${esc(m.title)}</div>`;
   if (m.pet && PET_LABELS[m.pet]) html += `<div class="inspect-pet">${t("inspect.pet")}: ${esc(PET_LABELS[m.pet].name)}</div>`;
   const eq = m.eq || {};
   let any = false;

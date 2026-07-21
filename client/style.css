@@ -663,3 +663,12 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .who-row .who-acts button{font-size:10px;padding:2px 6px;cursor:pointer;color:var(--ink);
   background:rgba(40,30,14,.8);border:1px solid #3a3020;border-radius:3px}
 .who-empty{color:var(--ink-dim);font-size:12px;padding:8px;text-align:center}
+
+
+/* titles / cooking */
+.ach-titlebar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 4px 8px;font-size:12px;color:var(--ink)}
+.ach-titlebar b{color:var(--bronze-bright)}
+.ach-title-btn{grid-column:1/-1;justify-self:start;margin-top:2px;font-size:10px;padding:2px 8px;cursor:pointer;color:var(--ink);
+  background:rgba(40,30,14,.8);border:1px solid #3a3020;border-radius:3px;font-family:inherit}
+.ach-title-btn.on,.ach-row.titled{border-color:#7a5a24}
+.ach-title-btn:hover{border-color:var(--bronze-dim);color:var(--bronze-bright)}
