@@ -868,7 +868,7 @@ function handleWorld(m) {
           t0: now(),
           color: m.c ? "#ffcf40" : m.i === S.myId ? "#ff6a5e" : "#fff",
           size: m.c ? 22 : 15,
-          crit: !!m.c
+          crit: Boolean(m.c)
         });
         const onMe = m.i === S.myId;
         spawnParticles(E.rx, E.ry - 0.9, m.c ? 10 : 5, {
@@ -3281,7 +3281,7 @@ function nearestEnemy(maxR) {
   return best;
 }
 function setAutoAtk(on) {
-  S.autoAtk = !!on;
+  S.autoAtk = Boolean(on);
   try { localStorage.setItem("aot_autoatk", S.autoAtk ? "1" : "0"); } catch (_) {}
   const btn = $("xpBar");
   if (btn) {
@@ -4988,6 +4988,9 @@ function nearTown(x, y) {
 var CLS_ES = { warrior: "Guerrero", hunter: "Cazador", mage: "Mago", cleric: "Clérigo" };
 
 
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
 function showInvitePrompt(boxId, timerKey, html, onYes, onNo, yesId, noId) {
   const box = $(boxId);
   if (!box) return;
@@ -5003,11 +5006,10 @@ function showInvitePrompt(boxId, timerKey, html, onYes, onNo, yesId, noId) {
 }
 
 function showTradeInvite(m) {
-  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
   showInvitePrompt(
     "tradeInviteBox",
     "_tradeInvTimer",
-    `<div class="inv-txt"><b>${esc(m.from)}</b> (nivel ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("trade.invite")}</div>
+    `<div class="inv-txt"><b>${escHtml(m.from)}</b> (nivel ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("trade.invite")}</div>
     <div class="inv-btns"><button class="btn green" id="trYes">${t("trade.accept")}</button>
     <button class="btn ghost" id="trNo">${t("trade.decline")}</button></div>`,
     () => send({ t: "trade_accept", from: m.from }),
@@ -5018,11 +5020,10 @@ function showTradeInvite(m) {
 }
 
 function showDuelInvite(m) {
-  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
   showInvitePrompt(
     "inviteBox",
     "_partyInvTimer",
-    `<div class="inv-txt"><b>${esc(m.from)}</b> (Nv ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("duel.invite")}</div>
+    `<div class="inv-txt"><b>${escHtml(m.from)}</b> (Nv ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("duel.invite")}</div>
     <div class="inv-btns"><button class="btn green" id="duelYes">${t("duel.accept")}</button>
     <button class="btn ghost" id="duelNo">${t("duel.decline")}</button></div>`,
     () => send({ t: "duel_accept", from: m.from }),
@@ -5057,8 +5058,7 @@ function renderTrade() {
   const body = $("tradeBody");
   const panel = $("tradePanel");
   if (!body || !panel || !tr) return;
-  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
-  const slotHtml = (items, mine) => {
+    const slotHtml = (items, mine) => {
     let h = `<div class="trade-slots">`;
     for (let i = 0; i < 6; i++) {
       const it = (items && items[i]) || null;
@@ -5067,8 +5067,8 @@ function renderTrade() {
         h += `<div class="trade-slot${lockCls}" data-tslot="${i}" data-mine="${mine ? 1 : 0}"></div>`;
         continue;
       }
-      h += `<div class="trade-slot${lockCls}" data-tslot="${i}" data-mine="${mine ? 1 : 0}" title="${esc(it.name)}">`;
-      h += `<canvas width="40" height="40" class="trade-ico" data-icon="${esc(it.icon || it.slot)}" data-rarity="${esc(it.rarity || "common")}"></canvas>`;
+      h += `<div class="trade-slot${lockCls}" data-tslot="${i}" data-mine="${mine ? 1 : 0}" title="${escHtml(it.name)}">`;
+      h += `<canvas width="40" height="40" class="trade-ico" data-icon="${escHtml(it.icon || it.slot)}" data-rarity="${escHtml(it.rarity || "common")}"></canvas>`;
       if (it.qty && it.qty > 1) h += `<span class="qty">${it.qty}</span>`;
       h += `</div>`;
     }
@@ -5078,7 +5078,7 @@ function renderTrade() {
   if (tr.lockYou && tr.lockThem) status = tr.confirmYou ? t("trade.waiting") : t("trade.locked");
   else if (tr.lockYou) status = t("trade.waiting");
   body.innerHTML = `
-    <div class="trade-hint">${t("trade.hint")} · <b>${esc((tr.partner && tr.partner.name) || "?")}</b></div>
+    <div class="trade-hint">${t("trade.hint")} · <b>${escHtml((tr.partner && tr.partner.name) || "?")}</b></div>
     <div class="trade-cols">
       <div class="trade-col"><h4>${t("trade.you")}</h4>${slotHtml(tr.you || [], true)}
         <div class="trade-gold"><span>${t("trade.gold")}</span>
@@ -5089,7 +5089,7 @@ function renderTrade() {
         <div class="trade-gold"><span>${t("trade.gold")}</span><b>${tr.goldThem || 0}</b></div>
       </div>
     </div>
-    <div class="trade-status">${esc(status)}</div>
+    <div class="trade-status">${escHtml(status)}</div>
     <div class="trade-actions">
       <button class="btn ghost" id="trCancel">${t("trade.cancel")}</button>
       ${tr.lockYou
@@ -5209,11 +5209,10 @@ function closePlayerMenu() {
   $("playerMenu").classList.add("hidden");
 }
 function showInvite(m) {
-  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
   showInvitePrompt(
     "inviteBox",
     "_partyInvTimer",
-    `<div class="inv-txt"><b>${esc(m.from)}</b> (nivel ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) te invita a su grupo</div>
+    `<div class="inv-txt"><b>${escHtml(m.from)}</b> (nivel ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) te invita a su grupo</div>
     <div class="inv-btns"><button class="btn green" id="invYes">Unirse</button>
     <button class="btn ghost" id="invNo">Rechazar</button></div>`,
     () => send({ t: "party_accept", from: m.from }),
@@ -5224,7 +5223,7 @@ function showInvite(m) {
 }
 
 function setPartyMinimized(on) {
-  S.partyMinimized = !!on;
+  S.partyMinimized = Boolean(on);
   const pf = $("partyFrames");
   if (pf) pf.classList.toggle("minimized", S.partyMinimized);
   try { localStorage.setItem("aot_party_mini", S.partyMinimized ? "1" : "0"); } catch (_) {}
@@ -5260,9 +5259,9 @@ function setChatOpen(on) {
   const chat = $("chat");
   const btn = $("mobChat");
   if (!chat) return;
-  chat.classList.toggle("open", !!on);
+  chat.classList.toggle("open", Boolean(on));
   if (btn) {
-    btn.classList.toggle("on", !!on);
+    btn.classList.toggle("on", Boolean(on));
     if (on) btn.classList.remove("ping");
   }
   const inp = $("chatInput");
@@ -5289,7 +5288,7 @@ function initMobileUi() {
     S.joy = { x, y };
     if (knob) knob.style.transform = `translate(calc(-50% + ${x * maxR}px), calc(-50% + ${y * maxR}px))`;
     if (x || y) { S.targetId = 0; S.lootTarget = 0; }
-    sendDir(!!force);
+    sendDir(Boolean(force));
   };
   const hideJoy = () => {
     if (joy) {
@@ -5336,7 +5335,7 @@ function initMobileUi() {
     try {
       const wx = s2wx(e.clientX), wy = s2wy(e.clientY);
       const hit = pickAt(wx, wy);
-      joyTapLock = !!(hit.loot || hit.ent);
+      joyTapLock = Boolean(hit.loot || hit.ent);
     } catch (_) { joyTapLock = false; }
     S._touchTap = { x: e.clientX, y: e.clientY, t: Date.now() };
     // Don't clear tap yet — only cancel attack-tap once this gesture becomes a drag.
@@ -6100,7 +6099,7 @@ function renderInventory() {
   const sar = $("sellAllRow");
   if (sar) sar.classList.toggle("hidden", !S.shopOpen);
   const dh = $("dropHint");
-  if (dh) dh.classList.toggle("hidden", !!S.shopOpen);
+  if (dh) dh.classList.toggle("hidden", Boolean(S.shopOpen));
   refreshHoverTooltip();
 }
 var tipXY = { x: 0, y: 0, on: false };
@@ -6110,8 +6109,7 @@ function compareItemHtml(item) {
   if (slot !== "weapon" && slot !== "armor" && slot !== "helm" && slot !== "ring") return "";
   const cur = S.you.eq[slot];
   if (!cur || cur.id === item.id) return "";
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  let html = `<div class="tt-cmp">vs equipado (${esc(cur.name)})</div>`;
+    let html = `<div class="tt-cmp">vs equipado (${escHtml(cur.name)})</div>`;
   const line = (label, d) => {
     if (!d) return "";
     const cls = d > 0 ? "up" : "down";
@@ -6136,9 +6134,8 @@ function showTooltip(e, item, action) {
   tipXY.y = e.clientY;
   tipXY.on = true;
   const tt = $("tooltip");
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  let html = `<div class="tt-name ${item.rarity}">${esc(item.name)}</div>`;
-  html += `<div class="tt-type">${esc(SLOT_ES[item.slot] || item.slot)} · nivel ${item.tier} · ${esc(RARITY_ES[item.rarity] || item.rarity)}</div>`;
+    let html = `<div class="tt-name ${item.rarity}">${escHtml(item.name)}</div>`;
+  html += `<div class="tt-type">${escHtml(SLOT_ES[item.slot] || item.slot)} · nivel ${item.tier} · ${escHtml(RARITY_ES[item.rarity] || item.rarity)}</div>`;
   if (item.dmg)
     html += `<div class="tt-stat">Daño ${item.dmg[0]}–${item.dmg[1]}</div>`;
   if (item.arm)
@@ -6155,7 +6152,7 @@ function showTooltip(e, item, action) {
     html += `<div class="tt-stat">Cantidad ${item.qty}</div>`;
   html += `<div class="tt-val">Valor: ${item.val} de oro</div>`;
   if (action)
-    html += `<div class="tt-act">${esc(action)}</div>`;
+    html += `<div class="tt-act">${escHtml(action)}</div>`;
   tt.innerHTML = html;
   tt.classList.remove("hidden");
   const r = tt.getBoundingClientRect();
@@ -6192,8 +6189,7 @@ function renderChar() {
   if (!y)
     return;
   const b = $("charBody");
-  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
-  let html = `<div class="stat-row"><span>${esc(S.myName)}</span><b>${esc(CLS_ES[S.myCls] || S.myCls)} · Nv ${y.lvl}</b></div>`;
+    let html = `<div class="stat-row"><span>${escHtml(S.myName)}</span><b>${escHtml(CLS_ES[S.myCls] || S.myCls)} · Nv ${y.lvl}</b></div>`;
   if (y.pts > 0)
     html += `<div class="pts">${y.pts} punto${y.pts > 1 ? "s" : ""} de característica por asignar</div>`;
   for (const st of ["str", "dex", "int"]) {
@@ -6203,11 +6199,11 @@ function renderChar() {
   html += `<button type="button" class="btn ghost char-reset-btn" id="charResetBtn" data-i18n="char.resetBtn">${t("char.resetBtn")}</button>`;
   const petInfo = y.activePet && PET_LABELS[y.activePet];
   const petLine = petInfo
-    ? `<div class="stat-row"><span>Mascota</span><b>${esc(petInfo.name)} · ${esc(petInfo.desc)}</b></div>`
+    ? `<div class="stat-row"><span>Mascota</span><b>${escHtml(petInfo.name)} · ${escHtml(petInfo.desc)}</b></div>`
     : "";
   const mountInfo = y.activeMount && MOUNT_LABELS[y.activeMount];
   const mountLine = mountInfo
-    ? `<div class="stat-row"><span>Montura</span><b>${esc(mountInfo.name)}${y.mounted ? " · montado" : ""} · ${esc(mountInfo.desc)}</b></div>`
+    ? `<div class="stat-row"><span>Montura</span><b>${escHtml(mountInfo.name)}${y.mounted ? " · montado" : ""} · ${escHtml(mountInfo.desc)}</b></div>`
     : "";
   const sitLine = y.sitting
     ? `<div class="stat-row"><span>Estado</span><b>Sentado — regen rápida</b></div>`
@@ -6286,8 +6282,7 @@ function renderAbilities() {
   const avail = (y && y.abilityPts) || 0;
   pts.textContent = t("ability.points", avail);
   const tierReq = (tier) => tier === 1 ? 0 : tier === 2 ? 5 : 12;
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const byTier = { 1: [], 2: [], 3: [] };
+    const byTier = { 1: [], 2: [], 3: [] };
   for (const a of S.abilityTree) (byTier[a.tier] || (byTier[a.tier] = [])).push(a);
 
   // Circular node card: active nodes show their real skill-bar art (scaled onto
@@ -6308,15 +6303,15 @@ function renderAbilities() {
       let btns = "";
       for (let slot = 1; slot <= 4; slot++) {
         const on = S.loadout[slot - 1] === a.skillN;
-        btns += `<button type="button" class="equip-btn${on ? " active" : ""}" title="${esc(t("ability.equipSlot", slot))}" data-slot="${slot}" data-n="${a.skillN}" ${rank < 1 ? "disabled" : ""}>${slot}</button>`;
+        btns += `<button type="button" class="equip-btn${on ? " active" : ""}" title="${escHtml(t("ability.equipSlot", slot))}" data-slot="${slot}" data-n="${a.skillN}" ${rank < 1 ? "disabled" : ""}>${slot}</button>`;
       }
       equip = `<div class="node-equip">${btns}</div>`;
     }
     const tip = `${a.name} — ${a.desc} ${a.perRankDesc || ""}`;
-    return `<div class="ability-node ${a.kind}${rank > 0 ? " owned" : ""}${locked ? " locked" : ""}" title="${esc(tip)}">
+    return `<div class="ability-node ${a.kind}${rank > 0 ? " owned" : ""}${locked ? " locked" : ""}" title="${escHtml(tip)}">
       <div class="node-circle">${icon}<span class="node-rank">${rank}/${max}</span></div>
       <div class="node-pips">${pips}</div>
-      <div class="node-name">${esc(a.name)}<span class="ability-kind ${a.kind}">${t(a.kind === "active" ? "ability.active" : "ability.passive")}</span></div>
+      <div class="node-name">${escHtml(a.name)}<span class="ability-kind ${a.kind}">${t(a.kind === "active" ? "ability.active" : "ability.passive")}</span></div>
       ${locked
         ? `<div class="ability-req">${t("ability.needMore", tierReq(a.tier))}</div>`
         : rank >= max
@@ -6382,7 +6377,7 @@ function renderQuests() {
     const cnt = meta.count || 1;
     const prog = q.n ?? 0;
     const pc = clamp(prog / cnt, 0, 1) * 100;
-    const complete = !!q.done || prog >= cnt;
+    const complete = Boolean(q.done) || prog >= cnt;
     html += `<div class="quest">
       <div class="q-name${complete ? " done" : ""}">${meta.name}${complete ? " — vuelve con el Anciano" : ""}</div>
       <div class="q-desc">${meta.goal}</div>
@@ -6511,8 +6506,7 @@ function setWhoTab(tab) {
 function renderWho() {
   const body = $("whoBody");
   if (!body) return;
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const online = S.whoList || [];
+    const online = S.whoList || [];
   const byName = new Map(online.map((p) => [String(p.name).toLowerCase(), p]));
   let rows = [];
   if (S.whoTab === "friends") {
@@ -6536,21 +6530,21 @@ function renderWho() {
   body.innerHTML = `<div class="who-acts" style="justify-content:flex-end;margin-bottom:4px"><button type="button" id="whoRefresh">${t("who.refresh")}</button></div>` + rows.map((p) => {
     const friend = isFriend(p.name);
     const self = p.name === S.myName;
-    const offline = !!p.offline && !p.id;
-    const bot = !!p.bot;
+    const offline = Boolean(p.offline) && !p.id;
+    const bot = Boolean(p.bot);
     const acts = [];
     if (!self && !offline) {
-      acts.push(`<button type="button" data-wact="whisper" data-name="${esc(p.name)}">${t("who.whisper")}</button>`);
+      acts.push(`<button type="button" data-wact="whisper" data-name="${escHtml(p.name)}">${t("who.whisper")}</button>`);
       if (p.id) acts.push(`<button type="button" data-wact="invite" data-id="${p.id}">${t("who.invite")}</button>`);
       if (p.id) acts.push(`<button type="button" data-wact="trade" data-id="${p.id}">${t("trade.btn")}</button>`);
-      acts.push(`<button type="button" data-wact="pay" data-name="${esc(p.name)}">${t("pay.btn")}</button>`);
+      acts.push(`<button type="button" data-wact="pay" data-name="${escHtml(p.name)}">${t("pay.btn")}</button>`);
       if (p.id) acts.push(`<button type="button" data-wact="duel" data-id="${p.id}">${t("duel.btn")}</button>`);
     }
-    if (!self) acts.push(`<button type="button" data-wact="friend" data-name="${esc(p.name)}">${friend ? t("who.friendDel") : "★ " + t("who.friendAdd")}</button>`);
+    if (!self) acts.push(`<button type="button" data-wact="friend" data-name="${escHtml(p.name)}">${friend ? t("who.friendDel") : "★ " + t("who.friendAdd")}</button>`);
     return `<div class="who-row${bot ? " bot" : ""}${friend ? " friend" : ""}">
-      <span class="who-name">${esc(p.name)}${bot ? " · IA" : ""}${offline ? " · offline" : ""}</span>
+      <span class="who-name">${escHtml(p.name)}${bot ? " · IA" : ""}${offline ? " · offline" : ""}</span>
       <span class="who-acts">${acts.join("")}</span>
-      <span class="who-meta">Nv ${p.lvl} · ${esc(clsName(p.cls))} · ${esc(p.zone || "—")}</span>
+      <span class="who-meta">Nv ${p.lvl} · ${escHtml(clsName(p.cls))} · ${escHtml(p.zone || "—")}</span>
     </div>`;
   }).join("");
   const ref = $("whoRefresh");
@@ -6594,7 +6588,7 @@ function updateQuestTracker() {
     if (!q || q.turned || !meta) continue;
     const cnt = meta.count || 1;
     const prog = Math.min(q.n ?? 0, cnt);
-    const done = !!q.done || prog >= cnt;
+    const done = Boolean(q.done) || prog >= cnt;
     rows.push(`<div class="qt-row${done ? " done" : ""}"><span class="qt-name">${meta.name}</span><span class="qt-n">${prog}/${cnt}</span></div>`);
     if (rows.length >= 4) break;
   }
@@ -6611,19 +6605,17 @@ function renderDeathRecap() {
   if (!el) return;
   const hits = S.deathRecap || [];
   if (!hits.length) { el.innerHTML = ""; return; }
-  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-  el.innerHTML = `<div class="recap-title">${t("death.recap")}</div>` +
-    hits.map((h) => `<div class="recap-row"><span>${esc(h.n)}</span><b>${h.a}</b></div>`).join("");
+    el.innerHTML = `<div class="recap-title">${t("death.recap")}</div>` +
+    hits.map((h) => `<div class="recap-row"><span>${escHtml(h.n)}</span><b>${h.a}</b></div>`).join("");
 }
 function showInspect(m) {
   const panel = $("inspectPanel");
   if (!panel) return;
-  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-  const cls = CLS_ES[m.cls] || m.cls || "";
+    const cls = CLS_ES[m.cls] || m.cls || "";
   let html = `<div class="panel-title"><span>${t("inspect.title")}</span> <span class="panel-x" data-close="inspectPanel">✕</span></div>`;
-  html += `<div class="inspect-head"><b>${esc(m.name || "")}</b> · ${esc(cls)} · Nv ${m.lvl || "?"}</div>`;
-  if (m.title) html += `<div class="inspect-pet">${t("title.active")}: ${esc(m.title)}</div>`;
-  if (m.pet && PET_LABELS[m.pet]) html += `<div class="inspect-pet">${t("inspect.pet")}: ${esc(PET_LABELS[m.pet].name)}</div>`;
+  html += `<div class="inspect-head"><b>${escHtml(m.name || "")}</b> · ${escHtml(cls)} · Nv ${m.lvl || "?"}</div>`;
+  if (m.title) html += `<div class="inspect-pet">${t("title.active")}: ${escHtml(m.title)}</div>`;
+  if (m.pet && PET_LABELS[m.pet]) html += `<div class="inspect-pet">${t("inspect.pet")}: ${escHtml(PET_LABELS[m.pet].name)}</div>`;
   const eq = m.eq || {};
   let any = false;
   html += `<div class="inspect-eq">`;
@@ -6631,7 +6623,7 @@ function showInspect(m) {
     const it = eq[s];
     if (!it) continue;
     any = true;
-    html += `<div class="inspect-slot r-${esc(it.rarity || "common")}"><span class="is-slot">${s}</span><span class="is-name">${esc(it.name)}</span></div>`;
+    html += `<div class="inspect-slot r-${escHtml(it.rarity || "common")}"><span class="is-slot">${s}</span><span class="is-name">${escHtml(it.name)}</span></div>`;
   }
   html += `</div>`;
   if (!any) html += `<div class="inspect-empty">${t("inspect.empty")}</div>`;
@@ -6736,7 +6728,7 @@ function initBoard() {
 function showBoard(m) {
   closeCityPanels("boardPanel");
   S.boardEntries = m.entries || [];
-  S.boardMeta = { isMod: !!m.isMod, hasActive: !!m.hasActive, cooldownUntil: m.cooldownUntil || 0 };
+  S.boardMeta = { isMod: Boolean(m.isMod), hasActive: Boolean(m.hasActive), cooldownUntil: m.cooldownUntil || 0 };
   revealPanel("boardPanel");
   renderBoard(S.boardEntries);
   updateBoardFormState();
@@ -6747,8 +6739,7 @@ function renderBoard(entries) {
     b.innerHTML = `<p class="board-empty">${t("board.empty")}</p>`;
     return;
   }
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const mod = S.boardMeta.isMod;
+    const mod = S.boardMeta.isMod;
   b.innerHTML = entries.map((e) => {
     const d = new Date(e.ts);
     const stamp = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -6758,7 +6749,7 @@ function renderBoard(entries) {
            <button type="button" class="board-mod-btn danger" data-act="delete" data-id="${e.id}">${t("board.delete")}</button>
          </div>`
       : "";
-    return `<div class="board-row"><div class="board-meta">${t("board.posted", esc(e.author), stamp)}</div><div class="board-text">${esc(e.text)}</div>${modBtns}</div>`;
+    return `<div class="board-row"><div class="board-meta">${t("board.posted", escHtml(e.author), stamp)}</div><div class="board-text">${escHtml(e.text)}</div>${modBtns}</div>`;
   }).join("");
   if (mod) {
     b.querySelectorAll(".board-mod-btn").forEach((btn) => btn.addEventListener("click", () => {

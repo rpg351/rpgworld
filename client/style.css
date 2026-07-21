@@ -177,10 +177,9 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--ink);
 #hudInfo{display:flex;gap:16px;font-size:12px;color:var(--ink-dim)}
 #goldHud{color:var(--rare)}
 #muteBtn{margin-left:10px;background:transparent;border:1px solid var(--edge);color:var(--ink);
-  border-radius:4px;padding:1px 7px;cursor:pointer;font-size:12px;line-height:1.4;letter-spacing:.02em;
+  border-radius:4px;padding:1px 7px;cursor:pointer;font-size:14px;line-height:1.4;letter-spacing:.02em;
   pointer-events:auto;font-family:inherit}
 #muteBtn:hover{border-color:var(--bronze-dim);color:var(--bronze-bright)}
-#muteBtn{font-size:14px}
 #songLabel{margin-left:8px;font-size:11px;font-style:italic;color:var(--ink-dim);
   letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px;
   opacity:0;transition:opacity .4s}
@@ -265,9 +264,9 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--ink);
 .inv-slot{position:relative;height:44px;border:1px solid var(--edge);border-radius:3px;
   background:#171209}
 .inv-slot.full{cursor:grab}
-.inv-slot canvas,.eq-slot canvas{-webkit-user-drag:none;user-drag:none;pointer-events:none}
+.inv-slot canvas,.eq-slot canvas{-webkit-user-drag:none;user-drag:none;pointer-events:none;display:block;width:100%;height:100%}
 .inv-slot.full:hover,.eq-slot:hover{border-color:var(--bronze)}
-.inv-slot canvas,.eq-slot canvas{display:block;width:100%;height:100%}
+
 .inv-slot .qty{position:absolute;bottom:0;right:3px;font-size:10px;color:#fff;text-shadow:0 1px 2px #000;pointer-events:none}
 .r-common{box-shadow:inset 0 0 0 1px rgba(230,220,200,.15)}
 .r-magic{box-shadow:inset 0 0 0 1px var(--magic), inset 0 0 8px rgba(127,179,255,.25)}
@@ -418,13 +417,12 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .pf-toggle:hover{border-color:var(--bronze-dim);color:#fff}
 .pf-toggle .pf-mini{display:none}
 .pf-body{display:block}
-#partyFrames.minimized{width:46px;height:46px;padding:0;overflow:hidden;border-radius:8px}
+#partyFrames.minimized{width:46px;height:46px;padding:0;overflow:hidden;border-radius:8px;z-index:35}
 #partyFrames.minimized .pf-head{margin:0;height:100%}
 #partyFrames.minimized .pf-toggle{width:100%;height:100%;padding:0;display:flex;align-items:center;justify-content:center;text-align:center;border:none;background:transparent}
 #partyFrames.minimized .pf-toggle .pf-full{display:none}
 #partyFrames.minimized .pf-toggle .pf-mini{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.05;font-size:11px;gap:1px}
 #partyFrames.minimized .pf-leave,#partyFrames.minimized .pf-body{display:none!important}
-#partyFrames.minimized{z-index:35}
 
 .pf-row.offline{opacity:.55}
 .pf-row.offline .pf-name{font-style:italic;color:var(--ink-dim)}

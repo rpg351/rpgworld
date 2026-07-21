@@ -1,3 +1,12 @@
+## 2026-09-16 — Hotfix recursion + más limpieza
+
+- **Crítico**: `dismountAndStand` se llamaba a sí misma (stack overflow al pescar,
+  cocinar, recolectar, preparar o pelear). Corregido a `dismount` + `standUp`.
+- Montar/sentarse respetan también la recolección (`channelBusy`); pesca unificada.
+- Tick de combate usa `dismount`/`standUp` helpers; cliente: `escHtml` único +
+  invites sin esc local; `!!` → `Boolean(...)`; CSS de mute/party/slots deduplicado.
+- Cache bust `?v=20260916`.
+
 ## 2026-09-15 — Limpieza: canales, invites y lookups
 
 - **Bugfix**: la recolección (T) ahora se cancela al moverse o entrar en combate,

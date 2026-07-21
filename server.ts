@@ -538,7 +538,7 @@ function sendYou(p: Player): void {
     inv: p.inv, eq: p.eq, quests: p.quests, visitedZones: p.visitedZones,
     abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
     pets: [...p.pets], activePet: p.activePet,
-    mounts: [...p.mounts], activeMount: p.activeMount, mounted: !!p.mounted, sitting: !!p.sitting,
+    mounts: [...p.mounts], activeMount: p.activeMount, mounted: Boolean(p.mounted), sitting: Boolean(p.sitting),
     bind: (p.bindX || p.bindY) ? { x: Math.round(p.bindX * 10) / 10, y: Math.round(p.bindY * 10) / 10 } : null,
     rested: p.restedUntil > Date.now() ? Math.ceil((p.restedUntil - Date.now()) / 1000) : 0,
     title: p.title || "",
@@ -980,7 +980,7 @@ function partyWireRoster(pt: Party): { id: number; name: string; cls: string; lv
   syncRosterFromOnline(pt);
   return pt.roster.map(r => {
     const live = pt.members.find(m => m.name === r.name);
-    if (live) return { id: live.id, name: live.name, cls: live.cls, lvl: live.lvl, online: !!live.ws };
+    if (live) return { id: live.id, name: live.name, cls: live.cls, lvl: live.lvl, online: Boolean(live.ws) };
     return { id: 0, name: r.name, cls: r.cls, lvl: r.lvl, online: false };
   });
 }
@@ -1393,7 +1393,8 @@ function clearMobility(p: Player): void {
 }
 
 function dismountAndStand(p: Player): void {
-  dismountAndStand(p);
+  dismount(p, true);
+  standUp(p, true);
 }
 
 function channelBusy(p: Player, now: number): boolean {
@@ -1458,8 +1459,7 @@ function beginFish(p: Player, now: number): void {
   if (p.dead) return;
   dismountAndStand(p);
   if (p.fishUntil && now < p.fishUntil) return toast(p, "Ya estás pescando…");
-  if (p.cookUntil && now < p.cookUntil) return toast(p, "Estás cocinando…");
-  if (p.forageUntil && now < p.forageUntil) return toast(p, "Estás recolectando…");
+  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
   if (now < p.combatUntil) return toast(p, "No puedes pescar en combate");
   if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
   if (inTown(p.x, p.y)) return toast(p, "No se puede pescar en la plaza");
@@ -2215,7 +2215,7 @@ function sendPetShop(p: Player): void {
     defs: Object.entries(PET_DEFS).map(([id, d]) => ({ id, name: d.name, cost: d.cost, desc: d.desc })),
     owned: [...p.pets], active: p.activePet,
     mounts: Object.entries(MOUNT_DEFS).map(([id, d]) => ({ id, name: d.name, cost: d.cost, desc: d.desc })),
-    ownedMounts: [...p.mounts], activeMount: p.activeMount, mounted: !!p.mounted,
+    ownedMounts: [...p.mounts], activeMount: p.activeMount, mounted: Boolean(p.mounted),
   });
 }
 
@@ -2242,10 +2242,10 @@ function tryMount(p: Player): void {
     if (!first) return toast(p, "No tenés montura — comprá una en el Criadero");
     p.activeMount = first;
   }
-  if (Date.now() < p.combatUntil) return toast(p, "No podés montar en combate");
-  if (p.fishUntil || p.cookUntil) return toast(p, "Terminá lo que estás haciendo primero");
+  const now = Date.now();
+  if (now < p.combatUntil) return toast(p, "No podés montar en combate");
+  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
   standUp(p, true);
-  p.sitting = false;
   p.mounted = true;
   p.dirty = true;
   toast(p, `Montás: ${MOUNT_DEFS[p.activeMount!].name}`);
@@ -2255,11 +2255,11 @@ function tryMount(p: Player): void {
 function trySit(p: Player): void {
   if (p.dead) return;
   if (p.sitting) { standUp(p); return; }
-  if (Date.now() < p.combatUntil) return toast(p, "No podés sentarte en combate");
+  const now = Date.now();
+  if (now < p.combatUntil) return toast(p, "No podés sentarte en combate");
   if (p.mounted) return toast(p, "Apeate antes de sentarte");
-  if (p.fishUntil || p.cookUntil) return toast(p, "Terminá lo que estás haciendo primero");
-  p.path = null; p.direct = null; p.vel = null;
-  p.atkTarget = null; p.lootTarget = null; p.npcTarget = null;
+  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
+  clearMobility(p);
   p.sitting = true;
   toast(p, "Te sentás a descansar");
   sendYou(p);
@@ -2512,14 +2512,14 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
     if (Array.isArray(d.stash))
       for (let i = 0; i < STASH_SIZE; i++) p.stash[i] = sanitizeItem(d.stash[i]);
     if (Array.isArray(d.pets))
-      p.pets = new Set((d.pets as unknown[]).filter((v): v is string => typeof v === "string" && !!PET_DEFS[v]));
+      p.pets = new Set((d.pets as unknown[]).filter((v): v is string => typeof v === "string" && Boolean(PET_DEFS[v])));
     if (typeof d.activePet === "string" && p.pets.has(d.activePet)) p.activePet = d.activePet;
     if (Array.isArray(d.mounts))
-      p.mounts = new Set((d.mounts as unknown[]).filter((v): v is string => typeof v === "string" && !!MOUNT_DEFS[v]));
+      p.mounts = new Set((d.mounts as unknown[]).filter((v): v is string => typeof v === "string" && Boolean(MOUNT_DEFS[v])));
     if (typeof d.activeMount === "string" && p.mounts.has(d.activeMount)) p.activeMount = d.activeMount;
     if (typeof d.lastDaily === "string") p.lastDaily = d.lastDaily.slice(0, 16);
     if (Array.isArray(d.achs))
-      p.achs = new Set((d.achs as unknown[]).filter((v): v is string => typeof v === "string" && !!ACHIEVEMENTS[v]));
+      p.achs = new Set((d.achs as unknown[]).filter((v): v is string => typeof v === "string" && Boolean(ACHIEVEMENTS[v])));
     p.killCount = clampInt(d.killCount, 0, 100000000, 0);
     p.goldEarned = clampInt(d.goldEarned, 0, 100000000, 0);
     p.fishCount = clampInt(d.fishCount, 0, 100000000, 0);
@@ -3021,7 +3021,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       const rank: Record<string, number> = { rare: 0, magic: 1, common: 2 };
       const slotRank: Record<string, number> = { weapon: 0, armor: 1, helm: 2, ring: 3, potion: 4, quest: 5 };
-      const items = p.inv.filter((it): it is Item => !!it);
+      const items = p.inv.filter((it): it is Item => Boolean(it));
       items.sort((a, b) => {
         const rr = (rank[a.rarity] ?? 9) - (rank[b.rarity] ?? 9);
         if (rr) return rr;
@@ -3834,14 +3834,12 @@ function simTick(): void {
       toast(p, "Dejas de cocinar");
     }
     if (p.sitting && (channelInterrupted(p, now) || p.moving)) {
-      p.sitting = false;
+      standUp(p, true);
       toast(p, "Te levantás");
-      sendYou(p);
     }
     if (p.mounted && p.combatUntil > now) {
-      p.mounted = false;
+      dismount(p, true);
       toast(p, "El combate te apeó");
-      sendYou(p);
     }
     if (p.tradeId && p.combatUntil > now) cancelTrade(p, "Combate — intercambio cancelado");
 
