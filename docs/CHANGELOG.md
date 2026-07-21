@@ -1,3 +1,11 @@
+## 2026-09-32 — nearTile + oocActionGate + buyAtCriadero
+
+- Helpers `nearTile`, `oocActionGate`, `noteProf`, `buyAtCriadero` deduplican tiles,
+  montar/sentar, logros de profesión y compras del criadero.
+- Constantes `MSG_STASH` / `MSG_CRIADERO` / `MSG_ELDER`; interruptChannels más claro.
+- Trade accept: mismatch de nombre → "La propuesta expiró" (no toast offline duplicado).
+- Cache bust `?v=20260932`.
+
 ## 2026-09-31 — Duel invite box + rewardBossKill
 
 - **Bugfix**: duelo y party ya no comparten `inviteBox` (se pisaban las invitaciones).

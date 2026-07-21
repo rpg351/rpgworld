@@ -462,6 +462,12 @@ function grantCountAchs(p: Player, count: number, ...tiers: [number, string][]):
   for (const [n, id] of tiers) if (count >= n) grantAch(p, id);
 }
 
+/** Mark dirty and grant profession-count achievements. */
+function noteProf(p: Player, count: number, ...tiers: [number, string][]): void {
+  p.dirty = true;
+  grantCountAchs(p, count, ...tiers);
+}
+
 function noteGold(p: Player, amount: number): void {
   if (amount <= 0) return;
   p.goldEarned += amount;
@@ -1535,13 +1541,9 @@ function abortChannel(p: Player, msg: string): void {
 }
 
 function interruptChannels(p: Player, now: number): void {
-  if (p.fishUntil && channelInterrupted(p, now)) {
-    abortChannel(p, "Dejas de pescar");
-  } else if (p.forageUntil && channelInterrupted(p, now)) {
-    abortChannel(p, "Dejas de recolectar");
-  } else if (p.cookUntil && (channelInterrupted(p, now) || !nearNpc(p, bront))) {
-    abortChannel(p, "Dejas de cocinar");
-  }
+  if (p.fishUntil && channelInterrupted(p, now)) return abortChannel(p, "Dejas de pescar");
+  if (p.forageUntil && channelInterrupted(p, now)) return abortChannel(p, "Dejas de recolectar");
+  if (p.cookUntil && (channelInterrupted(p, now) || !nearNpc(p, bront))) abortChannel(p, "Dejas de cocinar");
 }
 
 function needOnline(p: Player, q: Player | null, msg = "Ese jugador no está en línea"): q is Player {
@@ -1561,7 +1563,11 @@ function dismountAndStand(p: Player): void {
 }
 
 function channelBusy(p: Player, now: number): boolean {
-  return Boolean((p.fishUntil && now < p.fishUntil) || (p.cookUntil && now < p.cookUntil) || (p.forageUntil && now < p.forageUntil));
+  return Boolean(
+    (p.fishUntil && now < p.fishUntil) ||
+    (p.cookUntil && now < p.cookUntil) ||
+    (p.forageUntil && now < p.forageUntil),
+  );
 }
 
 function channelInterrupted(p: Player, now: number): boolean {
@@ -1642,13 +1648,15 @@ function tileAt(x: number, y: number): string {
 }
 
 
-function nearTree(p: Player): boolean {
+function nearTile(p: Player, tile: string): boolean {
   const cx = Math.floor(p.x), cy = Math.floor(p.y);
   for (let dy = -1; dy <= 1; dy++)
     for (let dx = -1; dx <= 1; dx++)
-      if (tileAt(cx + dx + 0.5, cy + dy + 0.5) === "t") return true;
+      if (tileAt(cx + dx + 0.5, cy + dy + 0.5) === tile) return true;
   return false;
 }
+function nearTree(p: Player): boolean { return nearTile(p, "t"); }
+function nearWater(p: Player): boolean { return nearTile(p, "w"); }
 
 function nearFountainBind(p: Player): boolean {
   return dist(p.x, p.y, FOUNTAIN.x, FOUNTAIN.y) <= FOUNTAIN_REGEN_R + 1.5;
@@ -1670,8 +1678,7 @@ function tryFinishForage(p: Player, now: number): void {
     return;
   }
   p.forageCount++;
-  p.dirty = true;
-  grantCountAchs(p, p.forageCount, [20, "forage_20"]);
+  noteProf(p, p.forageCount, [20, "forage_20"]);
   const rare = herb.rarity === "magic";
   toast(p, rare ? `¡Encontraste ${herb.name}!` : `Recolectaste: ${herb.name}`);
   pushLootLog(p, { name: herb.name, rarity: herb.rarity, icon: "herb" });
@@ -1720,8 +1727,7 @@ function beginBrew(p: Player, now: number): void {
     return;
   }
   p.brewCount++;
-  p.dirty = true;
-  grantCountAchs(p, p.brewCount, [15, "brew_15"]);
+  noteProf(p, p.brewCount, [15, "brew_15"]);
   toast(p, `Preparaste: ${outItem.name} (con ${herbName})`);
   pushLootLog(p, { name: outItem.name, rarity: outItem.rarity, icon: outItem.icon });
   bcastAt(p.x, p.y, { t: "fx", k: "brew", i: p.id });
@@ -1949,8 +1955,7 @@ function trySalvage(p: Player, slot: number): void {
   p.gold += gain;
   noteGold(p, gain);
   p.salvageCount++;
-  p.dirty = true;
-  grantCountAchs(p, p.salvageCount, [1, "salvage_1"], [20, "salvage_20"]);
+  noteProf(p, p.salvageCount, [1, "salvage_1"], [20, "salvage_20"]);
   toast(p, `Desguazaste ${name} (+${gain} oro)`);
   pushLootLog(p, { name: `Desguace: ${name}`, rarity: it.rarity, icon: it.icon || "armor", gold: gain });
   bcastAt(p.x, p.y, { t: "fx", k: "brew", i: p.id });
@@ -2089,7 +2094,7 @@ function tryTradeAccept(p: Player, fromName: string, now: number): void {
   if (!inv || now > inv.until) return toast(p, "La propuesta expiró");
   const other = playerById(inv.fromId);
   if (!needOnline(p, other)) return;
-  if (other.name.toLowerCase() !== key) return toast(p, "Ese jugador no está en línea");
+  if (other.name.toLowerCase() !== key) return toast(p, "La propuesta expiró");
   if (other.tradeId) return toast(p, `${other.name} ya está intercambiando`);
   if (tooFar(p, other, TRADE_RANGE)) return;
   const id = `tr_${other.id}_${p.id}_${now}`;
@@ -2276,14 +2281,6 @@ function maintainTrades(now: number): void {
 }
 
 
-function nearWater(p: Player): boolean {
-  const cx = Math.floor(p.x), cy = Math.floor(p.y);
-  for (let dy = -1; dy <= 1; dy++)
-    for (let dx = -1; dx <= 1; dx++)
-      if (tileAt(cx + dx + 0.5, cy + dy + 0.5) === "w") return true;
-  return false;
-}
-
 function tryFinishFish(p: Player, now: number): void {
   if (!p.fishUntil || now < p.fishUntil) return;
   p.fishUntil = 0;
@@ -2294,8 +2291,7 @@ function tryFinishFish(p: Player, now: number): void {
     return;
   }
   p.fishCount++;
-  p.dirty = true;
-  grantCountAchs(p, p.fishCount, [10, "fish_10"], [50, "fish_50"]);
+  noteProf(p, p.fishCount, [10, "fish_10"], [50, "fish_50"]);
   const rare = fish.rarity === "magic";
   toast(p, rare ? `¡Capturaste ${fish.name}!` : `Pescaste: ${fish.name}`);
   pushLootLog(p, { name: fish.name, rarity: fish.rarity, icon: "fish" });
@@ -2327,8 +2323,7 @@ function tryFinishCook(p: Player, now: number): void {
     return;
   }
   p.cookCount++;
-  p.dirty = true;
-  grantCountAchs(p, p.cookCount, [10, "cook_10"], [40, "cook_40"]);
+  noteProf(p, p.cookCount, [10, "cook_10"], [40, "cook_40"]);
   toast(p, `Cocinaste: ${food.name}`);
   pushLootLog(p, { name: food.name, rarity: food.rarity, icon: "food" });
   bcastAt(p.x, p.y, { t: "fx", k: "cook", i: p.id });
@@ -2431,8 +2426,16 @@ function standUp(p: Player, quiet = false): void {
   sendYou(p);
 }
 
+/** Shared out-of-combat gate for mount / sit. */
+function oocActionGate(p: Player, combatMsg: string): boolean {
+  if (p.dead) return true;
+  const now = Date.now();
+  if (inCombatBlock(p, now, combatMsg)) return true;
+  if (channelBlocked(p, now)) return true;
+  return false;
+}
+
 function tryMount(p: Player): void {
-  if (p.dead) return;
   if (p.mounted) { dismount(p); return; }
   if (!p.activeMount || !p.mounts.has(p.activeMount) || !MOUNT_DEFS[p.activeMount]) {
     // Prefer saved mount; else first owned.
@@ -2440,9 +2443,7 @@ function tryMount(p: Player): void {
     if (!first) return toast(p, "No tenés montura — comprá una en el Criadero");
     p.activeMount = first;
   }
-  const now = Date.now();
-  if (inCombatBlock(p, now, "No podés montar en combate")) return;
-  if (channelBlocked(p, now)) return;
+  if (oocActionGate(p, "No podés montar en combate")) return;
   standUp(p, true);
   p.mounted = true;
   p.dirty = true;
@@ -2451,12 +2452,9 @@ function tryMount(p: Player): void {
 }
 
 function trySit(p: Player): void {
-  if (p.dead) return;
   if (p.sitting) { standUp(p); return; }
-  const now = Date.now();
-  if (inCombatBlock(p, now, "No podés sentarte en combate")) return;
   if (p.mounted) return toast(p, "Apeáte antes de sentarte");
-  if (channelBlocked(p, now)) return;
+  if (oocActionGate(p, "No podés sentarte en combate")) return;
   clearMobility(p);
   p.sitting = true;
   toast(p, "Te sentás a descansar");
@@ -2880,9 +2878,29 @@ function nearNpc(p: Player, npc: Npc, range = 3): boolean {
   return dist(p.x, p.y, npc.x, npc.y) <= range;
 }
 
+const MSG_STASH = "Tenés que estar junto al cofre";
+const MSG_CRIADERO = "Tenés que estar junto al criadero";
+const MSG_ELDER = "Tenés que hablar con Nikandros";
+
 function needNpc(p: Player, npc: Npc, msg: string, range = 3): boolean {
   if (!nearNpc(p, npc, range)) { toast(p, msg); return true; }
   return false;
+}
+
+function buyAtCriadero(
+  p: Player,
+  owned: Set<string>,
+  id: string,
+  def: { cost: number; name: string } | undefined,
+  alreadyMsg: string,
+): def is { cost: number; name: string } {
+  if (p.dead) return false;
+  if (needNpc(p, petshopNpc, MSG_CRIADERO)) return false;
+  if (!def || !id) return false;
+  if (owned.has(id)) { toast(p, alreadyMsg); return false; }
+  if (needGold(p, def.cost)) return false;
+  p.gold -= def.cost;
+  return true;
 }
 
 
@@ -3216,7 +3234,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "stash_deposit": {
       if (p.dead) return;
-      if (needNpc(p, stashNpc, "Tenés que estar junto al cofre")) return;
+      if (needNpc(p, stashNpc, MSG_STASH)) return;
       const slot = readSlot(msg);
       if (slot == null) return;
       const it = p.inv[slot];
@@ -3230,7 +3248,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "stash_withdraw": {
       if (p.dead) return;
-      if (needNpc(p, stashNpc, "Tenés que estar junto al cofre")) return;
+      if (needNpc(p, stashNpc, MSG_STASH)) return;
       const slot = readSlot(msg, STASH_SIZE);
       if (slot == null) return;
       const it = p.stash[slot];
@@ -3242,14 +3260,9 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "pet_buy": {
-      if (p.dead) return;
-      if (needNpc(p, petshopNpc, "Tenés que estar junto al criadero")) return;
       const id = typeof msg.id === "string" ? msg.id : "";
       const def = PET_DEFS[id];
-      if (!def) return;
-      if (p.pets.has(id)) return toast(p, "Ya tenés esa mascota");
-      if (needGold(p, def.cost)) return;
-      p.gold -= def.cost;
+      if (!buyAtCriadero(p, p.pets, id, def, "Ya tenés esa mascota")) return;
       p.pets.add(id);
       p.dirty = true;
       grantAch(p, "pet_1");
@@ -3271,14 +3284,9 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "mount_buy": {
-      if (p.dead) return;
-      if (needNpc(p, petshopNpc, "Tenés que estar junto al criadero")) return;
       const id = typeof msg.id === "string" ? msg.id : "";
       const def = MOUNT_DEFS[id];
-      if (!def) return;
-      if (p.mounts.has(id)) return toast(p, "Ya tenés esa montura");
-      if (needGold(p, def.cost)) return;
-      p.gold -= def.cost;
+      if (!buyAtCriadero(p, p.mounts, id, def, "Ya tenés esa montura")) return;
       p.mounts.add(id);
       if (!p.activeMount) p.activeMount = id;
       p.dirty = true;
@@ -3429,7 +3437,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       const qid = typeof msg.qid === "string" ? msg.qid : "";
       if (!QUESTS[qid]) return;
-      if (needNpc(p, elder, "Tenés que hablar con Nikandros")) return;
+      if (needNpc(p, elder, MSG_ELDER)) return;
       if (questState(p, qid) !== "available") return toast(p, "Aún no podés aceptar esa misión");
       p.quests[qid] = { n: 0, done: false, turned: false };
       if (QUESTS[qid].kind === "collect") updateCollect(p);
@@ -3445,7 +3453,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const qid = typeof msg.qid === "string" ? msg.qid : "";
       const def = QUESTS[qid];
       if (!def) return;
-      if (needNpc(p, elder, "Tenés que hablar con Nikandros")) return;
+      if (needNpc(p, elder, MSG_ELDER)) return;
       if (questState(p, qid) !== "complete") return toast(p, "Esa misión no está completa");
       let rewardItem: Item | null = null;
       if (def.rew.item) {
