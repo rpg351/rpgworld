@@ -1,3 +1,14 @@
+## 2026-07-21 — Logros, medidor de sesión, chat de grupo y pestañas
+
+- **Logros (Y)**: 20 logros persistentes (bajas, jefes, niveles, misiones, mascota,
+  grupo, oro, portales, rachas) con recompensa de oro y toast al desbloquearlos.
+- **Medidor de sesión**: panel con daño infligido/recibido, curación, bajas, muertes
+  y DPS de la sesión (opción en Menú → Opciones).
+- **Chat de grupo**: `/p`, `/g` o `/grupo mensaje` solo a tu grupo.
+- **Pestañas de chat**: Todo / Grupo / Susurro / Sistema.
+- Cache bust `?v=20260906`.
+
+
 ## 2026-07-21 — Mapa del mundo, marca personal, coords y FPS
 
 - **Mapa del mundo (M)**: overlay grande con zonas, jefes (y timers), grupo,

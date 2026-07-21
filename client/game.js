@@ -82,6 +82,23 @@ var I18N = {
     "opt.combatlog": "Mostrar registro de combate",
     "opt.fps": "Mostrar FPS",
     "panel.worldmap": "Mapa del mundo",
+    "panel.achs": "Logros",
+    "panel.meter": "Sesión de combate",
+    "meter.dealt": "Daño infligido",
+    "meter.taken": "Daño recibido",
+    "meter.healed": "Curado",
+    "meter.kills": "Bajas",
+    "meter.deaths": "Muertes",
+    "meter.dps": "DPS",
+    "achs.empty": "Aún no hay logros",
+    "achs.stats": (k, g) => `Bajas: ${k} · Oro ganado: ${g}`,
+    "chat.tab.all": "Todo",
+    "chat.tab.party": "Grupo",
+    "chat.tab.whisper": "Susurro",
+    "chat.tab.sys": "Sistema",
+    "opt.meter": "Mostrar medidor de sesión",
+    "help.achs": "Logros",
+    "help.partychat": "Chat de grupo: /p mensaje (también /g o /grupo)",
     "help.worldmap": "Abrir mapa del mundo",
     "help.waypoint": "Marca personal (se guarda en este navegador)",
     "help.waypointKey": "Shift+clic (minimapa/mapa)",
@@ -132,7 +149,7 @@ var I18N = {
     "help.h.social": "Pueblo y grupo",
     "help.recall": "Volver a Helike (recall)",
     "help.enterKey": "Enter",
-    "help.chat": "Escribir en el chat (/w nombre mensaje = susurro)",
+    "help.chat": "Escribir en el chat (/w nombre = susurro, /p = grupo)",
     "help.pingKey": "G / clic minimapa",
     "help.ping": "Marcar una posición para tu grupo",
     "help.playerKey": "Clic en otro jugador",
@@ -223,6 +240,23 @@ var I18N = {
     "opt.combatlog": "Show combat log",
     "opt.fps": "Show FPS",
     "panel.worldmap": "World map",
+    "panel.achs": "Achievements",
+    "panel.meter": "Combat session",
+    "meter.dealt": "Damage dealt",
+    "meter.taken": "Damage taken",
+    "meter.healed": "Healed",
+    "meter.kills": "Kills",
+    "meter.deaths": "Deaths",
+    "meter.dps": "DPS",
+    "achs.empty": "No achievements yet",
+    "achs.stats": (k, g) => `Kills: ${k} · Gold earned: ${g}`,
+    "chat.tab.all": "All",
+    "chat.tab.party": "Party",
+    "chat.tab.whisper": "Whisper",
+    "chat.tab.sys": "System",
+    "opt.meter": "Show session meter",
+    "help.achs": "Achievements",
+    "help.partychat": "Party chat: /p message (also /g or /grupo)",
     "help.worldmap": "Open the world map",
     "help.waypoint": "Personal marker (saved in this browser)",
     "help.waypointKey": "Shift+click (minimap/map)",
@@ -273,7 +307,7 @@ var I18N = {
     "help.h.social": "Town and party",
     "help.recall": "Return to Helike (recall)",
     "help.enterKey": "Enter",
-    "help.chat": "Type in chat (/w name message = whisper)",
+    "help.chat": "Type in chat (/w name = whisper, /p = party)",
     "help.pingKey": "G / minimap click",
     "help.ping": "Mark a position for your party",
     "help.playerKey": "Click another player",
@@ -390,7 +424,11 @@ var S = {
   combatLog: [],
   showLootLog: true,
   showCombatLog: false,
+  showMeter: true,
   showFps: false,
+  meter: { dealt: 0, taken: 0, healed: 0, kills: 0, deaths: 0, t0: 0 },
+  achs: { unlocked: [], defs: [], killCount: 0, goldEarned: 0 },
+  chatTab: "all",
   waypoint: null,
   _fpsFrames: 0,
   _fpsAt: 0,
@@ -514,6 +552,8 @@ function handle(m) {
       S.dead = false;
       S.reviveAt = 0;
       S.streak = 0;
+      S.meter = { dealt: 0, taken: 0, healed: 0, kills: 0, deaths: 0, t0: Date.now() };
+      S.achs = { unlocked: [], defs: S.achs.defs || [], killCount: 0, goldEarned: 0 };
       updateStreakHud();
       $("deathOverlay").classList.add("hidden");
       enterGame();
@@ -735,6 +775,28 @@ function handleWorld(m) {
     case "combatlog": {
       S.combatLog = Array.isArray(m.entries) ? m.entries : [];
       renderCombatLog();
+      break;
+    }
+    case "meter": {
+      S.meter = {
+        dealt: Number(m.dealt) || 0,
+        taken: Number(m.taken) || 0,
+        healed: Number(m.healed) || 0,
+        kills: Number(m.kills) || 0,
+        deaths: Number(m.deaths) || 0,
+        t0: Number(m.t0) || S.meter.t0 || 0,
+      };
+      renderMeter();
+      break;
+    }
+    case "achs": {
+      S.achs = {
+        unlocked: Array.isArray(m.unlocked) ? m.unlocked.slice() : [],
+        defs: Array.isArray(m.defs) ? m.defs.slice() : (S.achs.defs || []),
+        killCount: Number(m.killCount) || 0,
+        goldEarned: Number(m.goldEarned) || 0,
+      };
+      renderAchs();
       break;
     }
     case "toast": {
@@ -3238,6 +3300,7 @@ var LS_AUTOLOOT = "aot_autoloot";
 var LS_AUTOPOTION = "aot_autopotion";
 var LS_LOOTLOG = "aot_lootlog";
 var LS_COMBATLOG = "aot_combatlog";
+var LS_METER = "aot_meter";
 var LS_FPS = "aot_fps";
 var LS_WAYPOINT = "aot_waypoint";
 function loadAutoLoot() {
@@ -3256,10 +3319,12 @@ function loadLogPanels() {
   try {
     S.showLootLog = localStorage.getItem(LS_LOOTLOG) !== "0";
     S.showCombatLog = localStorage.getItem(LS_COMBATLOG) === "1";
+    S.showMeter = localStorage.getItem(LS_METER) !== "0";
     S.showFps = localStorage.getItem(LS_FPS) === "1";
   } catch (e) {
     S.showLootLog = true;
     S.showCombatLog = false;
+    S.showMeter = true;
     S.showFps = false;
   }
 }
@@ -3311,6 +3376,8 @@ function syncMenuControls() {
   if (ap) ap.value = S.autoPotion;
   if (ll) ll.checked = Boolean(S.showLootLog);
   if (cl) cl.checked = Boolean(S.showCombatLog);
+  const mt0 = $("optMeter");
+  if (mt0) mt0.checked = Boolean(S.showMeter);
   if (fp) fp.checked = Boolean(S.showFps);
   const fh = $("fpsHud");
   if (fh) fh.classList.toggle("hidden", !S.showFps);
@@ -3347,7 +3414,7 @@ function initMenu() {
     S.autoPotion = ap.value;
     try { localStorage.setItem(LS_AUTOPOTION, S.autoPotion); } catch (e) {}
   });
-  const ll = $("optLootLog"), cl = $("optCombatLog");
+  const ll = $("optLootLog"), cl = $("optCombatLog"), mt = $("optMeter");
   if (ll) ll.addEventListener("change", () => {
     S.showLootLog = Boolean(ll.checked);
     try { localStorage.setItem(LS_LOOTLOG, S.showLootLog ? "1" : "0"); } catch (e) {}
@@ -3357,6 +3424,11 @@ function initMenu() {
     S.showCombatLog = Boolean(cl.checked);
     try { localStorage.setItem(LS_COMBATLOG, S.showCombatLog ? "1" : "0"); } catch (e) {}
     renderCombatLog();
+  });
+  if (mt) mt.addEventListener("change", () => {
+    S.showMeter = Boolean(mt.checked);
+    try { localStorage.setItem(LS_METER, S.showMeter ? "1" : "0"); } catch (e) {}
+    renderMeter();
   });
   const fp = $("optFps");
   if (fp) fp.addEventListener("change", () => {
@@ -3371,7 +3443,7 @@ function initMenu() {
   renderLootLog();
   renderCombatLog();
 }
-var PANEL_ORDER = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "inspectPanel"];
+var PANEL_ORDER = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "achPanel", "inspectPanel"];
 function closeTopPanel() {
   for (const id of PANEL_ORDER) {
     const el = $(id);
@@ -3609,6 +3681,11 @@ window.addEventListener("keydown", (e) => {
     case "M":
       toggleWorldMap();
       break;
+    case "y":
+    case "Y":
+      togglePanel("achPanel");
+      if (!$("achPanel").classList.contains("hidden")) renderAchs();
+      break;
     case "b":
     case "B":
       if (!S.dead)
@@ -3632,6 +3709,9 @@ window.addEventListener("keydown", (e) => {
 ["invPanel", "shopPanel"].forEach((id) => {
   const el = $(id);
   if (el) el.addEventListener("mouseleave", hideTooltip);
+});
+document.querySelectorAll(".chat-tab").forEach((b) => {
+  b.addEventListener("click", () => setChatTab(b.dataset.ch || "all"));
 });
 document.querySelectorAll(".panel-x").forEach((x) => x.addEventListener("click", () => {
   const id = x.dataset.close;
@@ -5154,27 +5234,53 @@ function toast(msg) {
   setTimeout(() => el.classList.add("fade"), 2200);
   setTimeout(() => el.remove(), 2900);
 }
+function chatChannel(m) {
+  if (m.sys) return "sys";
+  if (m.whisper) return "whisper";
+  if (m.party) return "party";
+  return "all";
+}
+function applyChatFilter() {
+  const log = $("chatLog");
+  if (!log) return;
+  const tab = S.chatTab || "all";
+  for (const el of log.children) {
+    const ch = el.dataset.ch || "all";
+    el.classList.toggle("chat-hide", tab !== "all" && ch !== tab);
+  }
+}
+function setChatTab(tab) {
+  S.chatTab = tab || "all";
+  document.querySelectorAll(".chat-tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.ch === S.chatTab);
+  });
+  applyChatFilter();
+}
 function addChat(m) {
   const log = $("chatLog");
+  if (!log) return;
   const el = document.createElement("div");
+  const ch = chatChannel(m);
+  el.dataset.ch = ch;
   if (m.sys) {
     el.className = "sys";
     el.textContent = m.text;
   } else {
     if (m.whisper) el.className = "whisper";
+    else if (m.party) el.className = "party";
     const who = document.createElement("span");
     who.className = "who";
-    who.textContent = m.from + ": ";
+    who.textContent = (m.party ? "[G] " : "") + (m.from || "?") + ": ";
     el.appendChild(who);
     el.appendChild(document.createTextNode(m.text));
   }
+  if ((S.chatTab || "all") !== "all" && ch !== S.chatTab) el.classList.add("chat-hide");
   log.appendChild(el);
-  while (log.children.length > 60)
+  while (log.children.length > 80)
     log.firstChild.remove();
   log.scrollTop = log.scrollHeight;
   log.classList.remove("idle");
   S.chatIdleT = now();
-  // Mobile: if chat panel is closed, ping the Chat button so messages aren't missed.
   if (isMobileUi()) {
     const chat = $("chat");
     const btn = $("mobChat");
@@ -5672,6 +5778,40 @@ function renderCombatLog() {
     const when = e.at ? new Date(e.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
     return `<div class="log-row"><span class="log-src">${e.src || "?"}</span><span class="log-dmg">-${e.dmg || 0}</span><span class="log-time">${when}</span></div>`;
   }).join("");
+}
+function renderMeter() {
+  const body = $("meterBody");
+  const panel = $("meterPanel");
+  if (!body || !panel) return;
+  panel.classList.toggle("hidden", !S.showMeter);
+  const m = S.meter || {};
+  const secs = Math.max(1, Math.floor((Date.now() - (m.t0 || Date.now())) / 1000));
+  const dps = Math.round((m.dealt || 0) / secs);
+  body.innerHTML = [
+    ["meter.dealt", m.dealt || 0],
+    ["meter.taken", m.taken || 0],
+    ["meter.healed", m.healed || 0],
+    ["meter.kills", m.kills || 0],
+    ["meter.deaths", m.deaths || 0],
+    ["meter.dps", dps],
+  ].map(([k, v]) => `<div class="meter-row"><span>${t(k)}</span><b>${v}</b></div>`).join("");
+}
+function renderAchs() {
+  const body = $("achBody");
+  if (!body) return;
+  const a = S.achs || { unlocked: [], defs: [], killCount: 0, goldEarned: 0 };
+  const unlocked = new Set(a.unlocked || []);
+  const defs = a.defs || [];
+  if (!defs.length) {
+    body.innerHTML = `<div class="log-empty">${t("achs.empty")}</div>`;
+    return;
+  }
+  const stats = `<div class="ach-stats">${t("achs.stats", a.killCount || 0, a.goldEarned || 0)}</div>`;
+  const rows = defs.map((d) => {
+    const on = unlocked.has(d.id);
+    return `<div class="ach-row${on ? " on" : ""}"><span class="ach-name">${on ? "✓ " : ""}${d.name}</span><span class="ach-gold">+${d.gold}g</span><span class="ach-desc">${d.desc}</span></div>`;
+  }).join("");
+  body.innerHTML = stats + rows;
 }
 function updateQuestTracker() {
   const el = $("questTracker");

@@ -442,6 +442,32 @@ export interface QuestDef {
   rew: { xp: number; gold: number; item?: "weapon" | "armor" | "rare" };
 }
 
+// ---------------------------------------------------------------------------
+// Achievements (durable unlocks; gold granted once on unlock)
+// ---------------------------------------------------------------------------
+export const ACHIEVEMENTS: Record<string, { name: string; desc: string; gold: number }> = {
+  first_blood: { name: "Primera sangre", desc: "Derrota a tu primer enemigo", gold: 25 },
+  kills_50: { name: "Cazador", desc: "Derrota 50 enemigos", gold: 75 },
+  kills_200: { name: "Veterano", desc: "Derrota 200 enemigos", gold: 200 },
+  kills_500: { name: "Exterminador", desc: "Derrota 500 enemigos", gold: 500 },
+  boss_cyclops: { name: "Cazaciclope", desc: "Derrota a Polifemo", gold: 150 },
+  boss_minotaur: { name: "Laberinto", desc: "Derrota a Asterión", gold: 250 },
+  boss_hydra: { name: "Siete cabezas", desc: "Derrota a la Hidra", gold: 400 },
+  lvl_5: { name: "Aprendiz", desc: "Alcanza el nivel 5", gold: 40 },
+  lvl_10: { name: "Aventurero", desc: "Alcanza el nivel 10", gold: 100 },
+  lvl_15: { name: "Héroe", desc: "Alcanza el nivel 15", gold: 200 },
+  lvl_20: { name: "Titán", desc: "Alcanza el nivel 20", gold: 400 },
+  quest_1: { name: "Ayudante", desc: "Entrega tu primera misión", gold: 30 },
+  quest_6: { name: "Campeón de Helike", desc: "Completa 6 misiones", gold: 150 },
+  quest_all: { name: "Favor del Anciano", desc: "Completa todas las misiones", gold: 500 },
+  pet_1: { name: "Compañero fiel", desc: "Adquiere una mascota", gold: 50 },
+  streak_10: { name: "Imparable", desc: "Consigue una racha de 10", gold: 80 },
+  party_1: { name: "En compañía", desc: "Únete a un grupo", gold: 25 },
+  gold_1k: { name: "Bolsa llena", desc: "Gana 1.000 de oro en total", gold: 50 },
+  gold_10k: { name: "Rico como Creso", desc: "Gana 10.000 de oro en total", gold: 250 },
+  portals: { name: "Explorador", desc: "Desbloquea todos los portales", gold: 200 },
+};
+
 export const QUEST_ORDER = ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12"];
 export const QUESTS: Record<string, QuestDef> = {
   q1: { name: "Jabalíes revoltosos", desc: "Los jabalíes pisotean nuestros olivares. Elimina a 8 de ellos.", kind: "kill", target: "boar", count: 8, rew: { xp: 120, gold: 50 } },

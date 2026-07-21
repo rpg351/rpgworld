@@ -5,7 +5,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ServerWebSocket } from "bun";
 import {
-  CLASS_BASE, CLASS_WEAPON, MOB_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
+  ACHIEVEMENTS, CLASS_BASE, CLASS_WEAPON, MOB_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
   SKILLS, TREES, WEAPON_SCALING, freshItemId, makePotion, makeQuestItem, mobStats,
   rollItem, rollRarity,
 } from "./data";
@@ -149,6 +149,11 @@ interface Player extends StatusHolder {
   combatLog: { src: string; dmg: number; at: number }[]; // session hits taken
   lastDaily: string; // YYYY-MM-DD of last daily login reward
   lastEmoteAt: number;
+  achs: Set<string>; // unlocked achievement ids
+  killCount: number; // lifetime kills (for achievements)
+  goldEarned: number; // lifetime gold gained (for achievements)
+  session: { dealt: number; taken: number; healed: number; kills: number; deaths: number; t0: number };
+  meterAt: number; // last meter push timestamp
   dead: boolean; deadAt: number; lastChat: number; dirty: boolean;
   visitedZones: string[]; // portal destinations unlocked by visiting regions
   party: Party | null; partyId: string | null; // live party + durable id (survives logout/restart)
@@ -276,6 +281,9 @@ function serialize(p: Player): string {
     abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
     pets: [...p.pets], activePet: p.activePet,
     lastDaily: p.lastDaily || "",
+    achs: [...p.achs],
+    killCount: p.killCount,
+    goldEarned: p.goldEarned,
   });
 }
 
@@ -315,6 +323,59 @@ function sendLootLog(p: Player): void {
 
 function sendCombatLog(p: Player): void {
   send(p.ws, { t: "combatlog", entries: p.combatLog });
+}
+
+function sendMeter(p: Player, force = false): void {
+  const now = Date.now();
+  if (!force && now - p.meterAt < 900) return;
+  p.meterAt = now;
+  send(p.ws, { t: "meter", ...p.session });
+}
+
+function sendAchs(p: Player): void {
+  send(p.ws, {
+    t: "achs",
+    unlocked: [...p.achs],
+    defs: Object.entries(ACHIEVEMENTS).map(([id, d]) => ({ id, name: d.name, desc: d.desc, gold: d.gold })),
+    killCount: p.killCount,
+    goldEarned: p.goldEarned,
+  });
+}
+
+function grantAch(p: Player, id: string): void {
+  if (!ACHIEVEMENTS[id] || p.achs.has(id)) return;
+  if (BOT_SQUAD.has(p.name)) return;
+  p.achs.add(id);
+  const def = ACHIEVEMENTS[id];
+  p.gold += def.gold;
+  p.goldEarned += def.gold;
+  p.dirty = true;
+  toast(p, `Logro: ${def.name} (+${def.gold} oro)`);
+  pushLootLog(p, { name: `Logro: ${def.name}`, rarity: "rare", icon: "coin", gold: def.gold });
+  sendAchs(p);
+  sendYou(p);
+}
+
+function noteGold(p: Player, amount: number): void {
+  if (amount <= 0) return;
+  p.goldEarned += amount;
+  if (p.goldEarned >= 1000) grantAch(p, "gold_1k");
+  if (p.goldEarned >= 10000) grantAch(p, "gold_10k");
+}
+
+function checkProgressAchs(p: Player): void {
+  if (p.lvl >= 5) grantAch(p, "lvl_5");
+  if (p.lvl >= 10) grantAch(p, "lvl_10");
+  if (p.lvl >= 15) grantAch(p, "lvl_15");
+  if (p.lvl >= 20) grantAch(p, "lvl_20");
+  const turned = QUEST_ORDER.filter((qid) => p.quests[qid]?.turned).length;
+  if (turned >= 1) grantAch(p, "quest_1");
+  if (turned >= 6) grantAch(p, "quest_6");
+  if (turned >= QUEST_ORDER.length) grantAch(p, "quest_all");
+  const portals = Object.keys(PORTAL_WAYPOINTS);
+  if (portals.length && portals.every((id) => p.visitedZones.includes(id))) grantAch(p, "portals");
+  if (p.pets.size > 0) grantAch(p, "pet_1");
+  if (p.party) grantAch(p, "party_1");
 }
 
 /** Broadcast to every online player whose AOI covers (x,y). */
@@ -517,11 +578,13 @@ function rollDrops(m: Mob, killer: Player): void {
   const petGoldPct = petDef?.stat === "gold" ? petDef.amount : 0;
   const goldGain = Math.round(m.gold() * (1 + petGoldPct / 100));
   killer.gold += goldGain;
+  noteGold(killer, goldGain);
   if (goldGain > 0) pushLootLog(killer, { name: "Oro", rarity: "common", icon: "coin", gold: goldGain });
   // Equipped pet occasionally "fetches" a little extra gold (toast rate kept low).
   if (petDef && Math.random() < 0.08) {
     const bonus = 2 + Math.floor(Math.random() * (3 + Math.max(1, Math.floor(m.lvl / 2))));
     killer.gold += bonus;
+    noteGold(killer, bonus);
     toast(killer, `Tu ${petDef.name} encontró ${bonus} de oro`);
   }
   const boss = BOSS_LOOT[m.kind];
@@ -567,6 +630,7 @@ function addXp(p: Player, amount: number): void {
     p.hp = d.mhp;
     p.mp = d.mmp;
     if (p.party) partyBcast(p.party); // refresca niveles en los marcos del grupo
+    checkProgressAchs(p);
   }
   if (p.lvl >= LEVEL_CAP) p.xp = 0;
 }
@@ -580,9 +644,11 @@ function noteKillStreak(p: Player): void {
   const bonus = p.killStreak === 5 ? 15 : p.killStreak === 10 ? 40 : p.killStreak === 20 ? 100 : 0;
   if (bonus) {
     p.gold += bonus;
+    noteGold(p, bonus);
     toast(p, `¡Racha ×${p.killStreak}! +${bonus} oro`);
     sendYou(p);
   }
+  if (p.killStreak >= 10) grantAch(p, "streak_10");
 }
 
 function mobDie(m: Mob, killer: Player): void {
@@ -603,6 +669,16 @@ function mobDie(m: Mob, killer: Player): void {
     addXp(q, Math.max(1, Math.round((m.xp * mult * bonus) / sharers.length)));
   }
   noteKillStreak(killer);
+  killer.killCount++;
+  killer.session.kills++;
+  grantAch(killer, "first_blood");
+  if (killer.killCount >= 50) grantAch(killer, "kills_50");
+  if (killer.killCount >= 200) grantAch(killer, "kills_200");
+  if (killer.killCount >= 500) grantAch(killer, "kills_500");
+  if (m.kind === "cyclops") grantAch(killer, "boss_cyclops");
+  if (m.kind === "minotaur") grantAch(killer, "boss_minotaur");
+  if (m.kind === "hydra") grantAch(killer, "boss_hydra");
+  sendMeter(killer);
   rollDrops(m, killer);
   // Crédito de misiones de caza para todos los miembros cercanos.
   for (const member of sharers) {
@@ -647,6 +723,8 @@ function playerDie(p: Player): void {
   p.deadAt = Date.now();
   p.killStreak = 0;
   p.killStreakAt = 0;
+  p.session.deaths++;
+  sendMeter(p, true);
   send(p.ws, { t: "streak", n: 0 });
   p.hp = 0;
   p.path = null;
@@ -907,6 +985,7 @@ function attachPlayerToParty(p: Player, pt: Party): void {
   if (row) { row.cls = p.cls; row.lvl = p.lvl; }
   else pt.roster.push({ name: p.name, cls: p.cls, lvl: p.lvl });
   liveParties.set(pt.id, pt);
+  grantAch(p, "party_1");
 }
 
 function getOrLoadParty(id: string): Party | null {
@@ -1028,7 +1107,9 @@ function playerHit(p: Player, m: Mob, raw: number, d: Derived = derive(p)): void
   p.combatUntil = Date.now() + COMBAT_MS;
   p.lastAtk = Date.now();
   p.d = m.x < p.x ? 1 : 0;
-  const ev: Record<string, unknown> = { t: "dmg", i: m.id, a: dmg };
+  p.session.dealt += dmg;
+  sendMeter(p);
+  const ev: Record<string, unknown> = { t: "dmg", i: m.id, a: dmg, s: p.id };
   if (crit) ev.c = 1;
   bcastAt(m.x, m.y, ev);
   if (m.hp <= 0) {
@@ -1052,8 +1133,10 @@ function mobHit(m: Mob, p: Player, mul = 1): void {
   p.combatUntil = Date.now() + COMBAT_MS;
   m.lastAtk = Date.now();
   m.d = p.x < m.x ? 1 : 0;
-  bcastAt(p.x, p.y, { t: "dmg", i: p.id, a: dmg });
+  bcastAt(p.x, p.y, { t: "dmg", i: p.id, a: dmg, s: m.id });
   noteHitTaken(p, m.name || m.kind, dmg);
+  p.session.taken += dmg;
+  sendMeter(p);
   // Solo auto-retaliate: if not in a party and not WASD-steering, lock onto the attacker
   // when we have no living target (manual click / party follow still win when set).
   if (!p.party && !p.vel && !p.dead) {
@@ -1134,6 +1217,8 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
       const before = pl.hp;
       pl.hp = Math.min(dm.mhp, pl.hp + amount);
       if (pl.hp > before) {
+        p.session.healed += pl.hp - before;
+        sendMeter(p);
         bcastAt(pl.x, pl.y, { t: "fx", k: "heal", i: pl.id });
         sendYou(pl);
       }
@@ -1303,6 +1388,7 @@ function unlockPortal(p: Player, id: string, silent = false): void {
     p.visitedZones.push(id);
     p.dirty = true;
     if (!silent) toast(p, `Portal desbloqueado: ${PORTAL_WAYPOINTS[id].label}`);
+    checkProgressAchs(p);
   }
 }
 
@@ -1385,6 +1471,9 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     killStreak: 0, killStreakAt: 0, restedUntil: 0, restAccum: 0,
     buyback: [], lastPingAt: 0,
     recentHits: [], lootHist: [], combatLog: [], lastDaily: "", lastEmoteAt: 0,
+    achs: new Set<string>(), killCount: 0, goldEarned: 0,
+    session: { dealt: 0, taken: 0, healed: 0, kills: 0, deaths: 0, t0: Date.now() },
+    meterAt: 0,
     dead: false, deadAt: 0, lastChat: 0, dirty: true, seen: new Set(),
     party: null, partyId: null, invites: new Map(), disconnectedAt: null, followId: null,
     followStuck: 0,
@@ -1478,6 +1567,10 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
       p.pets = new Set((d.pets as unknown[]).filter((v): v is string => typeof v === "string" && !!PET_DEFS[v]));
     if (typeof d.activePet === "string" && p.pets.has(d.activePet)) p.activePet = d.activePet;
     if (typeof d.lastDaily === "string") p.lastDaily = d.lastDaily.slice(0, 16);
+    if (Array.isArray(d.achs))
+      p.achs = new Set((d.achs as unknown[]).filter((v): v is string => typeof v === "string" && !!ACHIEVEMENTS[v]));
+    p.killCount = clampInt(d.killCount, 0, 100000000, 0);
+    p.goldEarned = clampInt(d.goldEarned, 0, 100000000, 0);
     if (d.eq && typeof d.eq === "object") {
       const eq = d.eq as Record<string, unknown>;
       for (const slot of EQUIP_SLOTS) {
@@ -1596,11 +1689,15 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
     if (player.followId != null) send(ws, { t: "follow_state", id: player.followId });
     sendLootLog(player);
     sendCombatLog(player);
+    sendAchs(player);
+    sendMeter(player, true);
+    checkProgressAchs(player);
     if (!BOT_SQUAD.has(player.name)) {
       const day = new Date().toISOString().slice(0, 10);
       if (player.lastDaily !== day) {
         const bonus = 40 + 12 * player.lvl;
         player.gold += bonus;
+        noteGold(player, bonus);
         player.lastDaily = day;
         player.dirty = true;
         toast(player, `Bonus diario: +${bonus} de oro`);
@@ -2003,6 +2100,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.gold -= def.cost;
       p.pets.add(id);
       p.dirty = true;
+      grantAch(p, "pet_1");
       sendYou(p);
       sendPetShop(p);
       toast(p, `Adoptaste a ${def.name}`);
@@ -2128,10 +2226,12 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (def.kind === "collect") removeQuestItems(p, def.target, def.count);
       p.quests[qid].turned = true;
       p.gold += def.rew.gold;
+      noteGold(p, def.rew.gold);
       addXp(p, def.rew.xp);
       toast(p, `Misión completada: +${def.rew.xp} de experiencia, +${def.rew.gold} de oro${rewardItem ? `, ${rewardItem.name}` : ""}`);
       if (qid === "q6") unlockPortal(p, "asfodelos", true);
       if (qid === "q9") unlockPortal(p, "hidra", true);
+      checkProgressAchs(p);
       sendYou(p);
       sendElderDialog(p);
       break;
@@ -2227,6 +2327,14 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       sendCombatLog(p);
       break;
     }
+    case "meter": {
+      sendMeter(p, true);
+      break;
+    }
+    case "achs": {
+      sendAchs(p);
+      break;
+    }
     case "party_ping": {
       if (p.dead) return;
       if (!p.party) return toast(p, "No estás en un grupo");
@@ -2267,6 +2375,15 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!text) return;
       if (now - p.lastChat < 1000) return toast(p, "Estás escribiendo demasiado rápido");
       p.lastChat = now;
+      // Party chat: /p|/g|/grupo message
+      const pm = text.match(/^\/(?:p|g|grupo)\s+(.+)$/i);
+      if (pm) {
+        if (!p.party) return toast(p, "No estás en un grupo");
+        const body = pm[1].slice(0, 180);
+        const line = JSON.stringify({ t: "chat", from: p.name, text: body, party: 1 });
+        for (const m of p.party.members) if (m.ws && m.ws.readyState === 1) m.ws.send(line);
+        break;
+      }
       // Whisper: /w Name message  |  /susurro Name message
       const wm = text.match(/^\/(?:w|susurro)\s+(\S+)\s+(.+)$/i);
       if (wm) {

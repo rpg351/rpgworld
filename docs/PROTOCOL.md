@@ -30,6 +30,7 @@ Client renders 32 px/tile, may add procedural per-tile decoration seeded by `(x,
 ## Client
 
 - Tecla **M**: mapa del mundo (zonas/jefes/marca personal). Shift+clic en minimapa/mapa fija una marca local (`localStorage`).
+- Tecla **Y**: panel de logros. Chat tabs filter channels; `/p` party chat.
  → server messages
 
 - `{t:"dir", x, y}` — **WASD movement** (primary). `x,y` ∈ {-1,0,1}; server normalizes, moves at ~5 tiles/s with wall-slide until a zero vector stops it. A **non-zero** vector clears `atkTarget` (cancels auto-attack lock) and overrides paths/chase. Zero vector only stops movement.
@@ -50,7 +51,7 @@ Client renders 32 px/tile, may add procedural per-tile decoration seeded by `(x,
 - `{t:"party_accept", from}` / `{t:"party_decline", from}` — answer a pending invite (`from` = inviter name, invites expire after 30 s).
 - `{t:"party_leave"}` — leave; a party of 1 disbands.
 - `{t:"quest_accept", qid}` / `{t:"quest_turnin", qid}` — while near the Elder.
-- `{t:"chat", text}` — ≤200 chars, rate-limit 1/s. Whispers `/w`/`/susurro`. Emotes `/wave|/dance|/cheer|/bow` (or `/me …`).
+- `{t:"chat", text}` — ≤200 chars, rate-limit 1/s. Whispers `/w`/`/susurro`. Party `/p`/`/g`/`/grupo`. Emotes `/wave|/dance|/cheer|/bow` (or `/me …`).
 - `{t:"inspect", id}` — request another player's public gear summary (range 14).
 - Death packet may include `recap:[{n,a}]` (last hits taken). Prefix `/w Name msg` or `/susurro Name msg` for a private whisper.
 - `{t:"lootlog"}` / `{t:"combatlog"}` — request current session feeds.
@@ -69,11 +70,15 @@ Server replies to invalid/denied actions with `{t:"toast", msg}` (short human st
 - `{t:"you", lvl, xp, xpNext, gold, pts, str, dex, int, hp, mhp, mp, mmp, arm, dmg:[lo,hi], crit, spd, inv:[item|null ×24], eq:{weapon,armor,helm,ring}, quests:{qid:{n,done,turned}}, abilityPts, abilities:{id:rank}}` — sent on any private-state change (loot, buy, equip, xp, quest progress…). `abilities` es un objeto id→rango 1..5 (antes era un array de ids; el servidor migra el formato viejo al cargar). Item instance:
   `{id, base, name, slot, icon, tier, rarity, lvl, dmg?:[lo,hi], arm?, mods?:{str?,dex?,int?,hp?,mp?,arm?,dmgp?,crit?}, val, qty?}`
   - `slot` ∈ `weapon|armor|helm|ring|potion|quest`; `icon` ∈ `sword|axe|bow|staff|armor|helm|ring|potion_hp|potion_mp|horn|eye`; `rarity` ∈ `common|magic|rare` (client colors: white/#7fb3ff/#ffcf40).
-- `{t:"dmg", i, a, c?}` — damage number on entity `i`, `c:1` = crit (client: floating text).
+- `{t:"dmg", i, a, c?, s?}` — damage number on entity `i`, `c:1` = crit, optional `s` source id.
 - `{t:"fx", k, ...}` — cosmetic. `k:"proj", from:{x,y}, to:{x,y}, style:"arrow"|"fire"|"spit"` · `k:"aoe", x, y, r, style:"cleave"|"nova"|"meteor"|"volley"|"slam"|"cry"` · `k:"heal", i` · `k:"level", i`.
 - `{t:"dialog", npc, name, kind:"elder"|"merchant"|"smith", lines:[…], quests?:[{qid,name,desc,state:"available"|"active"|"complete"|"turned"|"locked",n,count,rew:{xp,gold,item?}}]}`
 - `{t:"shop", npc, name, items:[{idx, item, price}]}` — sent with dialog for merchants; re-sent after buy (stock without the bought unique item; potions infinite).
-- `{t:"chat", from, text, sys?, whisper?}` — `sys:1` for system lines (joins, level-ups, boss kills; `from` omitted). `whisper:1` for private `/w` lines.
+- `{t:"chat", from, text, sys?, whisper?, party?}` — `sys:1` for system lines (joins, level-ups, boss kills; `from` omitted). `whisper:1` for private `/w` lines. `party:1` for `/p` party chat.
+- `{t:"achs", unlocked:[id], defs:[{id,name,desc,gold}], killCount, goldEarned}` — achievement book (also on unlock).
+- `{t:"meter", dealt, taken, healed, kills, deaths, t0}` — session combat meter (throttled).
+- `{t:"achs"}` / `{t:"meter"}` — client requests current achievement book / session meter.
+- `{t:"dmg", i, a, c?, s?}` — damage on entity `i`; optional `s` = source entity id.
 - `{t:"ping", from, x, y}` — party map ping (client shows world + minimap marker ~6s).
 - `{t:"buyback", items:[{idx,item,price}]}` — session vendor repurchase list (sent with shop / after sells).
 - `{t:"st", …, bosses?:[{k,t}]}` — optional boss timers: `t` = seconds until respawn (0 = alive).
