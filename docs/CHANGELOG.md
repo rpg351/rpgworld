@@ -1,3 +1,13 @@
+## 2026-07-21 — Pesca y marca de muerte
+
+- **Pesca (N / `/fish` / `/pescar`)**: junto al agua (fuera de la plaza) lanzas el
+  sedal ~3s y capturas sardina/lubina/atún/ostra perlada. Se puede vender o comer
+  (cura poca vida). Logros Pescador / Señor del mar.
+- **Marca de muerte**: al caer queda una X roja en minimapa y mapa del mundo con
+  las coords en un toast; se limpia al revivir.
+- Cache bust `?v=20260908`.
+
+
 ## 2026-07-21 — Lista de jugadores y amigos (O)
 
 - **Jugadores (O)**: panel con todos los conectados (nivel, clase, zona), botón

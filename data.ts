@@ -413,6 +413,31 @@ export function makeQuestItem(base: string): Item {
   return { id: nextItemId++, base, name, slot: "quest", icon, tier: 1, rarity: "common", lvl: 1, val: 0, qty: 1 };
 }
 
+// Fishing catches — sellable / edible (small HP). Caught near water tiles.
+export const FISH_DEFS: Record<string, { name: string; val: number; heal: number; weight: number }> = {
+  sardine: { name: "Sardina", val: 8, heal: 0.08, weight: 50 },
+  bass: { name: "Lubina", val: 18, heal: 0.12, weight: 30 },
+  tuna: { name: "Atún", val: 40, heal: 0.18, weight: 15 },
+  pearl: { name: "Ostra perlada", val: 90, heal: 0.05, weight: 5 },
+};
+
+export function makeFish(base: string, qty = 1): Item {
+  const f = FISH_DEFS[base] || FISH_DEFS.sardine;
+  return { id: nextItemId++, base, name: f.name, slot: "fish", icon: "fish", tier: 1, rarity: base === "pearl" ? "magic" : "common", lvl: 1, val: f.val, qty };
+}
+
+export function rollFish(): Item {
+  const entries = Object.entries(FISH_DEFS);
+  const total = entries.reduce((s, [, d]) => s + d.weight, 0);
+  let r = Math.random() * total;
+  for (const [id, d] of entries) {
+    r -= d.weight;
+    if (r <= 0) return makeFish(id);
+  }
+  return makeFish("sardine");
+}
+
+
 // ---------------------------------------------------------------------------
 // Pets (cosmetic followers with a small passive perk while equipped, bought
 // from the pet-shop NPC). `stat` matches a Derived field except "gold",
@@ -466,6 +491,8 @@ export const ACHIEVEMENTS: Record<string, { name: string; desc: string; gold: nu
   gold_1k: { name: "Bolsa llena", desc: "Gana 1.000 de oro en total", gold: 50 },
   gold_10k: { name: "Rico como Creso", desc: "Gana 10.000 de oro en total", gold: 250 },
   portals: { name: "Explorador", desc: "Desbloquea todos los portales", gold: 200 },
+  fish_10: { name: "Pescador", desc: "Pesca 10 capturas", gold: 60 },
+  fish_50: { name: "Señor del mar", desc: "Pesca 50 capturas", gold: 180 },
 };
 
 export const QUEST_ORDER = ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12"];

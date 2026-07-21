@@ -99,6 +99,8 @@ var I18N = {
     "opt.meter": "Mostrar medidor de sesión",
     "help.achs": "Logros",
     "help.who": "Lista de jugadores / amigos",
+    "help.fish": "Pescar junto al agua (/fish o /pescar)",
+    "help.deathmark": "Al morir queda una marca en el mapa hasta revivir",
     "panel.who": "Jugadores",
     "who.tab.online": "En línea",
     "who.tab.friends": "Amigos",
@@ -268,6 +270,8 @@ var I18N = {
     "opt.meter": "Show session meter",
     "help.achs": "Achievements",
     "help.who": "Players / friends list",
+    "help.fish": "Fish next to water (/fish or /pescar)",
+    "help.deathmark": "On death a map mark stays until you revive",
     "panel.who": "Players",
     "who.tab.online": "Online",
     "who.tab.friends": "Friends",
@@ -454,6 +458,7 @@ var S = {
   whoList: [],
   whoTab: "online",
   friends: [],
+  deathMark: null,
   waypoint: null,
   _fpsFrames: 0,
   _fpsAt: 0,
@@ -576,6 +581,7 @@ function handle(m) {
       S.followId = null;
       S.dead = false;
       S.reviveAt = 0;
+      S.deathMark = null;
       S.streak = 0;
       S.meter = { dealt: 0, taken: 0, healed: 0, kills: 0, deaths: 0, t0: Date.now() };
       S.achs = { unlocked: [], defs: S.achs.defs || [], killCount: 0, goldEarned: 0 };
@@ -621,6 +627,7 @@ function handleWorld(m) {
       } else if (S.dead && typeof m.hp === "number" && m.hp > 0) {
         S.dead = false;
         S.reviveAt = 0;
+        S.deathMark = null;
         S.deathRecap = [];
         const ov = $("deathOverlay");
         if (ov) ov.classList.add("hidden");
@@ -776,6 +783,11 @@ function handleWorld(m) {
       S.dead = true;
       S.reviveAt = typeof m.reviveAt === "number" ? m.reviveAt : 0;
       S.deathRecap = Array.isArray(m.recap) ? m.recap.slice() : [];
+      const me = S.ents.get(S.myId);
+      if (me) {
+        S.deathMark = { x: me.rx, y: me.ry };
+        toast(`Caíste en ${me.rx.toFixed(0)}, ${me.ry.toFixed(0)}`);
+      }
       stopMove();
       const ov = $("deathOverlay");
       if (ov) ov.classList.remove("hidden");
@@ -2532,6 +2544,22 @@ function drawItemIcon(g, icon, rarity, cx, cy, size) {
       g.lineTo(2, 0);
       g.stroke();
       break;
+    case "fish":
+      g.fillStyle = "#5a9ec8";
+      g.beginPath();
+      g.ellipse(0, 0, 7, 3.6, -0.25, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.moveTo(6, 0);
+      g.lineTo(10, -3.5);
+      g.lineTo(10, 3.5);
+      g.closePath();
+      g.fill();
+      g.fillStyle = "#1a2a3a";
+      g.beginPath();
+      g.arc(-3, -0.5, 1.1, 0, 7);
+      g.fill();
+      break;
     case "eye":
       g.fillStyle = "#e8e2d2";
       g.beginPath();
@@ -3719,6 +3747,10 @@ window.addEventListener("keydown", (e) => {
     case "o":
     case "O":
       toggleWhoPanel();
+      break;
+    case "n":
+    case "N":
+      if (!S.dead) send({ t: "fish" });
       break;
     case "b":
     case "B":
@@ -5093,6 +5125,15 @@ function drawMinimapDots() {
     mmCtx.fill();
     mmCtx.stroke();
   }
+  if (S.deathMark) {
+    const dx = S.deathMark.x * kx, dy = S.deathMark.y * ky;
+    mmCtx.strokeStyle = "rgba(255,90,90,.95)";
+    mmCtx.lineWidth = 1.5;
+    mmCtx.beginPath();
+    mmCtx.moveTo(dx - 3, dy - 3); mmCtx.lineTo(dx + 3, dy + 3);
+    mmCtx.moveTo(dx + 3, dy - 3); mmCtx.lineTo(dx - 3, dy + 3);
+    mmCtx.stroke();
+  }
   for (let i = S.pings.length - 1; i >= 0; i--) {
     const P = S.pings[i];
     const age = tNow - P.t0;
@@ -5226,6 +5267,15 @@ function drawWorldMap() {
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = "#9cf";
+    ctx.stroke();
+  }
+  if (S.deathMark) {
+    const dx = S.deathMark.x * kx, dy = S.deathMark.y * ky;
+    ctx.strokeStyle = "rgba(255,100,100,.95)";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(dx - 7, dy - 7); ctx.lineTo(dx + 7, dy + 7);
+    ctx.moveTo(dx + 7, dy - 7); ctx.lineTo(dx - 7, dy + 7);
     ctx.stroke();
   }
   for (const ping of S.pings) {

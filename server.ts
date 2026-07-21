@@ -5,9 +5,9 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ServerWebSocket } from "bun";
 import {
-  ACHIEVEMENTS, CLASS_BASE, CLASS_WEAPON, MOB_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
-  SKILLS, TREES, WEAPON_SCALING, freshItemId, makePotion, makeQuestItem, mobStats,
-  rollItem, rollRarity,
+  ACHIEVEMENTS, CLASS_BASE, CLASS_WEAPON, FISH_DEFS, MOB_DEFS, NPC_LINES, PET_DEFS, POTION_DEFS, QUESTS, QUEST_ORDER,
+  SKILLS, TREES, WEAPON_SCALING, freshItemId, makeFish, makePotion, makeQuestItem, mobStats,
+  rollFish, rollItem, rollRarity,
 } from "./data";
 import type { AbilityDef, Item, SkillDef } from "./data";
 import {
@@ -153,6 +153,8 @@ interface Player extends StatusHolder {
   achs: Set<string>; // unlocked achievement ids
   killCount: number; // lifetime kills (for achievements)
   goldEarned: number; // lifetime gold gained (for achievements)
+  fishCount: number; // lifetime fish caught
+  fishUntil: number; // fishing channel end time
   session: { dealt: number; taken: number; healed: number; kills: number; deaths: number; t0: number };
   meterAt: number; // last meter push timestamp
   dead: boolean; deadAt: number; lastChat: number; dirty: boolean;
@@ -285,6 +287,7 @@ function serialize(p: Player): string {
     achs: [...p.achs],
     killCount: p.killCount,
     goldEarned: p.goldEarned,
+    fishCount: p.fishCount,
   });
 }
 
@@ -510,7 +513,7 @@ function sendYou(p: Player): void {
 // ---------------------------------------------------------------------------
 /** Add item to a slot array (stacks potions/quest items to 10). False = full. */
 function addToSlots(arr: (Item | null)[], item: Item): boolean {
-  if (item.slot === "potion" || item.slot === "quest") {
+  if (item.slot === "potion" || item.slot === "quest" || item.slot === "fish") {
     for (const it of arr) {
       if (it && it.base === item.base && (it.qty ?? 1) < 10) {
         it.qty = (it.qty ?? 1) + (item.qty ?? 1);
@@ -1304,6 +1307,43 @@ function nearAnyMerchant(p: Player): boolean {
   return nearNpc(p, kora) || nearNpc(p, bront);
 }
 
+function tileAt(x: number, y: number): string {
+  const tx = Math.floor(x), ty = Math.floor(y);
+  if (tx < 0 || ty < 0 || tx >= W || ty >= W) return "w";
+  return world.tiles[ty][tx];
+}
+
+function nearWater(p: Player): boolean {
+  const cx = Math.floor(p.x), cy = Math.floor(p.y);
+  for (let dy = -1; dy <= 1; dy++)
+    for (let dx = -1; dx <= 1; dx++)
+      if (tileAt(cx + dx + 0.5, cy + dy + 0.5) === "w") return true;
+  return false;
+}
+
+function tryFinishFish(p: Player, now: number): void {
+  if (!p.fishUntil || now < p.fishUntil) return;
+  p.fishUntil = 0;
+  if (p.dead || !nearWater(p)) {
+    toast(p, "La pesca se interrumpió");
+    return;
+  }
+  const fish = rollFish();
+  if (!invAdd(p, fish)) {
+    toast(p, "Inventario lleno — la captura se escapó");
+    return;
+  }
+  p.fishCount++;
+  p.dirty = true;
+  if (p.fishCount >= 10) grantAch(p, "fish_10");
+  if (p.fishCount >= 50) grantAch(p, "fish_50");
+  const rare = fish.rarity === "magic";
+  toast(p, rare ? `¡Capturaste ${fish.name}!` : `Pescaste: ${fish.name}`);
+  pushLootLog(p, { name: fish.name, rarity: fish.rarity, icon: "fish" });
+  bcastAt(p.x, p.y, { t: "fx", k: "fish", i: p.id });
+  sendYou(p);
+}
+
 function r2(v: number): number {
   return Math.round(v * 100) / 100;
 }
@@ -1493,7 +1533,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     killStreak: 0, killStreakAt: 0, restedUntil: 0, restAccum: 0,
     buyback: [], lastPingAt: 0, lastWhoAt: 0,
     recentHits: [], lootHist: [], combatLog: [], lastDaily: "", lastEmoteAt: 0,
-    achs: new Set<string>(), killCount: 0, goldEarned: 0,
+    achs: new Set<string>(), killCount: 0, goldEarned: 0, fishCount: 0, fishUntil: 0,
     session: { dealt: 0, taken: 0, healed: 0, kills: 0, deaths: 0, t0: Date.now() },
     meterAt: 0,
     dead: false, deadAt: 0, lastChat: 0, dirty: true, seen: new Set(),
@@ -1593,6 +1633,7 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
       p.achs = new Set((d.achs as unknown[]).filter((v): v is string => typeof v === "string" && !!ACHIEVEMENTS[v]));
     p.killCount = clampInt(d.killCount, 0, 100000000, 0);
     p.goldEarned = clampInt(d.goldEarned, 0, 100000000, 0);
+    p.fishCount = clampInt(d.fishCount, 0, 100000000, 0);
     if (d.eq && typeof d.eq === "object") {
       const eq = d.eq as Record<string, unknown>;
       for (const slot of EQUIP_SLOTS) {
@@ -2195,7 +2236,22 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const slot = num(msg.slot);
       if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
       const it = p.inv[slot];
-      if (!it || it.slot !== "potion") return;
+      if (!it) return;
+      if (it.slot === "fish") {
+        const fdef = FISH_DEFS[it.base];
+        if (!fdef) return;
+        if (now < p.potCdUntil) return toast(p, "Aún estás digiriendo");
+        const d = derive(p);
+        p.hp = Math.min(d.mhp, p.hp + d.mhp * fdef.heal);
+        p.potCdUntil = now + POTION_CD;
+        it.qty = (it.qty ?? 1) - 1;
+        if (it.qty <= 0) p.inv[slot] = null;
+        toast(p, `Comiste ${it.name}`);
+        bcastAt(p.x, p.y, { t: "fx", k: "heal", i: p.id });
+        sendYou(p);
+        break;
+      }
+      if (it.slot !== "potion") return;
       if (now < p.potCdUntil) return toast(p, "Las pociones están en enfriamiento");
       const def = POTION_DEFS[it.base];
       if (!def) return;
@@ -2363,6 +2419,19 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       sendWho(p);
       break;
     }
+    case "fish": {
+      if (p.dead || stunned) return;
+      if (p.fishUntil && now < p.fishUntil) return toast(p, "Ya estás pescando…");
+      if (now < p.combatUntil) return toast(p, "No puedes pescar en combate");
+      if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
+      if (inTown(p.x, p.y)) return toast(p, "No se puede pescar en la plaza");
+      p.path = null; p.direct = null; p.vel = null;
+      p.atkTarget = null; p.lootTarget = null; p.npcTarget = null;
+      p.fishUntil = now + 2800;
+      toast(p, "Lanzas el sedal…");
+      bcastAt(p.x, p.y, { t: "fx", k: "fishcast", i: p.id });
+      break;
+    }
     case "party_ping": {
       if (p.dead) return;
       if (!p.party) return toast(p, "No estás en un grupo");
@@ -2403,6 +2472,20 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!text) return;
       if (now - p.lastChat < 1000) return toast(p, "Estás escribiendo demasiado rápido");
       p.lastChat = now;
+      if (/^\/fish$/i.test(text) || /^\/pescar$/i.test(text)) {
+        // Reuse fish action without chat broadcast
+        if (p.dead) return;
+        if (p.fishUntil && now < p.fishUntil) return toast(p, "Ya estás pescando…");
+        if (now < p.combatUntil) return toast(p, "No puedes pescar en combate");
+        if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
+        if (inTown(p.x, p.y)) return toast(p, "No se puede pescar en la plaza");
+        p.path = null; p.direct = null; p.vel = null;
+        p.atkTarget = null; p.lootTarget = null; p.npcTarget = null;
+        p.fishUntil = now + 2800;
+        toast(p, "Lanzas el sedal…");
+        bcastAt(p.x, p.y, { t: "fx", k: "fishcast", i: p.id });
+        break;
+      }
       // Party chat: /p|/g|/grupo message
       const pm = text.match(/^\/(?:p|g|grupo)\s+(.+)$/i);
       if (pm) {
@@ -2562,6 +2645,12 @@ function simTick(): void {
       continue;
     }
     checkZoneVisit(p);
+    tryFinishFish(p, now);
+    // Cancel fishing if the player starts moving / combat.
+    if (p.fishUntil && (p.vel || p.path || p.direct || p.atkTarget != null || p.combatUntil > now)) {
+      p.fishUntil = 0;
+      toast(p, "Dejas de pescar");
+    }
 
     // Regen: 2%/s hp + 3%/s mp out of combat (5s), 1%/s mp in combat. Near
     // the plaza fountain (sanctuary — town already blocks all incoming

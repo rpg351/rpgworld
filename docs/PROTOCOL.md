@@ -32,6 +32,7 @@ Client renders 32 px/tile, may add procedural per-tile decoration seeded by `(x,
 - Tecla **M**: mapa del mundo (zonas/jefes/marca personal). Shift+clic en minimapa/mapa fija una marca local (`localStorage`).
 - Tecla **Y**: panel de logros. Chat tabs filter channels; `/p` party chat.
 - Tecla **O**: lista de jugadores en línea + amigos (localStorage).
+- Tecla **N**: pescar. Death leaves a red X on minimap/world map until revive.
  → server messages
 
 - `{t:"dir", x, y}` — **WASD movement** (primary). `x,y` ∈ {-1,0,1}; server normalizes, moves at ~5 tiles/s with wall-slide until a zero vector stops it. A **non-zero** vector clears `atkTarget` (cancels auto-attack lock) and overrides paths/chase. Zero vector only stops movement.
@@ -80,6 +81,9 @@ Server replies to invalid/denied actions with `{t:"toast", msg}` (short human st
 - `{t:"meter", dealt, taken, healed, kills, deaths, t0}` — session combat meter (throttled).
 - `{t:"achs"}` / `{t:"meter"}` — client requests current achievement book / session meter.
 - `{t:"who"}` — request online roster (1.5s cooldown) → `{t:"who", players:[{id,name,cls,lvl,zone,bot?}]}`.
+- `{t:"fish"}` — start fishing if adjacent to water (not in town / not in combat); ~2.8s channel → fish item in inventory.
+- `/fish` or `/pescar` chat aliases for the same action.
+- Fish items: `slot:"fish"`, `icon:"fish"`, edible via `{t:"use",slot}` (small HP) or sellable.
 - `{t:"dmg", i, a, c?, s?}` — damage on entity `i`; optional `s` = source entity id.
 - `{t:"ping", from, x, y}` — party map ping (client shows world + minimap marker ~6s).
 - `{t:"buyback", items:[{idx,item,price}]}` — session vendor repurchase list (sent with shop / after sells).
