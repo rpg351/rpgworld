@@ -1072,7 +1072,7 @@ function performLogin(name, pass, cls, opts) {
     S.ws.addEventListener("open", doLogin, { once: true });
     S.ws.addEventListener("close", () => {
       if (!S.loggedIn)
-        $("loginErr").textContent = opts.silent ? "" : "No se puede conectar con el servidor. Inténtalo de nuevo.";
+        $("loginErr").textContent = opts.silent ? "" : "No se pudo conectar con el servidor. Intentá de nuevo.";
     }, { once: true });
   }
 }

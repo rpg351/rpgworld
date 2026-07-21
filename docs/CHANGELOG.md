@@ -1,3 +1,11 @@
+## 2026-09-28 — findInvSlot + channelGone + toasts
+
+- Helpers `findInvSlot` / `channelGone` unifican búsquedas de inventario y
+  fallos al terminar pesca/recolección/cocina.
+- `party_accept` usa `needOnline` (mismo camino que trade/duelo).
+- Toasts: plaza/cocina "No podés…"; cliente "No se pudo conectar… Intentá…".
+- Cache bust `?v=20260928`.
+
 ## 2026-09-27 — Invites online + abortChannel + toasts
 
 - **Bugfix**: duelo y party invite ahora usan `needOnline` (no “éxito” silencioso

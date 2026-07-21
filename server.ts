@@ -1464,6 +1464,22 @@ function notInTown(p: Player, msg: string): boolean {
   return true;
 }
 
+/** First inventory slot matching a predicate, or -1. */
+function findInvSlot(p: Player, pred: (it: Item) => boolean): number {
+  for (let i = 0; i < p.inv.length; i++) {
+    const it = p.inv[i];
+    if (it && pred(it)) return i;
+  }
+  return -1;
+}
+
+/** Channel finished but player died / left the station. */
+function channelGone(p: Player, stillValid: boolean, msg: string): boolean {
+  if (!p.dead && stillValid) return false;
+  toast(p, msg);
+  return true;
+}
+
 function needWater(p: Player): boolean {
   if (nearWater(p)) return false;
   toast(p, "Tenés que estar junto al agua");
@@ -1606,10 +1622,7 @@ function nearFountainBind(p: Player): boolean {
 function tryFinishForage(p: Player, now: number): void {
   if (!p.forageUntil || now < p.forageUntil) return;
   p.forageUntil = 0;
-  if (p.dead || !nearTree(p)) {
-    toast(p, "La recolección se interrumpió");
-    return;
-  }
+  if (channelGone(p, nearTree(p), "La recolección se interrumpió")) return;
   const herb = rollHerb();
   if (!invAdd(p, herb)) {
     invFull(p, "perdiste la hierba");
@@ -1633,7 +1646,7 @@ function beginFish(p: Player, now: number): void {
   if (channelBlocked(p, now)) return;
   if (inCombatBlock(p, now, "No podés pescar en combate")) return;
   if (needWater(p)) return;
-  if (notInTown(p, "No se puede pescar en la plaza")) return;
+  if (notInTown(p, "No podés pescar en la plaza")) return;
   clearMobility(p);
   p.fishUntil = now + 2800;
   toast(p, "Lanzas el sedal…");
@@ -1647,7 +1660,7 @@ function beginForage(p: Player, now: number): void {
   if (channelBlocked(p, now)) return;
   if (inCombatBlock(p, now, "No podés recolectar en combate")) return;
   if (needTree(p)) return;
-  if (notInTown(p, "No se puede recolectar en la plaza")) return;
+  if (notInTown(p, "No podés recolectar en la plaza")) return;
   clearMobility(p);
   p.forageUntil = now + 2400;
   toast(p, "Buscas hierbas…");
@@ -1662,11 +1675,7 @@ function beginBrew(p: Player, now: number): void {
   if (channelBlocked(p, now)) return;
   if (inCombatBlock(p, now, "No podés preparar brebajes en combate")) return;
   if (needNpc(p, kora, "Prepara brebajes junto a Kora")) return;
-  let slot = -1;
-  for (let i = 0; i < p.inv.length; i++) {
-    const it = p.inv[i];
-    if (it && it.slot === "herb" && BREW_MAP[it.base]) { slot = i; break; }
-  }
+  const slot = findInvSlot(p, (it) => it.slot === "herb" && Boolean(BREW_MAP[it.base]));
   if (slot < 0) return toast(p, "No tenés hierbas para preparar");
   const it = p.inv[slot]!;
   const herbBase = it.base;
@@ -2252,10 +2261,7 @@ function nearWater(p: Player): boolean {
 function tryFinishFish(p: Player, now: number): void {
   if (!p.fishUntil || now < p.fishUntil) return;
   p.fishUntil = 0;
-  if (p.dead || !nearWater(p)) {
-    toast(p, "La pesca se interrumpió");
-    return;
-  }
+  if (channelGone(p, nearWater(p), "La pesca se interrumpió")) return;
   const fish = rollFish();
   if (!invAdd(p, fish)) {
     invFull(p, "la captura se escapó");
@@ -2277,10 +2283,7 @@ function tryFinishCook(p: Player, now: number): void {
   p.cookUntil = 0;
   const slot = p.cookSlot;
   p.cookSlot = -1;
-  if (p.dead || !nearNpc(p, bront)) {
-    toast(p, "La cocina se interrumpió");
-    return;
-  }
+  if (channelGone(p, nearNpc(p, bront), "La cocina se interrumpió")) return;
   if (slot < 0 || slot >= INV_SIZE) return;
   const it = p.inv[slot];
   if (!it || it.slot !== "fish") {
@@ -2288,7 +2291,7 @@ function tryFinishCook(p: Player, now: number): void {
     return;
   }
   const foodId = foodFromFish(it.base);
-  if (!foodId) return toast(p, "No se puede cocinar eso");
+  if (!foodId) return toast(p, "No podés cocinar eso");
   const fishBase = it.base;
   const food = makeFood(foodId);
   it.qty = (it.qty ?? 1) - 1;
@@ -2316,11 +2319,7 @@ function beginCook(p: Player, now: number): void {
   if (channelBlocked(p, now)) return;
   if (inCombatBlock(p, now, "No podés cocinar en combate")) return;
   if (needNpc(p, bront, "Cocina junto a la forja de Bront")) return;
-  let slot = -1;
-  for (let i = 0; i < p.inv.length; i++) {
-    const it = p.inv[i];
-    if (it && it.slot === "fish" && foodFromFish(it.base)) { slot = i; break; }
-  }
+  const slot = findInvSlot(p, (it) => it.slot === "fish" && Boolean(foodFromFish(it.base)));
   if (slot < 0) return toast(p, "No tenés pescado para cocinar");
   clearMobility(p);
   p.cookSlot = slot;
@@ -3486,8 +3485,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const exp = p.invites.get(from);
       p.invites.delete(from);
       if (!exp || now > exp) return toast(p, "La invitación ya no es válida");
-      const inviter = players.get(from);
-      if (!inviter || !inviter.ws) return toast(p, "Ese héroe ya no está conectado");
+      const inviter = players.get(from) || null;
+      if (!needOnline(p, inviter, "Ese héroe ya no está conectado")) return;
       if (p.party || p.partyId) return toast(p, "Ya estás en un grupo — sal primero");
       let pt = inviter.party || (inviter.partyId ? getOrLoadParty(inviter.partyId) : null);
       if (!pt) {
@@ -3759,11 +3758,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         }
       }
       if (/^\/salvage$/i.test(text) || /^\/desguazar$/i.test(text) || /^\/fundir$/i.test(text)) {
-        let slot = -1;
-        for (let i = 0; i < p.inv.length; i++) {
-          const it = p.inv[i];
-          if (it && SALVAGE_SLOTS.has(it.slot)) { slot = i; break; }
-        }
+        let slot = findInvSlot(p, (it) => SALVAGE_SLOTS.has(it.slot));
         if (slot < 0) toast(p, "No tenés equipo para desguazar");
         else trySalvage(p, slot);
         return;
