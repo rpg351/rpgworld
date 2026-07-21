@@ -7170,7 +7170,7 @@ function savePanelLayout(id, patch) {
   all[id] = Object.assign({}, all[id], patch);
   lsSet(PANEL_LAYOUT_KEY, JSON.stringify(all))
 }
-var WINDOW_IDS = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "achPanel", "whoPanel", "inspectPanel", "tradePanel"];
+var WINDOW_IDS = PANEL_ORDER.slice();
 var WINDOW_GAP = 10;
 function listOpenWindows(except) {
   const skip = except instanceof Set ? except : new Set(except ? [except] : []);

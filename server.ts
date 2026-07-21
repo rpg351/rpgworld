@@ -1051,7 +1051,7 @@ function partyJoinHumanToBotSquad(human: Player, bot: Player): boolean {
   if (human.party || human.partyId) partyLeave(human, false);
 
   if (pt.roster.length >= PARTY_MAX) {
-    toast(human, "El grupo está lleno");
+    toastPartyFull(human);
     return true;
   }
 
@@ -1300,12 +1300,12 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
     const m = targetId != null ? mobById(targetId) : null;
     const foe = targetId != null ? playerById(targetId) : null;
     if (m && !m.dead) {
-      if (dist(p.x, p.y, m.x, m.y) > CAST_RANGE + 0.5) return toast(p, "Fuera de alcance");
+      if (outOfCastRange(p, m.x, m.y)) return;
       hits.push(m);
       fxMsg = { t: "fx", k: "proj", from: { x: r2(p.x), y: r2(p.y) }, to: { x: r2(m.x), y: r2(m.y) }, style: def.fx.style };
       p.d = m.x < p.x ? 1 : 0;
     } else if (foe && areDueling(p, foe) && def.base > 0) {
-      if (dist(p.x, p.y, foe.x, foe.y) > CAST_RANGE + 0.5) return toast(p, "Fuera de alcance");
+      if (outOfCastRange(p, foe.x, foe.y)) return;
       duelHits.push(foe);
       fxMsg = { t: "fx", k: "proj", from: { x: r2(p.x), y: r2(p.y) }, to: { x: r2(foe.x), y: r2(foe.y) }, style: def.fx.style };
       p.d = foe.x < p.x ? 1 : 0;
@@ -1316,7 +1316,7 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
     const cx = def.kind === "self" ? p.x : px;
     const cy = def.kind === "self" ? p.y : py;
     if (cx == null || cy == null) return toast(p, "Punto de destino inválido");
-    if (def.kind === "point" && dist(p.x, p.y, cx, cy) > CAST_RANGE + 0.5) return toast(p, "Fuera de alcance");
+    if (def.kind === "point" && outOfCastRange(p, cx, cy)) return;
     const r = def.radius ?? 2;
     // Pure support heals skip the mob sweep; damaging self/point skills still hit.
     if (def.base > 0) {
@@ -1458,6 +1458,26 @@ function needMerchant(p: Player): boolean {
   return false;
 }
 
+function needGold(p: Player, amount: number): boolean {
+  if (p.gold < amount) { toast(p, "No tenés suficiente oro"); return true; }
+  return false;
+}
+
+function channelBlocked(p: Player, now: number): boolean {
+  if (!channelBusy(p, now)) return false;
+  toast(p, "Terminá lo que estás haciendo primero");
+  return true;
+}
+
+function toastPartyFull(p: Player): void {
+  toast(p, "El grupo está lleno");
+}
+
+function outOfCastRange(p: Player, x: number, y: number): boolean {
+  if (dist(p.x, p.y, x, y) > CAST_RANGE + 0.5) { toast(p, "Fuera de alcance"); return true; }
+  return false;
+}
+
 
 function tileAt(x: number, y: number): string {
   const tx = Math.floor(x), ty = Math.floor(y);
@@ -1505,7 +1525,7 @@ function beginFish(p: Player, now: number): void {
   if (p.dead) return;
   dismountAndStand(p);
   if (p.fishUntil && now < p.fishUntil) return toast(p, "Ya estás pescando…");
-  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
+  if (channelBlocked(p, now)) return;
   if (now < p.combatUntil) return toast(p, "No puedes pescar en combate");
   if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
   if (inTown(p.x, p.y)) return toast(p, "No se puede pescar en la plaza");
@@ -1519,7 +1539,7 @@ function beginForage(p: Player, now: number): void {
   if (p.dead) return;
   dismountAndStand(p);
   if (p.forageUntil && now < p.forageUntil) return toast(p, "Ya estás recolectando…");
-  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
+  if (channelBlocked(p, now)) return;
   if (now < p.combatUntil) return toast(p, "No puedes recolectar en combate");
   if (!nearTree(p)) return toast(p, "Debes estar junto a un árbol");
   if (inTown(p.x, p.y)) return toast(p, "No se recolecta en la plaza");
@@ -1534,7 +1554,7 @@ function beginForage(p: Player, now: number): void {
 function beginBrew(p: Player, now: number): void {
   if (p.dead) return;
   dismountAndStand(p);
-  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
+  if (channelBlocked(p, now)) return;
   if (now < p.combatUntil) return toast(p, "No puedes preparar brebajes en combate");
   if (needNpc(p, kora, "Prepara brebajes junto a Kora")) return;
   let slot = -1;
@@ -1692,7 +1712,7 @@ function tryDuelAccept(p: Player, fromName: string, now: number): void {
   }
   p.duelInvites.delete(name);
   const other = playerByName(name, true);
-  if (!other) return toast(p, "Ese jugador ya no está en línea");
+  if (!other) return toast(p, "Ese jugador no está en línea");
   if (other.duelWith) return toast(p, `${other.name} ya está en un duelo`);
   if (other.dead) return toast(p, "Ese jugador ha caído");
   if (tooFar(p, other, 16)) return;
@@ -1998,7 +2018,7 @@ function tradeGold(p: Player, gold: number): void {
   const g = Math.floor(gold);
   if (!Number.isFinite(g) || g < 0) return;
   if (g > 100000) return toast(p, "Máximo 100.000 de oro");
-  if (g > p.gold) return toast(p, "No tenés suficiente oro");
+  if (needGold(p, g)) return;
   side.gold = g;
   unlockTrade(sess);
   syncTrade(sess);
@@ -2185,7 +2205,7 @@ function beginCook(p: Player, now: number): void {
   if (p.dead) return;
   dismountAndStand(p);
   if (p.cookUntil && now < p.cookUntil) return toast(p, "Ya estás cocinando…");
-  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
+  if (channelBlocked(p, now)) return;
   if (now < p.combatUntil) return toast(p, "No puedes cocinar en combate");
   if (needNpc(p, bront, "Cocina junto a la forja de Bront")) return;
   let slot = -1;
@@ -2296,7 +2316,7 @@ function tryMount(p: Player): void {
   }
   const now = Date.now();
   if (now < p.combatUntil) return toast(p, "No podés montar en combate");
-  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
+  if (channelBlocked(p, now)) return;
   standUp(p, true);
   p.mounted = true;
   p.dirty = true;
@@ -2310,7 +2330,7 @@ function trySit(p: Player): void {
   const now = Date.now();
   if (now < p.combatUntil) return toast(p, "No podés sentarte en combate");
   if (p.mounted) return toast(p, "Apeate antes de sentarte");
-  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
+  if (channelBlocked(p, now)) return;
   clearMobility(p);
   p.sitting = true;
   toast(p, "Te sentás a descansar");
@@ -2328,7 +2348,7 @@ function tryPay(p: Player, targetName: string, amount: number, now: number): voi
   const target = playerByName(name, true);
   if (!target) return toast(p, "Ese jugador no está en línea");
   if (tooFar(p, target, 14)) return;
-  if (p.gold < gold) return toast(p, "No tenés suficiente oro");
+  if (needGold(p, gold)) return;
   p.gold -= gold;
   target.gold += gold;
   noteGold(target, gold);
@@ -2799,6 +2819,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead || stunned) return;
       const x = num(msg.x), y = num(msg.y);
       if (x == null || y == null) return;
+      if (p.sitting) standUp(p);
       const tx = Math.max(0.5, Math.min(W - 0.5, x));
       const ty = Math.max(0.5, Math.min(W - 0.5, y));
       p.atkTarget = null;
@@ -2824,7 +2845,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const cy = Math.max(-1, Math.min(1, dy));
       const mag = Math.hypot(cx, cy);
       if (mag < 0.2) { p.vel = null; break; }
-      if (p.sitting) { p.sitting = false; toast(p, "Te levantás"); sendYou(p); }
+      if (p.sitting) standUp(p);
       // Keep direction continuous (no 4/8-way snap) so mobile joystick feels natural.
       p.vel = { x: cx / mag, y: cy / mag };
       p.path = null;
@@ -3007,7 +3028,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (idx == null || !Number.isInteger(idx) || idx < 0 || idx >= stock.length) return;
       const entry = stock[idx];
       const price = entry.item.val;
-      if (p.gold < price) return toast(p, "No tenés suficiente oro");
+      if (needGold(p, price)) return;
       // Infinite stock hands out fresh copies; uniques transfer + leave stock.
       const bought = entry.infinite ? makePotion(entry.item.base) : entry.item;
       if (!invAdd(p, bought)) return invFull(p);
@@ -3066,7 +3087,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const idx = num(msg.idx);
       if (idx == null || !Number.isInteger(idx) || idx < 0 || idx >= p.buyback.length) return;
       const entry = p.buyback[idx];
-      if (p.gold < entry.price) return toast(p, "No tenés suficiente oro");
+      if (needGold(p, entry.price)) return;
       if (!invAdd(p, entry.item)) return invFull(p);
       p.gold -= entry.price;
       p.buyback.splice(idx, 1);
@@ -3128,7 +3149,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const def = PET_DEFS[id];
       if (!def) return;
       if (p.pets.has(id)) return toast(p, "Ya tienes esa mascota");
-      if (p.gold < def.cost) return toast(p, "No tenés suficiente oro");
+      if (needGold(p, def.cost)) return;
       p.gold -= def.cost;
       p.pets.add(id);
       p.dirty = true;
@@ -3157,7 +3178,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const def = MOUNT_DEFS[id];
       if (!def) return;
       if (p.mounts.has(id)) return toast(p, "Ya tienes esa montura");
-      if (p.gold < def.cost) return toast(p, "No tenés suficiente oro");
+      if (needGold(p, def.cost)) return;
       p.gold -= def.cost;
       p.mounts.add(id);
       if (!p.activeMount) p.activeMount = id;
@@ -3370,7 +3391,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!target || target === p) return;
       if (partyJoinHumanToBotSquad(p, target)) break;
       const myPt = p.party || (p.partyId ? getOrLoadParty(p.partyId) : null);
-      if (myPt && myPt.roster.length >= PARTY_MAX) return toast(p, "El grupo está lleno");
+      if (myPt && myPt.roster.length >= PARTY_MAX) return toastPartyFull(p);
       if (target.party || target.partyId) return toast(p, `${target.name} ya está en un grupo`);
       target.invites.set(p.name, now + 30000);
       send(target.ws, { t: "party_invited", from: p.name, cls: p.cls, lvl: p.lvl });
@@ -3395,7 +3416,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       } else if (!inviter.party) {
         attachPlayerToParty(inviter, pt);
       }
-      if (pt.roster.length >= PARTY_MAX) return toast(p, "El grupo está lleno");
+      if (pt.roster.length >= PARTY_MAX) return toastPartyFull(p);
       if (pt.roster.some(r => r.name === p.name)) return toast(p, "Ya estás en ese grupo");
       attachPlayerToParty(p, pt);
       p.dirty = true;
@@ -3857,8 +3878,7 @@ function simTick(): void {
       toast(p, "Dejas de cocinar");
     }
     if (p.sitting && (channelInterrupted(p, now) || p.moving)) {
-      standUp(p, true);
-      toast(p, "Te levantás");
+      standUp(p);
     }
     if (p.mounted && p.combatUntil > now) {
       dismount(p, true);

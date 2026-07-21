@@ -1,3 +1,12 @@
+## 2026-09-20 — Sit/stand + helpers de oro/canal/alcance
+
+- **Sentarse**: al moverse (clic o joystick) se usa `standUp` de verdad; el tick
+  ya no duplica toast a mano.
+- Helpers `needGold` / `channelBlocked` / `outOfCastRange` / `toastPartyFull`.
+- Cliente: `WINDOW_IDS` deriva de `PANEL_ORDER` (una sola lista).
+- Toasts de "no en línea" unificados.
+- Cache bust `?v=20260920`.
+
 ## 2026-09-19 — Hotfix recall bind + dedupe consumibles
 
 - **Crítico**: el recall (B) tenía `__omp_shell(...)` corrupto en el check de
