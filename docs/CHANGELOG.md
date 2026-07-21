@@ -1,3 +1,11 @@
+## 2026-09-26 — Hotfix follow drift + anuncios de jefe
+
+- **Crítico**: el follow de grupo tenía `__omp_shell(...)` en el check de
+  drift del path (`!end || dist...`) — el seguir líder fallaba en runtime.
+- Anuncios de jefes unificados (`announceBossKill` + Polifemo en `BOSS_KILL_MSG`).
+- Helpers `needWater` / `needTree` para pesca/recolección.
+- Cache bust `?v=20260926`.
+
 ## 2026-09-25 — Logs de bots + clearPath/repathTo
 
 - **Logs**: subidas de nivel y anuncios de jefes ya no se publican en el chat

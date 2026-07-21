@@ -678,9 +678,15 @@ const BOSS_LOOT: Record<string, { count: number; tier: number }> = {
 
 // Boss-kill chat announcements (cyclops also unlocks a portal — handled separately in mobDie).
 const BOSS_KILL_MSG: Record<string, (killer: string) => string> = {
+  cyclops: (k) => `¡${k} ha derrotado a Polifemo, el terror del este!`,
   minotaur: (k) => `¡${k} ha derrotado a Asterión en el laberinto de los Asfódelos!`,
   hydra: (k) => `¡${k} ha decapitado a la Hidra de Lerna en lo hondo del pantano!`,
 };
+
+function announceBossKill(killer: Player, kind: string): void {
+  const msg = BOSS_KILL_MSG[kind];
+  if (msg && !BOT_SQUAD.has(killer.name)) sysChat(msg(killer.name));
+}
 
 function rollDrops(m: Mob, killer: Player): void {
   const petDef = killer.activePet ? PET_DEFS[killer.activePet] : null;
@@ -805,17 +811,15 @@ function mobDie(m: Mob, killer: Player): void {
     sendYou(member);
   }
   if (m.kind === "cyclops") {
-    if (!BOT_SQUAD.has(killer.name)) sysChat(`¡${killer.name} ha derrotado a Polifemo, el terror del este!`);
+    announceBossKill(killer, "cyclops");
     unlockPortal(killer, "asfodelos", true);
     for (const q of sharers) unlockPortal(q, "asfodelos", true);
   } else if (m.kind === "hydra") {
-    const msg = BOSS_KILL_MSG.hydra;
-    if (msg && !BOT_SQUAD.has(killer.name)) sysChat(msg(killer.name));
+    announceBossKill(killer, "hydra");
     unlockPortal(killer, "hidra", true);
     for (const q of sharers) unlockPortal(q, "hidra", true);
   } else {
-    const msg = BOSS_KILL_MSG[m.kind];
-    if (msg && !BOT_SQUAD.has(killer.name)) sysChat(msg(killer.name));
+    announceBossKill(killer, m.kind);
   }
 }
 
@@ -1460,6 +1464,18 @@ function notInTown(p: Player, msg: string): boolean {
   return true;
 }
 
+function needWater(p: Player): boolean {
+  if (nearWater(p)) return false;
+  toast(p, "Debes estar junto al agua");
+  return true;
+}
+
+function needTree(p: Player): boolean {
+  if (nearTree(p)) return false;
+  toast(p, "Debes estar junto a un árbol");
+  return true;
+}
+
 
 function dropMountSit(p: Player): void {
   p.mounted = false;
@@ -1614,7 +1630,7 @@ function beginFish(p: Player, now: number): void {
   if (alreadyBusy(p, p.fishUntil, now, "Ya estás pescando…")) return;
   if (channelBlocked(p, now)) return;
   if (inCombatBlock(p, now, "No podés pescar en combate")) return;
-  if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
+  if (needWater(p)) return;
   if (notInTown(p, "No se puede pescar en la plaza")) return;
   clearMobility(p);
   p.fishUntil = now + 2800;
@@ -1628,7 +1644,7 @@ function beginForage(p: Player, now: number): void {
   if (alreadyBusy(p, p.forageUntil, now, "Ya estás recolectando…")) return;
   if (channelBlocked(p, now)) return;
   if (inCombatBlock(p, now, "No podés recolectar en combate")) return;
-  if (!nearTree(p)) return toast(p, "Debes estar junto a un árbol");
+  if (needTree(p)) return;
   if (notInTown(p, "No se puede recolectar en la plaza")) return;
   clearMobility(p);
   p.forageUntil = now + 2400;
@@ -4075,7 +4091,7 @@ function simTick(): void {
         p.followStuck = 0;
       } else {
         const end = p.path && p.path.length ? p.path[p.path.length - 1] : null;
-        const drifted = __omp_shell("end || dist(end.x, end.y, followLeader.x, followLeader.y) > 2.5;")
+        const drifted = !end || dist(end.x, end.y, followLeader.x, followLeader.y) > 2.5;
         if (drifted) repathTo(p, followLeader.x, followLeader.y, now, 400);
         const ox = p.x, oy = p.y;
         if (p.path && p.path.length) {
