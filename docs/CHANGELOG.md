@@ -1,3 +1,11 @@
+## 2026-09-18 — Hotfix lsSet + helpers de distancia
+
+- **Crítico**: `lsSet` se llamaba a sí misma (stack overflow al guardar idioma,
+  autoataque, paneles, amigos, etc.). Corregido a `localStorage.setItem`.
+- Desconexión: cancela comercio/duelo una sola vez y *antes* de soltar el socket.
+- Helpers `tooFar` / `needNpc` / `needMerchant`; `lsJson` en cliente; toasts "Esperá".
+- Cache bust `?v=20260918`.
+
 ## 2026-09-17 — frame() fix + más dedupe
 
 - **Crítico**: `initWorldMapUi` corría *dentro* de `frame()` cada tick (listeners

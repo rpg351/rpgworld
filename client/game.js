@@ -524,7 +524,16 @@ function lsGet(key, fallback = null) {
   }
 }
 function lsSet(key, value) {
-  lsSet(key, value)
+  try { localStorage.setItem(key, value); } catch (_) {}
+}
+function lsJson(key, fallback) {
+  try {
+    const raw = lsGet(key, null);
+    if (raw == null || raw === "") return fallback;
+    return JSON.parse(raw);
+  } catch (_) {
+    return fallback;
+  }
 }
 function getLang() {
   const v = lsGet(LS_LANG, "es");
@@ -682,13 +691,13 @@ function connect() {
 }
 function creds() {
   try {
-    return JSON.parse(localStorage.getItem("aot_creds") || "{}");
+    return lsJson("aot_creds", {});
   } catch (e) {
     return {};
   }
 }
 function saveCreds(name, pass, cls) {
-  localStorage.setItem("aot_creds", JSON.stringify({ name, pass, cls }));
+  lsSet("aot_creds", JSON.stringify({ name, pass, cls }));
 }
 function handle(m) {
   switch (m.t) {
@@ -1100,7 +1109,7 @@ function initLogin() {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
     });
   }
-  try { setAutoAtk(localStorage.getItem("aot_autoatk") === "1"); } catch (_) { setAutoAtk(false); }
+  setAutoAtk(lsGet("aot_autoatk", "0") === "1");
   $("loginForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
     const name = $("nameInput").value.trim(), pass = $("passInput").value;
@@ -3635,20 +3644,16 @@ function loadLogPanels() {
   S.showFps = lsGet(LS_FPS, "0") === "1";
 }
 function loadWaypoint() {
-  try {
-    const raw = localStorage.getItem(LS_WAYPOINT);
-    if (!raw) { S.waypoint = null; return; }
-    const o = JSON.parse(raw);
-    if (o && typeof o.x === "number" && typeof o.y === "number") S.waypoint = { x: o.x, y: o.y };
-    else S.waypoint = null;
-  } catch (e) { S.waypoint = null; }
+  const o = lsJson(LS_WAYPOINT, null);
+  if (o && typeof o.x === "number" && typeof o.y === "number") S.waypoint = { x: o.x, y: o.y };
+  else S.waypoint = null;
 }
 function saveWaypoint(wp) {
   S.waypoint = wp;
   try {
-    if (wp) localStorage.setItem(LS_WAYPOINT, JSON.stringify(wp));
+    if (wp) lsSet(LS_WAYPOINT, JSON.stringify(wp));
     else localStorage.removeItem(LS_WAYPOINT);
-  } catch (e) {}
+  } catch (_) {}
 }
 function setPersonalWaypoint(x, y) {
   if (!S.map) return;
@@ -5275,7 +5280,7 @@ function setChatOpen(on) {
   }
 }
 function initMobileUi() {
-  try { if (localStorage.getItem("aot_party_mini") === "1") S.partyMinimized = true; } catch (_) {}
+  if (lsGet("aot_party_mini", "0") === "1") S.partyMinimized = true;
   if (S.partyMinimized && $("partyFrames") && S.party.length) setPartyMinimized(true);
   const coarse = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 900;
   const hud = $("mobileHud");
@@ -6471,10 +6476,8 @@ function renderAchs() {
 }
 var LS_FRIENDS = "aot_friends";
 function loadFriends() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(LS_FRIENDS) || "[]");
-    S.friends = Array.isArray(raw) ? raw.filter((n) => typeof n === "string").slice(0, 40) : [];
-  } catch (_) { S.friends = []; }
+  const raw = lsJson(LS_FRIENDS, []);
+  S.friends = Array.isArray(raw) ? raw.filter((n) => typeof n === "string").slice(0, 40) : [];
 }
 function saveFriends() {
   lsSet(LS_FRIENDS, JSON.stringify(S.friends || []))
@@ -7159,7 +7162,8 @@ initLogin();
 initMenu();
 var PANEL_LAYOUT_KEY = "aot_panel_layout";
 function loadPanelLayouts() {
-  try { return JSON.parse(localStorage.getItem(PANEL_LAYOUT_KEY) || "{}"); } catch (_) { return {}; }
+  const o = lsJson(PANEL_LAYOUT_KEY, {});
+  return o && typeof o === "object" ? o : {};
 }
 function savePanelLayout(id, patch) {
   const all = loadPanelLayouts();

@@ -348,6 +348,11 @@ function waitToast(p: Player, lastAt: number, ms: number, now: number, msg = "Es
   return false;
 }
 
+function tooFar(p: Player, q: { x: number; y: number }, range: number): boolean {
+  if (dist(p.x, p.y, q.x, q.y) > range) { toast(p, "Está demasiado lejos"); return true; }
+  return false;
+}
+
 function pushLootLog(p: Player, entry: { name: string; rarity: string; icon: string; gold?: number }): void {
   p.lootHist.unshift({ ...entry, at: Date.now() });
   if (p.lootHist.length > 30) p.lootHist.length = 30;
@@ -1418,6 +1423,12 @@ function nearAnyMerchant(p: Player): boolean {
   return nearNpc(p, kora) || nearNpc(p, bront);
 }
 
+function needMerchant(p: Player): boolean {
+  if (!nearAnyMerchant(p)) { toast(p, "No hay ningún mercader cerca"); return true; }
+  return false;
+}
+
+
 function tileAt(x: number, y: number): string {
   const tx = Math.floor(x), ty = Math.floor(y);
   if (tx < 0 || ty < 0 || tx >= W || ty >= W) return "w";
@@ -1494,7 +1505,7 @@ function beginBrew(p: Player, now: number): void {
   if (p.dead) return;
   dismountAndStand(p);
   if (now < p.combatUntil) return toast(p, "No puedes preparar brebajes en combate");
-  if (!nearNpc(p, kora)) return toast(p, "Prepara brebajes junto a Kora");
+  if (needNpc(p, kora, "Prepara brebajes junto a Kora")) return;
   let slot = -1;
   for (let i = 0; i < p.inv.length; i++) {
     const it = p.inv[i];
@@ -1632,7 +1643,7 @@ function tryDuelReq(p: Player, targetId: number, now: number): void {
   if (target.dead) return toast(p, "Ese jugador ha caído");
   if (target.duelWith) return toast(p, `${target.name} ya está en un duelo`);
   if (target.tradeId) return toast(p, `${target.name} está intercambiando`);
-  if (dist(p.x, p.y, target.x, target.y) > 14) return toast(p, "Está demasiado lejos");
+  if (tooFar(p, target, 14)) return;
   p.lastDuelReqAt = now;
   target.duelInvites.set(p.name, now + 30000);
   send(target.ws, { t: "duel_invited", from: p.name, fromId: p.id, cls: p.cls, lvl: p.lvl });
@@ -1653,7 +1664,7 @@ function tryDuelAccept(p: Player, fromName: string, now: number): void {
   if (!other) return toast(p, "Ese jugador ya no está en línea");
   if (other.duelWith) return toast(p, `${other.name} ya está en un duelo`);
   if (other.dead) return toast(p, "Ese jugador ha caído");
-  if (dist(p.x, p.y, other.x, other.y) > 16) return toast(p, "Está demasiado lejos");
+  if (tooFar(p, other, 16)) return;
   dismountAndStand(p);
   dismountAndStand(other);
   if (p.tradeId) cancelTrade(p, "Intercambio cancelado");
@@ -1732,7 +1743,7 @@ function salvageValue(it: Item): number {
 
 function trySalvage(p: Player, slot: number): void {
   if (p.dead) return;
-  if (!nearNpc(p, bront)) return toast(p, "Desguazá equipo en la forja de Bront");
+  if (needNpc(p, bront, "Desguazá equipo en la forja de Bront")) return;
   if (!Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
   const it = p.inv[slot];
   if (!it) return;
@@ -1862,7 +1873,7 @@ function tryTradeReq(p: Player, targetId: number, now: number): void {
   if (!target || target === p || !target.ws) return toast(p, "Jugador no disponible");
   if (BOT_SQUAD.has(target.name)) return toast(p, "No podés comerciar con compañeros IA");
   if (BOT_SQUAD.has(p.name)) return;
-  if (dist(p.x, p.y, target.x, target.y) > TRADE_RANGE) return toast(p, "Está demasiado lejos");
+  if (tooFar(p, target, TRADE_RANGE)) return;
   if (target.dead) return toast(p, "No puede comerciar ahora");
   if (target.tradeId) return toast(p, `${target.name} ya está intercambiando`);
   p.lastTradeReqAt = now;
@@ -1880,7 +1891,7 @@ function tryTradeAccept(p: Player, fromName: string, now: number): void {
   const other = playerById(inv.fromId);
   if (!other || !other.ws || other.name.toLowerCase() !== key) return toast(p, "El jugador ya no está disponible");
   if (other.tradeId) return toast(p, `${other.name} ya está intercambiando`);
-  if (dist(p.x, p.y, other.x, other.y) > TRADE_RANGE) return toast(p, "Está demasiado lejos");
+  if (tooFar(p, other, TRADE_RANGE)) return;
   const id = `tr_${other.id}_${p.id}_${now}`;
   const sess: TradeSession = {
     id, aId: other.id, bId: p.id, aName: other.name, bName: p.name,
@@ -2140,7 +2151,7 @@ function beginCook(p: Player, now: number): void {
   if (p.cookUntil && now < p.cookUntil) return toast(p, "Ya estás cocinando…");
   if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
   if (now < p.combatUntil) return toast(p, "No puedes cocinar en combate");
-  if (!nearNpc(p, bront)) return toast(p, "Cocina junto a la forja de Bront");
+  if (needNpc(p, bront, "Cocina junto a la forja de Bront")) return;
   let slot = -1;
   for (let i = 0; i < p.inv.length; i++) {
     const it = p.inv[i];
@@ -2280,7 +2291,7 @@ function tryPay(p: Player, targetName: string, amount: number, now: number): voi
   if (name.toLowerCase() === p.name.toLowerCase()) return toast(p, "No podés pagarte a vos mismo");
   const target = playerByName(name, true);
   if (!target) return toast(p, "Ese jugador no está en línea");
-  if (dist(p.x, p.y, target.x, target.y) > 14) return toast(p, "Está demasiado lejos");
+  if (tooFar(p, target, 14)) return;
   if (p.gold < gold) return toast(p, "No tenés suficiente oro");
   p.gold -= gold;
   target.gold += gold;
@@ -2687,6 +2698,12 @@ function nearNpc(p: Player, npc: Npc, range = 3): boolean {
   return dist(p.x, p.y, npc.x, npc.y) <= range;
 }
 
+function needNpc(p: Player, npc: Npc, msg: string, range = 3): boolean {
+  if (!nearNpc(p, npc, range)) { toast(p, msg); return true; }
+  return false;
+}
+
+
 /** Open an NPC's dialog/shop/board panel for the player. Assumes proximity already checked. */
 function openNpcDialog(p: Player, npc: Npc): void {
   if (npc.kind === "elder") sendElderDialog(p);
@@ -2871,7 +2888,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "board_post": {
       if (p.dead) return;
-      if (!nearNpc(p, board)) return toast(p, "Debes estar junto al tablón de peticiones");
+      if (needNpc(p, board, "Debes estar junto al tablón de peticiones")) return;
       if (!isBoardMod(p) && qBoardFindByAuthor.get(p.name)) {
         sendBoard(p);
         return toast(p, "Ya tienes una petición activa — espera a que un moderador la resuelva");
@@ -2880,7 +2897,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (raw.length < 3) return toast(p, "Escribe un poco más");
       if (raw.length > 240) return toast(p, "Máximo 240 caracteres");
       const readyAt = boardCdUntil.get(p.id) ?? 0;
-      if (now < readyAt) return toast(p, `Espera ${Math.ceil((readyAt - now) / 1000)}s para publicar de nuevo`);
+      if (now < readyAt) return toast(p, `Esperá ${Math.ceil((readyAt - now) / 1000)}s para publicar de nuevo`);
       boardCdUntil.set(p.id, now + BOARD_POST_CD);
       qBoardInsert.run(p.name, raw, now);
       sendBoard(p);
@@ -2968,7 +2985,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       const slot = num(msg.slot);
       if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
-      if (!nearAnyMerchant(p)) return toast(p, "No hay ningún mercader cerca");
+      if (needMerchant(p)) return;
       const it = p.inv[slot];
       if (!it) return;
       if (it.slot === "quest") return toast(p, "No puedes vender objetos de misión");
@@ -2987,7 +3004,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       const rarity = typeof msg.rarity === "string" ? msg.rarity : "";
       if (rarity !== "common" && rarity !== "magic" && rarity !== "rare") return;
-      if (!nearAnyMerchant(p)) return toast(p, "No hay ningún mercader cerca");
+      if (needMerchant(p)) return;
       let gain = 0, count = 0;
       for (let i = 0; i < INV_SIZE; i++) {
         const it = p.inv[i];
@@ -3009,7 +3026,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "buyback": {
       if (p.dead) return;
-      if (!nearAnyMerchant(p)) return toast(p, "No hay ningún mercader cerca");
+      if (needMerchant(p)) return;
       const idx = num(msg.idx);
       if (idx == null || !Number.isInteger(idx) || idx < 0 || idx >= p.buyback.length) return;
       const entry = p.buyback[idx];
@@ -3043,7 +3060,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "stash_deposit": {
       if (p.dead) return;
-      if (!nearNpc(p, stashNpc)) return toast(p, "Debes estar junto al cofre");
+      if (needNpc(p, stashNpc, "Debes estar junto al cofre")) return;
       const slot = num(msg.slot);
       if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
       const it = p.inv[slot];
@@ -3057,7 +3074,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "stash_withdraw": {
       if (p.dead) return;
-      if (!nearNpc(p, stashNpc)) return toast(p, "Debes estar junto al cofre");
+      if (needNpc(p, stashNpc, "Debes estar junto al cofre")) return;
       const slot = num(msg.slot);
       if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= STASH_SIZE) return;
       const it = p.stash[slot];
@@ -3070,7 +3087,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "pet_buy": {
       if (p.dead) return;
-      if (!nearNpc(p, petshopNpc)) return toast(p, "Debes estar junto al criadero");
+      if (needNpc(p, petshopNpc, "Debes estar junto al criadero")) return;
       const id = typeof msg.id === "string" ? msg.id : "";
       const def = PET_DEFS[id];
       if (!def) return;
@@ -3099,7 +3116,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "mount_buy": {
       if (p.dead) return;
-      if (!nearNpc(p, petshopNpc)) return toast(p, "Debes estar junto al criadero");
+      if (needNpc(p, petshopNpc, "Debes estar junto al criadero")) return;
       const id = typeof msg.id === "string" ? msg.id : "";
       const def = MOUNT_DEFS[id];
       if (!def) return;
@@ -3291,7 +3308,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       const qid = typeof msg.qid === "string" ? msg.qid : "";
       if (!QUESTS[qid]) return;
-      if (!nearNpc(p, elder)) return toast(p, "Debes hablar con Nikandros");
+      if (needNpc(p, elder, "Debes hablar con Nikandros")) return;
       if (questState(p, qid) !== "available") return toast(p, "Aún no puedes aceptar esa misión");
       p.quests[qid] = { n: 0, done: false, turned: false };
       if (QUESTS[qid].kind === "collect") updateCollect(p);
@@ -3307,7 +3324,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const qid = typeof msg.qid === "string" ? msg.qid : "";
       const def = QUESTS[qid];
       if (!def) return;
-      if (!nearNpc(p, elder)) return toast(p, "Debes hablar con Nikandros");
+      if (needNpc(p, elder, "Debes hablar con Nikandros")) return;
       if (questState(p, qid) !== "complete") return toast(p, "Esa misión no está completa");
       let rewardItem: Item | null = null;
       if (def.rew.item) {
@@ -3332,7 +3349,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (id == null) return;
       const target = playerById(id);
       if (!target || target === p) return;
-      if (dist(p.x, p.y, target.x, target.y) > 14) return toast(p, "Está demasiado lejos");
+      if (tooFar(p, target, 14)) return;
       const eq: Record<string, unknown> = {};
       for (const slot of EQUIP_SLOTS) {
         const it = target.eq[slot];
@@ -3571,7 +3588,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!wp) return;
       if (dest !== "helike" && !p.visitedZones.includes(dest))
         return toast(p, "Primero debes visitar esa región a pie");
-      if (!nearNpc(p, portalNpc)) return toast(p, "Debes estar junto al Portal");
+      if (needNpc(p, portalNpc, "Debes estar junto al Portal")) return;
       if (p.combatUntil > now) return toast(p, "No puedes viajar en combate");
       p.x = wp.x;
       p.y = wp.y;
@@ -4330,10 +4347,9 @@ const server = Bun.serve<Session, Record<string, never>>({
       ws.data.player = null;
       if (p && p.ws === ws) {
         if (p.tradeId) cancelTrade(p, "Intercambio cancelado");
+        if (p.duelWith) cancelDuel(p, "Tu rival se desconectó");
         p.ws = null;
         p.disconnectedAt = Date.now(); // linger in memory so a quick reconnect keeps party/state
-        if (p.duelWith) cancelDuel(p, "Tu rival se desconectó");
-        if (p.tradeId) cancelTrade(p, "Intercambio cancelado");
         savePlayer(p);
         if (!BOT_SQUAD.has(p.name)) sysChat(`${p.name} se ha ido.`);
       }
