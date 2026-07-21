@@ -5019,28 +5019,22 @@ function showInvitePrompt(boxId, timerKey, html, onYes, onNo, yesId, noId) {
   window[timerKey] = setTimeout(() => box.classList.add("hidden"), 30000);
 }
 
-function showTradeInvite(m) {
+function showRoleInvite(m, boxId, timerKey, msg, yesId, noId, yesLabel, noLabel, acceptT, declineT) {
   showInvitePrompt(
-    "tradeInviteBox",
-    "_tradeInvTimer",
-    inviteCardHtml(m.from, m.lvl, m.cls, t("trade.invite"), "trYes", "trNo", t("trade.accept"), t("trade.decline")),
-    () => send({ t: "trade_accept", from: m.from }),
-    () => send({ t: "trade_decline", from: m.from }),
-    "trYes",
-    "trNo"
+    boxId,
+    timerKey,
+    inviteCardHtml(m.from, m.lvl, m.cls, msg, yesId, noId, yesLabel, noLabel),
+    () => send({ t: acceptT, from: m.from }),
+    () => send({ t: declineT, from: m.from }),
+    yesId,
+    noId
   );
 }
-
+function showTradeInvite(m) {
+  showRoleInvite(m, "tradeInviteBox", "_tradeInvTimer", t("trade.invite"), "trYes", "trNo", t("trade.accept"), t("trade.decline"), "trade_accept", "trade_decline");
+}
 function showDuelInvite(m) {
-  showInvitePrompt(
-    "inviteBox",
-    "_partyInvTimer",
-    inviteCardHtml(m.from, m.lvl, m.cls, t("duel.invite"), "duelYes", "duelNo", t("duel.accept"), t("duel.decline")),
-    () => send({ t: "duel_accept", from: m.from }),
-    () => send({ t: "duel_decline", from: m.from }),
-    "duelYes",
-    "duelNo"
-  );
+  showRoleInvite(m, "inviteBox", "_partyInvTimer", t("duel.invite"), "duelYes", "duelNo", t("duel.accept"), t("duel.decline"), "duel_accept", "duel_decline");
 }
 function onDuelMsg(m) {
   if (!m) return;
@@ -5207,15 +5201,7 @@ function closePlayerMenu() {
   $("playerMenu").classList.add("hidden");
 }
 function showInvite(m) {
-  showInvitePrompt(
-    "inviteBox",
-    "_partyInvTimer",
-    inviteCardHtml(m.from, m.lvl, m.cls, "te invita a su grupo", "invYes", "invNo", "Unirse", "Rechazar"),
-    () => send({ t: "party_accept", from: m.from }),
-    () => send({ t: "party_decline", from: m.from }),
-    "invYes",
-    "invNo"
-  );
+  showRoleInvite(m, "inviteBox", "_partyInvTimer", "te invita a su grupo", "invYes", "invNo", "Unirse", "Rechazar", "party_accept", "party_decline");
 }
 
 function setPartyMinimized(on) {
@@ -6061,10 +6047,10 @@ function renderInventory() {
             return;
           send({ t: "sell", slot });
         } else if (S.stashOpen) {
-          if (item.slot === "quest") return toast("No puedes guardar objetos de misión");
+          if (item.slot === "quest") return toast("No podés guardar objetos de misión");
           send({ t: "stash_deposit", slot });
         } else if (S.trade && !S.trade.lockYou) {
-          if (item.slot === "quest") return toast("No se pueden intercambiar objetos de misión");
+          if (item.slot === "quest") return toast("No podés intercambiar objetos de misión");
           let free = -1;
           const you = S.trade.you || [];
           for (let i = 0; i < 6; i++) if (!you[i]) { free = i; break; }

@@ -1,3 +1,11 @@
+## 2026-09-23 — clearMobility keepVel + quest toasts
+
+- **Ataque / loot / NPC / move / joystick**: unifican locks con `clearMobility`
+  (opción `keepVel` para el stick).
+- Helper `questItemBlocked` + toasts en "No podés…"; death usa `dropMountSit`.
+- Tick: `interruptChannels`; cliente: `showRoleInvite` dedupea party/trade/duelo.
+- Cache bust `?v=20260923`.
+
 ## 2026-09-22 — Death channel clear + offline/menu dedupe
 
 - **Bugfix**: al morir ahora se cancelan pesca/cocina/recolección (antes solo

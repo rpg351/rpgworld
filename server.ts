@@ -842,8 +842,7 @@ function playerDie(p: Player): void {
   clearMobility(p);
   stopChannels(p);
   p.moving = false;
-  p.mounted = false;
-  p.sitting = false;
+  dropMountSit(p);
   const recap = p.recentHits.slice(-5).map((h) => ({ n: h.n, a: h.a }));
   send(p.ws, { t: "dead", reviveAt: p.deadAt + REVIVE_MS, recap });
 }
@@ -1418,13 +1417,22 @@ function playerByName(name: string, onlineOnly = false): Player | null {
 }
 
 /** Stop movement / chase so a channelled action can start cleanly. */
-function clearMobility(p: Player): void {
+function clearMobility(p: Player, keepVel = false): void {
   p.path = null;
   p.direct = null;
-  p.vel = null;
+  if (!keepVel) p.vel = null;
   p.atkTarget = null;
   p.lootTarget = null;
   p.npcTarget = null;
+}
+
+function dropMountSit(p: Player): void {
+  p.mounted = false;
+  p.sitting = false;
+}
+
+function questItemBlocked(p: Player, verb: string): void {
+  toast(p, `No podés ${verb} objetos de misión`);
 }
 
 function stopChannels(p: Player): void {
@@ -1432,6 +1440,19 @@ function stopChannels(p: Player): void {
   p.cookUntil = 0;
   p.cookSlot = -1;
   p.forageUntil = 0;
+}
+
+function interruptChannels(p: Player, now: number): void {
+  if (p.fishUntil && channelInterrupted(p, now)) {
+    stopChannels(p);
+    toast(p, "Dejas de pescar");
+  } else if (p.forageUntil && channelInterrupted(p, now)) {
+    stopChannels(p);
+    toast(p, "Dejas de recolectar");
+  } else if (p.cookUntil && (channelInterrupted(p, now) || !nearNpc(p, bront))) {
+    stopChannels(p);
+    toast(p, "Dejas de cocinar");
+  }
 }
 
 function needOnline(p: Player, q: Player | null, msg = "Ese jugador no está en línea"): q is Player {
@@ -1831,7 +1852,7 @@ function trySalvage(p: Player, slot: number): void {
   const it = p.inv[slot];
   if (!it) return;
   if (!SALVAGE_SLOTS.has(it.slot)) return toast(p, "Solo se desguaza armas y armaduras");
-  if (it.slot === "quest") return toast(p, "No puedes desguazar objetos de misión");
+  if (it.slot === "quest") return questItemBlocked(p, "desguazar");
   const gain = salvageValue(it);
   const name = it.name;
   p.inv[slot] = null;
@@ -2016,7 +2037,7 @@ function tradePut(p: Player, tradeSlot: number, invSlot: number): void {
   if (!Number.isInteger(invSlot) || invSlot < 0 || invSlot >= INV_SIZE) return;
   const it = p.inv[invSlot];
   if (!it) return;
-  if (!canTradeItem(it)) return toast(p, "No se pueden intercambiar objetos de misión");
+  if (!canTradeItem(it)) return questItemBlocked(p, "intercambiar");
   if (side.items[tradeSlot]) return toast(p, "Ese hueco ya tiene un objeto");
   // move whole stack into trade
   p.inv[invSlot] = null;
@@ -2209,7 +2230,7 @@ function tryFinishCook(p: Player, now: number): void {
   if (slot < 0 || slot >= INV_SIZE) return;
   const it = p.inv[slot];
   if (!it || it.slot !== "fish") {
-    toast(p, "Ya no tienes ese pescado");
+    toast(p, "Ya no tenés ese pescado");
     return;
   }
   const foodId = foodFromFish(it.base);
@@ -2855,9 +2876,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.sitting) standUp(p);
       const tx = Math.max(0.5, Math.min(W - 0.5, x));
       const ty = Math.max(0.5, Math.min(W - 0.5, y));
-      p.atkTarget = null;
-      p.lootTarget = null;
-      p.npcTarget = null;
+      clearMobility(p);
       const path = astar(world.walk, p.x, p.y, tx, ty);
       if (path) {
         p.path = path;
@@ -2881,11 +2900,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.sitting) standUp(p);
       // Keep direction continuous (no 4/8-way snap) so mobile joystick feels natural.
       p.vel = { x: cx / mag, y: cy / mag };
-      p.path = null;
-      p.direct = null;
-      p.atkTarget = null;
-      p.lootTarget = null;
-      p.npcTarget = null;
+      clearMobility(p, true);
       break;
     }
     case "attack": {
@@ -2895,30 +2910,20 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (id == null) return;
       // id:0 = explicit cancel (empty-ground click / drop target).
       if (id === 0) {
-        p.atkTarget = null;
-        p.lootTarget = null;
-        p.npcTarget = null;
-        p.path = null;
-        p.direct = null;
+        clearMobility(p);
         break;
       }
       const m = mobById(id);
       if (m && !m.dead) {
+        clearMobility(p);
         p.atkTarget = m.id;
-        p.lootTarget = null;
-        p.npcTarget = null;
-        p.path = null;
-        p.direct = null;
         p.repathAt = 0;
         break;
       }
       const foe = playerById(id);
       if (foe && areDueling(p, foe)) {
+        clearMobility(p);
         p.atkTarget = foe.id;
-        p.lootTarget = null;
-        p.npcTarget = null;
-        p.path = null;
-        p.direct = null;
         p.repathAt = 0;
         break;
       }
@@ -2948,11 +2953,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (id == null) return;
       if (!loot.get(id)) return;
       // Same lock+chase pattern as attack: approach until within 2 tiles, then pick.
-      p.atkTarget = null;
+      clearMobility(p);
       p.lootTarget = id;
-      p.npcTarget = null;
-      p.path = null;
-      p.direct = null;
       p.repathAt = 0;
       if (tryPickupLoot(p, id)) p.lootTarget = null;
       break;
@@ -2962,16 +2964,13 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const id = num(msg.id);
       const npc = npcs.find((n) => n.id === id);
       if (!npc) return;
-      p.atkTarget = null;
-      p.lootTarget = null;
       if (nearNpc(p, npc)) {
-        p.npcTarget = null;
+        clearMobility(p);
         openNpcDialog(p, npc);
       } else {
         // Same lock+chase pattern as attack/pickup: walk over, then open once in range.
+        clearMobility(p);
         p.npcTarget = npc.id;
-        p.path = null;
-        p.direct = null;
         p.repathAt = 0;
       }
       break;
@@ -3078,7 +3077,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (needMerchant(p)) return;
       const it = p.inv[slot];
       if (!it) return;
-      if (it.slot === "quest") return toast(p, "No puedes vender objetos de misión");
+      if (it.slot === "quest") return questItemBlocked(p, "vender");
       const gain = sellValue(it);
       p.gold += gain;
       p.inv[slot] = null;
@@ -3155,7 +3154,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
       const it = p.inv[slot];
       if (!it) return;
-      if (it.slot === "quest") return toast(p, "No puedes guardar objetos de misión");
+      if (it.slot === "quest") return questItemBlocked(p, "guardar");
       if (!addToSlots(p.stash, it)) return toast(p, "El cofre está lleno");
       p.inv[slot] = null;
       sendYou(p);
@@ -3258,7 +3257,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
       const it = p.inv[slot];
       if (!it) return;
-      if (it.slot === "quest") return toast(p, "No puedes tirar objetos de misión");
+      if (it.slot === "quest") return questItemBlocked(p, "tirar");
       // Drop one unit from stacks; full item otherwise. Shared ground loot — anyone can pick it up.
       let dropped: Item;
       const qty = it.qty ?? 1;
@@ -3282,7 +3281,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const it = p.inv[slot];
       if (!it) return;
       if (it.slot !== "weapon" && it.slot !== "armor" && it.slot !== "helm" && it.slot !== "ring")
-        return toast(p, "No puedes equipar eso");
+        return toast(p, "No podés equipar eso");
       if (p.lvl < it.lvl) return toast(p, `Requiere nivel ${it.lvl}`);
       p.inv[slot] = p.eq[it.slot];
       p.eq[it.slot] = it;
@@ -3739,7 +3738,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         const body = wm[2].slice(0, 180);
         const target = playerByName(targetName, true);
         if (!target) return toast(p, `No hay nadie online llamado ${targetName}`);
-        if (target.id === p.id) return toast(p, "No puedes susurrarte a ti mismo");
+        if (target.id === p.id) return toast(p, "No podés susurrarte a vos mismo");
         send(p.ws, { t: "chat", from: `Para ${target.name}`, text: body, whisper: 1 });
         send(target.ws, { t: "chat", from: `De ${p.name}`, text: body, whisper: 1 });
         break;
@@ -3887,16 +3886,7 @@ function simTick(): void {
     tryFinishCook(p, now);
     tryFinishForage(p, now);
     // Cancel channelled actions if the player moves / fights / leaves the station.
-    if (p.fishUntil && channelInterrupted(p, now)) {
-      stopChannels(p);
-      toast(p, "Dejas de pescar");
-    } else if (p.forageUntil && channelInterrupted(p, now)) {
-      stopChannels(p);
-      toast(p, "Dejas de recolectar");
-    } else if (p.cookUntil && (channelInterrupted(p, now) || !nearNpc(p, bront))) {
-      stopChannels(p);
-      toast(p, "Dejas de cocinar");
-    }
+    interruptChannels(p, now);
     if (p.sitting && (channelInterrupted(p, now) || p.moving)) {
       standUp(p);
     }
