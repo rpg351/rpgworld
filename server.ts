@@ -335,6 +335,10 @@ function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+function strMsg(v: unknown, fallback = ""): string {
+  return typeof v === "string" ? v : fallback;
+}
+
 /** Parse an inventory/stash slot index from a client message. */
 function readSlot(msg: { slot?: unknown }, size = INV_SIZE): number | null {
   const slot = num(msg.slot);
@@ -348,6 +352,10 @@ function send(ws: WS | null, msg: unknown): void {
 
 function toast(p: Player, msg: string): void {
   send(p.ws, { t: "toast", msg });
+}
+
+function toastQuestDone(p: Player, name: string): void {
+  toast(p, `Misión completada: ${name} — volvé con Nikandros`);
 }
 
 function waitToast(p: Player, lastAt: number, ms: number, now: number, msg = "Esperá un momento…"): boolean {
@@ -662,7 +670,7 @@ function updateCollect(p: Player): void {
     q.n = n;
     const wasDone = q.done;
     q.done = n >= def.count;
-    if (q.done && !wasDone) toast(p, `Misión completada: ${def.name} — volvé con Nikandros`);
+    if (q.done && !wasDone) toastQuestDone(p, def.name);
   }
 }
 
@@ -841,7 +849,7 @@ function mobDie(m: Mob, killer: Player): void {
       q.n++;
       if (q.n >= def.count) {
         q.done = true;
-        toast(member, `Misión completada: ${def.name} — volvé con Nikandros`);
+        toastQuestDone(member, def.name);
       }
     }
     sendYou(member);
@@ -2765,9 +2773,9 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
 async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> {
   const sess = ws.data;
   if (sess.player || sess.loggingIn) return;
-  const name = typeof msg.name === "string" ? msg.name : "";
-  const pass = typeof msg.pass === "string" ? msg.pass : "";
-  const cls = typeof msg.cls === "string" ? msg.cls : "";
+  const name = strMsg(msg.name);
+  const pass = strMsg(msg.pass);
+  const cls = strMsg(msg.cls);
   if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return send(ws, { t: "err", msg: "El nombre debe tener 3-16 letras, dígitos o _" });
   if (pass.length < 4) return send(ws, { t: "err", msg: "La contraseña debe tener al menos 4 caracteres" });
   const ipKey = `ip:${sess.ip}`, acctKey = `acct:${name.toLowerCase()}`;
@@ -2881,6 +2889,8 @@ function nearNpc(p: Player, npc: Npc, range = 3): boolean {
 const MSG_STASH = "Tenés que estar junto al cofre";
 const MSG_CRIADERO = "Tenés que estar junto al criadero";
 const MSG_ELDER = "Tenés que hablar con Nikandros";
+const MSG_BOARD = "Tenés que estar junto al tablón de peticiones";
+const MSG_PORTAL = "Tenés que estar junto al Portal";
 
 function needNpc(p: Player, npc: Npc, msg: string, range = 3): boolean {
   if (!nearNpc(p, npc, range)) { toast(p, msg); return true; }
@@ -2901,6 +2911,11 @@ function buyAtCriadero(
   if (needGold(p, def.cost)) return false;
   p.gold -= def.cost;
   return true;
+}
+
+function syncPetShop(p: Player): void {
+  sendYou(p);
+  sendPetShop(p);
 }
 
 
@@ -3060,12 +3075,12 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "board_post": {
       if (p.dead) return;
-      if (needNpc(p, board, "Tenés que estar junto al tablón de peticiones")) return;
+      if (needNpc(p, board, MSG_BOARD)) return;
       if (!isBoardMod(p) && qBoardFindByAuthor.get(p.name)) {
         sendBoard(p);
         return toast(p, "Ya tenés una petición activa — esperá a que un moderador la resuelva");
       }
-      const raw = typeof msg.text === "string" ? msg.text.trim() : "";
+      const raw = strMsg(msg.text).trim();
       if (raw.length < 3) return toast(p, "Escribe un poco más");
       if (raw.length > 240) return toast(p, "Máximo 240 caracteres");
       const readyAt = boardCdUntil.get(p.id) ?? 0;
@@ -3089,7 +3104,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       if (!isBoardMod(p)) return toast(p, "No tenés permiso para editar peticiones");
       const id = num(msg.id);
-      const raw = typeof msg.text === "string" ? msg.text.trim() : "";
+      const raw = strMsg(msg.text).trim();
       if (id == null || raw.length < 3 || raw.length > 240) return;
       qBoardUpdate.run(id, raw);
       sendBoard(p);
@@ -3097,7 +3112,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "ability_alloc": {
       if (p.dead) return;
-      const id = typeof msg.id === "string" ? msg.id : "";
+      const id = strMsg(msg.id);
       const def = TREE_BY_ID[p.cls]?.[id];
       if (!def) return;
       const cur = abilityRank(p, id);
@@ -3175,7 +3190,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "sell_all": {
       if (p.dead) return;
-      const rarity = typeof msg.rarity === "string" ? msg.rarity : "";
+      const rarity = strMsg(msg.rarity);
       if (rarity !== "common" && rarity !== "magic" && rarity !== "rare") return;
       if (needMerchant(p)) return;
       let gain = 0, count = 0;
@@ -3260,53 +3275,49 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "pet_buy": {
-      const id = typeof msg.id === "string" ? msg.id : "";
+      const id = strMsg(msg.id);
       const def = PET_DEFS[id];
       if (!buyAtCriadero(p, p.pets, id, def, "Ya tenés esa mascota")) return;
       p.pets.add(id);
       p.dirty = true;
       grantAch(p, "pet_1");
-      sendYou(p);
-      sendPetShop(p);
+      syncPetShop(p);
       toast(p, `Adoptaste a ${def.name}`);
       break;
     }
     case "pet_equip": {
       if (p.dead) return;
-      const id = typeof msg.id === "string" ? msg.id : "";
+      const id = strMsg(msg.id);
       if (id && (!PET_DEFS[id] || !p.pets.has(id))) return;
       p.activePet = id || null;
       p.dirty = true;
       if (p.activePet) toast(p, `Tu ${PET_DEFS[p.activePet].name} te sigue`);
-      else toast(p, "Tu mascota vuelve al criadero");
-      sendYou(p);
-      sendPetShop(p);
+      else toast(p, "Tu mascota vuelve al Criadero");
+      syncPetShop(p);
       break;
     }
     case "mount_buy": {
-      const id = typeof msg.id === "string" ? msg.id : "";
+      const id = strMsg(msg.id);
       const def = MOUNT_DEFS[id];
       if (!buyAtCriadero(p, p.mounts, id, def, "Ya tenés esa montura")) return;
       p.mounts.add(id);
       if (!p.activeMount) p.activeMount = id;
       p.dirty = true;
       grantAch(p, "mount_1");
-      sendYou(p);
-      sendPetShop(p);
+      syncPetShop(p);
       toast(p, `Compraste: ${def.name}`);
       break;
     }
     case "mount_equip": {
       if (p.dead) return;
-      const id = typeof msg.id === "string" ? msg.id : "";
+      const id = strMsg(msg.id);
       if (id && (!MOUNT_DEFS[id] || !p.mounts.has(id))) return;
       p.activeMount = id || null;
       if (!p.activeMount) dismount(p, true);
       p.dirty = true;
       if (p.activeMount) toast(p, `Montura lista: ${MOUNT_DEFS[p.activeMount].name}`);
       else toast(p, "Sin montura activa");
-      sendYou(p);
-      sendPetShop(p);
+      syncPetShop(p);
       break;
     }
     case "mount": {
@@ -3320,7 +3331,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "pay": {
-      const name = typeof msg.name === "string" ? msg.name : "";
+      const name = strMsg(msg.name);
       const gold = num(msg.gold);
       if (gold == null) return;
       tryPay(p, name, gold, now);
@@ -3435,7 +3446,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "quest_accept": {
       if (p.dead) return;
-      const qid = typeof msg.qid === "string" ? msg.qid : "";
+      const qid = strMsg(msg.qid);
       if (!QUESTS[qid]) return;
       if (needNpc(p, elder, MSG_ELDER)) return;
       if (questState(p, qid) !== "available") return toast(p, "Aún no podés aceptar esa misión");
@@ -3450,7 +3461,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "quest_turnin": {
       if (p.dead) return;
-      const qid = typeof msg.qid === "string" ? msg.qid : "";
+      const qid = strMsg(msg.qid);
       const def = QUESTS[qid];
       if (!def) return;
       if (needNpc(p, elder, MSG_ELDER)) return;
@@ -3507,7 +3518,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "party_accept": {
-      const from = typeof msg.from === "string" ? msg.from : null;
+      const from = strMsg(msg.from) || null;
       if (!from) return;
       const exp = p.invites.get(from);
       p.invites.delete(from);
@@ -3535,7 +3546,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "party_decline": {
-      const from = typeof msg.from === "string" ? msg.from : null;
+      const from = strMsg(msg.from) || null;
       if (!from) return;
       if (p.invites.delete(from)) {
         const inviter = players.get(from) || null;
@@ -3607,12 +3618,12 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "trade_accept": {
-      const from = typeof msg.from === "string" ? msg.from : "";
+      const from = strMsg(msg.from);
       tryTradeAccept(p, from, now);
       break;
     }
     case "trade_decline": {
-      const from = typeof msg.from === "string" ? msg.from : "";
+      const from = strMsg(msg.from);
       tryTradeDecline(p, from);
       break;
     }
@@ -3657,12 +3668,12 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "duel_accept": {
-      const from = typeof msg.from === "string" ? msg.from : "";
+      const from = strMsg(msg.from);
       tryDuelAccept(p, from, now);
       break;
     }
     case "duel_decline": {
-      const from = typeof msg.from === "string" ? msg.from : "";
+      const from = strMsg(msg.from);
       tryDuelDecline(p, from);
       break;
     }
@@ -3683,7 +3694,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "title": {
-      const id = typeof msg.id === "string" ? msg.id : "";
+      const id = strMsg(msg.id);
       if (!id) {
         p.title = "";
         p.dirty = true;
@@ -3714,12 +3725,12 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "portal_travel": {
       if (p.dead || stunned) return;
-      const dest = typeof msg.dest === "string" ? msg.dest : "";
+      const dest = strMsg(msg.dest);
       const wp = PORTAL_WAYPOINTS[dest];
       if (!wp) return;
       if (dest !== "helike" && !p.visitedZones.includes(dest))
         return toast(p, "Primero tenés que visitar esa región a pie");
-      if (needNpc(p, portalNpc, "Tenés que estar junto al Portal")) return;
+      if (needNpc(p, portalNpc, MSG_PORTAL)) return;
       if (inCombatBlock(p, now, "No podés viajar en combate")) return;
       p.x = wp.x;
       p.y = wp.y;
@@ -3731,7 +3742,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "chat": {
-      const text = typeof msg.text === "string" ? msg.text.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 200) : "";
+      const text = strMsg(msg.text).replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 200);
       if (!text) return;
       if (waitToast(p, p.lastChat, 1000, now, "Estás escribiendo demasiado rápido")) return;
       p.lastChat = now;

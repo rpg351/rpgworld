@@ -1,3 +1,9 @@
+## 2026-09-33 — strMsg + toastQuestDone + syncPetShop
+
+- Helper `strMsg` unifica lecturas string de packets; `toastQuestDone` para misiones.
+- `syncPetShop` dedupe sendYou+sendPetShop; `MSG_BOARD` / `MSG_PORTAL`.
+- Cache bust `?v=20260933`.
+
 ## 2026-09-32 — nearTile + oocActionGate + buyAtCriadero
 
 - Helpers `nearTile`, `oocActionGate`, `noteProf`, `buyAtCriadero` deduplican tiles,
