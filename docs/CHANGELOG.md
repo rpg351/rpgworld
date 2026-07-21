@@ -1,3 +1,13 @@
+## 2026-09-13 — Intercambio entre jugadores
+
+- **Comercio**: clic derecho / menú de jugador → Intercambiar, botón en Quién (O),
+  o `/trade Nombre` (`/comercio`). Ventana con 6 huecos + oro por lado; bloquear →
+  confirmar. Objetos de misión no se comercian. Se cancela al alejarse, morir,
+  combatir o desconectar.
+- **Susurrar** desde el menú de jugador.
+- **Oficios** en ficha de personaje (pesca / cocina / hierbas / alquimia).
+- Logro **Mercader**. Cache bust `?v=20260913`.
+
 ## 2026-09-12 — Recolección, alquimia, hogar y HUD de buffs
 
 - **Recolectar (T / `/forage` / `/recolectar`)**: junto a un árbol (fuera de la plaza)

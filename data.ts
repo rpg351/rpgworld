@@ -575,6 +575,7 @@ export const ACHIEVEMENTS: Record<string, { name: string; desc: string; gold: nu
   forage_20: { name: "Herbolario", desc: "Recolecta 20 hierbas", gold: 70 },
   brew_15: { name: "Alquimista", desc: "Prepara 15 brebajes en el alambique de Kora", gold: 120 },
   bind_1: { name: "Hogar ligado", desc: "Liga tu piedra de hogar en la fuente", gold: 40 },
+  trade_1: { name: "Mercader", desc: "Completa un intercambio con otro jugador", gold: 50 },
 };
 
 export const QUEST_ORDER = ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12"];

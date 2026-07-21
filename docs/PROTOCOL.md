@@ -84,6 +84,12 @@ Server replies to invalid/denied actions with `{t:"toast", msg}` (short human st
 - `{t:"mount"}` / `{t:"sit"}` — toggle mount or sitting rest.
 - `{t:"mount_buy", id}` / `{t:"mount_equip", id}` — buy/select mount at pet shop.
 - `{t:"pay", name, gold}` — send gold to a nearby online player (also `/pay Name N`).
+- `{t:"trade_req", id}` / `{t:"trade_accept", from}` / `{t:"trade_decline", from}` — player trade invite flow.
+- `{t:"trade_put", slot, inv}` / `{t:"trade_take", slot}` / `{t:"trade_gold", gold}` — update your offer (items leave inventory while offered).
+- `{t:"trade_lock"}` / `{t:"trade_unlock"}` / `{t:"trade_confirm"}` / `{t:"trade_cancel"}` — lock/confirm/cancel.
+- `{t:"trade", …}` — trade window sync; `{t:"trade_end", reason}` closes it (`done`|`cancel`|…).
+- `{t:"trade_invited", from, fromId, cls, lvl}` — incoming trade proposal.
+- `{t:"you"}` includes `fishCount`, `cookCount`, `forageCount`, `brewCount` for profession display.
 - `{t:"forage"}` — channel ~2.4s next to a tree (not in town) → `slot:"herb"`.
 - `{t:"brew"}` — near Kora, consume one herb → potion or `slot:"elixir"` (Moly).
 - `{t:"bind"}` — near fountain, set durable hearth; `{t:"recall"}` returns there if set.

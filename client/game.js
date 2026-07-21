@@ -123,6 +123,28 @@ var I18N = {
     "mount.section": "Monturas",
     "pet.section": "Mascotas",
     "pay.btn": "Enviar oro",
+    "trade.btn": "Intercambiar",
+    "trade.you": "Tu oferta",
+    "trade.them": "Su oferta",
+    "trade.gold": "Oro",
+    "trade.lock": "Bloquear",
+    "trade.unlock": "Desbloquear",
+    "trade.confirm": "Confirmar",
+    "trade.cancel": "Cancelar",
+    "trade.waiting": "Esperando al otro…",
+    "trade.locked": "Bloqueado",
+    "trade.hint": "Clic en inventario para ofrecer · clic en oferta para retirar",
+    "trade.accept": "Comerciar",
+    "trade.decline": "Rechazar",
+    "trade.invite": "te propone un intercambio",
+    "panel.trade": "Intercambio",
+    "prof.title": "Oficios",
+    "prof.fish": "Pesca",
+    "prof.cook": "Cocina",
+    "prof.forage": "Hierbas",
+    "prof.brew": "Alquimia",
+    "help.trade": "Intercambiar con un jugador cercano (/trade Nombre)",
+    "whisper.btn": "Susurrar",
     "pay.prompt": "¿Cuánto oro le enviás?",
     "help.title": "Equipar título desde Logros (Y)",
     "title.equip": "Usar título",
@@ -309,6 +331,28 @@ var I18N = {
     "help.forage": "Forage herbs next to a tree (/forage)",
     "help.brew": "Brew potions with Kora (/brew or V)",
     "help.bind": "Bind hearth at the fountain (/bind) — B returns there",
+    "help.trade": "Trade with a nearby player (/trade Name)",
+    "trade.btn": "Trade",
+    "trade.you": "Your offer",
+    "trade.them": "Their offer",
+    "trade.gold": "Gold",
+    "trade.lock": "Lock",
+    "trade.unlock": "Unlock",
+    "trade.confirm": "Confirm",
+    "trade.cancel": "Cancel",
+    "trade.waiting": "Waiting for partner…",
+    "trade.locked": "Locked",
+    "trade.hint": "Click inventory to offer · click offer to remove",
+    "trade.accept": "Trade",
+    "trade.decline": "Decline",
+    "trade.invite": "wants to trade",
+    "panel.trade": "Trade",
+    "prof.title": "Professions",
+    "prof.fish": "Fishing",
+    "prof.cook": "Cooking",
+    "prof.forage": "Herbs",
+    "prof.brew": "Alchemy",
+    "whisper.btn": "Whisper",
     "buff.mounted": "Mounted",
     "buff.sitting": "Sitting",
     "buff.rested": "Rested",
@@ -640,6 +684,7 @@ function handle(m) {
       S.reviveAt = 0;
       S.deathMark = null;
       S.streak = 0;
+  S.trade = null;
       S.meter = { dealt: 0, taken: 0, healed: 0, kills: 0, deaths: 0, t0: Date.now() };
       S.achs = { unlocked: [], defs: S.achs.defs || [], killCount: 0, goldEarned: 0 };
       updateStreakHud();
@@ -925,6 +970,16 @@ function handleWorld(m) {
     case "party_invited":
       showInvite(m);
       if (window.AOTAudio) AOTAudio.sfx("invite");
+      break;
+    case "trade_invited":
+      showTradeInvite(m);
+      if (window.AOTAudio) AOTAudio.sfx("invite");
+      break;
+    case "trade":
+      onTradeMsg(m);
+      break;
+    case "trade_end":
+      onTradeEnd(m);
       break;
     case "follow_state":
       S.followId = m.id;
@@ -3655,7 +3710,7 @@ function initMenu() {
   renderLootLog();
   renderCombatLog();
 }
-var PANEL_ORDER = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "achPanel", "whoPanel", "inspectPanel"];
+var PANEL_ORDER = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "achPanel", "whoPanel", "inspectPanel", "tradePanel"];
 function closeTopPanel() {
   for (const id of PANEL_ORDER) {
     const el = $(id);
@@ -3988,6 +4043,7 @@ document.querySelectorAll(".who-tab").forEach((b) => {
 loadFriends();
 document.querySelectorAll(".panel-x").forEach((x) => x.addEventListener("click", () => {
   const id = x.dataset.close;
+  if (id === "tradePanel" && S.trade) send({ t: "trade_cancel" });
   $(id).classList.add("hidden");
   if (id === "shopPanel") {
     S.shopOpen = false;
@@ -4878,6 +4934,115 @@ function nearTown(x, y) {
 }
 var CLS_ES = { warrior: "Guerrero", hunter: "Cazador", mage: "Mago", cleric: "Clérigo" };
 var inviteTimer = 0;
+
+function showTradeInvite(m) {
+  clearTimeout(window._tradeInvTimer);
+  const box = $("tradeInviteBox");
+  if (!box) return;
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  box.innerHTML = `<div class="inv-txt"><b>${esc(m.from)}</b> (nivel ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("trade.invite")}</div>
+    <div class="inv-btns"><button class="btn green" id="trYes">${t("trade.accept")}</button>
+    <button class="btn ghost" id="trNo">${t("trade.decline")}</button></div>`;
+  box.classList.remove("hidden");
+  $("trYes").addEventListener("click", () => {
+    send({ t: "trade_accept", from: m.from });
+    box.classList.add("hidden");
+  });
+  $("trNo").addEventListener("click", () => {
+    send({ t: "trade_decline", from: m.from });
+    box.classList.add("hidden");
+  });
+  window._tradeInvTimer = setTimeout(() => box.classList.add("hidden"), 30000);
+}
+function closeTradePanel() {
+  const el = $("tradePanel");
+  if (el) el.classList.add("hidden");
+  S.trade = null;
+}
+function renderTrade() {
+  const tr = S.trade;
+  const body = $("tradeBody");
+  const panel = $("tradePanel");
+  if (!body || !panel || !tr) return;
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  const slotHtml = (items, mine) => {
+    let h = `<div class="trade-slots">`;
+    for (let i = 0; i < 6; i++) {
+      const it = (items && items[i]) || null;
+      const lockCls = (mine ? tr.lockYou : tr.lockThem) ? " locked" : "";
+      if (!it) {
+        h += `<div class="trade-slot${lockCls}" data-tslot="${i}" data-mine="${mine ? 1 : 0}"></div>`;
+        continue;
+      }
+      h += `<div class="trade-slot${lockCls}" data-tslot="${i}" data-mine="${mine ? 1 : 0}" title="${esc(it.name)}">`;
+      h += `<canvas width="40" height="40" class="trade-ico" data-icon="${esc(it.icon || it.slot)}" data-rarity="${esc(it.rarity || "common")}"></canvas>`;
+      if (it.qty && it.qty > 1) h += `<span class="qty">${it.qty}</span>`;
+      h += `</div>`;
+    }
+    return h + `</div>`;
+  };
+  let status = "";
+  if (tr.lockYou && tr.lockThem) status = tr.confirmYou ? t("trade.waiting") : t("trade.locked");
+  else if (tr.lockYou) status = t("trade.waiting");
+  body.innerHTML = `
+    <div class="trade-hint">${t("trade.hint")} · <b>${esc((tr.partner && tr.partner.name) || "?")}</b></div>
+    <div class="trade-cols">
+      <div class="trade-col"><h4>${t("trade.you")}</h4>${slotHtml(tr.you || [], true)}
+        <div class="trade-gold"><span>${t("trade.gold")}</span>
+          <input id="tradeGoldIn" type="number" min="0" max="100000" value="${tr.goldYou || 0}" ${tr.lockYou ? "disabled" : ""}/>
+        </div>
+      </div>
+      <div class="trade-col"><h4>${t("trade.them")}</h4>${slotHtml(tr.them || [], false)}
+        <div class="trade-gold"><span>${t("trade.gold")}</span><b>${tr.goldThem || 0}</b></div>
+      </div>
+    </div>
+    <div class="trade-status">${esc(status)}</div>
+    <div class="trade-actions">
+      <button class="btn ghost" id="trCancel">${t("trade.cancel")}</button>
+      ${tr.lockYou
+        ? `<button class="btn ghost" id="trUnlock">${t("trade.unlock")}</button>`
+        : `<button class="btn" id="trLock">${t("trade.lock")}</button>`}
+      <button class="btn green" id="trConfirm" ${(!tr.lockYou || !tr.lockThem) ? "disabled" : ""}>${t("trade.confirm")}</button>
+    </div>`;
+  body.querySelectorAll("canvas.trade-ico").forEach((cv) => {
+    const g = cv.getContext("2d");
+    g.clearRect(0, 0, 40, 40);
+    g.save();
+    g.translate(20, 20);
+    if (typeof drawItemIcon === "function") drawItemIcon(g, cv.dataset.icon, cv.dataset.rarity);
+    g.restore();
+  });
+  body.querySelectorAll(".trade-slot").forEach((el) => {
+    el.addEventListener("click", () => {
+      if (el.dataset.mine !== "1" || (S.trade && S.trade.lockYou)) return;
+      const slot = Number(el.dataset.tslot);
+      if (S.trade && S.trade.you && S.trade.you[slot]) send({ t: "trade_take", slot });
+    });
+  });
+  const gin = $("tradeGoldIn");
+  if (gin) gin.addEventListener("change", () => send({ t: "trade_gold", gold: Math.floor(Number(gin.value) || 0) }));
+  const lock = $("trLock");
+  if (lock) lock.addEventListener("click", () => send({ t: "trade_lock" }));
+  const unlock = $("trUnlock");
+  if (unlock) unlock.addEventListener("click", () => send({ t: "trade_unlock" }));
+  const conf = $("trConfirm");
+  if (conf) conf.addEventListener("click", () => send({ t: "trade_confirm" }));
+  const cancel = $("trCancel");
+  if (cancel) cancel.addEventListener("click", () => send({ t: "trade_cancel" }));
+  if (panel.classList.contains("hidden")) revealPanel("tradePanel");
+  const inv = $("invPanel");
+  if (inv && inv.classList.contains("hidden")) revealPanel("invPanel");
+}
+function onTradeMsg(m) {
+  S.trade = m;
+  renderTrade();
+}
+function onTradeEnd(_m) {
+  closeTradePanel();
+  const box = $("tradeInviteBox");
+  if (box) box.classList.add("hidden");
+}
+
 function openPlayerMenu(e, entId) {
   const E = S.ents.get(entId);
   if (!E)
@@ -4887,6 +5052,8 @@ function openPlayerMenu(e, entId) {
   pm.innerHTML = `<div class="pm-name">${E.n || ""} · Nv ${E.l}</div>`
     + `<button class="btn" id="pmInspect">${t("inspect.btn")}</button>`
     + (inParty ? '<button class="btn ghost" disabled>Ya está en tu grupo</button>' : '<button class="btn" id="pmInvite">Invitar al grupo</button>')
+    + `<button class="btn" id="pmTrade">${t("trade.btn")}</button>`
+    + `<button class="btn ghost" id="pmWhisper">${t("whisper.btn")}</button>`
     + `<button class="btn ghost" id="pmPay">${t("pay.btn")}</button>`;
   pm.classList.remove("hidden");
   pm.style.left = Math.min(window.innerWidth - 200, e.clientX + 6) + "px";
@@ -4894,6 +5061,20 @@ function openPlayerMenu(e, entId) {
   const insp = $("pmInspect");
   if (insp) insp.addEventListener("click", () => {
     send({ t: "inspect", id: entId });
+    closePlayerMenu();
+  });
+  const tradeBtn = $("pmTrade");
+  if (tradeBtn) tradeBtn.addEventListener("click", () => {
+    send({ t: "trade_req", id: entId });
+    closePlayerMenu();
+  });
+  const whBtn = $("pmWhisper");
+  if (whBtn) whBtn.addEventListener("click", () => {
+    const inp = $("chatInput");
+    if (inp) {
+      inp.value = `/w ${E.n || ""} `;
+      inp.focus();
+    }
     closePlayerMenu();
   });
   const payBtn = $("pmPay");
@@ -5771,6 +5952,13 @@ function renderInventory() {
         } else if (S.stashOpen) {
           if (item.slot === "quest") return toast("No puedes guardar objetos de misión");
           send({ t: "stash_deposit", slot });
+        } else if (S.trade && !S.trade.lockYou) {
+          if (item.slot === "quest") return toast("No se pueden intercambiar objetos de misión");
+          let free = -1;
+          const you = S.trade.you || [];
+          for (let i = 0; i < 6; i++) if (!you[i]) { free = i; break; }
+          if (free < 0) toast("Oferta llena");
+          else send({ t: "trade_put", slot: free, inv: slot });
         } else if (item.slot === "potion" || item.slot === "fish" || item.slot === "food" || item.slot === "elixir")
           send({ t: "use", slot });
         else if (item.slot === "herb")
@@ -5944,6 +6132,7 @@ function renderChar() {
     ${bindLine}
     ${buffLine}
   </div>`;
+    html += `<div class="stat-row"><span>${t("prof.title")}</span><b>${t("prof.fish")} ${y.fishCount||0} · ${t("prof.cook")} ${y.cookCount||0} · ${t("prof.forage")} ${y.forageCount||0} · ${t("prof.brew")} ${y.brewCount||0}</b></div>`;
   b.innerHTML = html;
   b.querySelectorAll(".plus").forEach((btn) => btn.addEventListener("click", () => send({ t: "allot", stat: btn.dataset.st })));
   const resetBtn = $("charResetBtn");
@@ -6236,6 +6425,7 @@ function renderWho() {
     if (!self && !offline) {
       acts.push(`<button type="button" data-wact="whisper" data-name="${esc(p.name)}">${t("who.whisper")}</button>`);
       if (p.id) acts.push(`<button type="button" data-wact="invite" data-id="${p.id}">${t("who.invite")}</button>`);
+      if (p.id) acts.push(`<button type="button" data-wact="trade" data-id="${p.id}">${t("trade.btn")}</button>`);
       acts.push(`<button type="button" data-wact="pay" data-name="${esc(p.name)}">${t("pay.btn")}</button>`);
     }
     if (!self) acts.push(`<button type="button" data-wact="friend" data-name="${esc(p.name)}">${friend ? t("who.friendDel") : "★ " + t("who.friendAdd")}</button>`);
@@ -6260,6 +6450,9 @@ function renderWho() {
       } else if (act === "invite") {
         const id = Number(btn.dataset.id);
         if (id) send({ t: "party_invite", id });
+      } else if (act === "trade") {
+        const id = Number(btn.dataset.id);
+        if (id) send({ t: "trade_req", id });
       } else if (act === "pay") {
         const amt = prompt(t("pay.prompt"), "50");
         if (amt == null) return;
@@ -6862,7 +7055,7 @@ function savePanelLayout(id, patch) {
   all[id] = Object.assign({}, all[id], patch);
   try { localStorage.setItem(PANEL_LAYOUT_KEY, JSON.stringify(all)); } catch (_) {}
 }
-var WINDOW_IDS = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "achPanel", "whoPanel", "inspectPanel"];
+var WINDOW_IDS = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "achPanel", "whoPanel", "inspectPanel", "tradePanel"];
 var WINDOW_GAP = 10;
 function listOpenWindows(except) {
   const skip = except instanceof Set ? except : new Set(except ? [except] : []);

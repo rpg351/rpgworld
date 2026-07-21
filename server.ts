@@ -137,6 +137,8 @@ interface Player extends StatusHolder {
   forageCount: number; forageUntil: number;
   brewCount: number;
   bindX: number; bindY: number; // hearth bind (0,0 = unbound) // session: sitting for OOC regen
+  tradeId: string | null; // active trade session
+  lastTradeReqAt: number;
   lastPayAt: number; // gold /pay rate limit
   str: number; dex: number; int: number;
   hp: number; mp: number; x: number; y: number;
@@ -533,6 +535,7 @@ function sendYou(p: Player): void {
     bind: (p.bindX || p.bindY) ? { x: Math.round(p.bindX * 10) / 10, y: Math.round(p.bindY * 10) / 10 } : null,
     rested: p.restedUntil > Date.now() ? Math.ceil((p.restedUntil - Date.now()) / 1000) : 0,
     title: p.title || "",
+    fishCount: p.fishCount, cookCount: p.cookCount, forageCount: p.forageCount, brewCount: p.brewCount,
     buff: p.buffUntil > Date.now() ? {
       left: Math.ceil((p.buffUntil - Date.now()) / 1000),
       dmgp: p.buffDmgp, arm: p.buffArm, spd: p.buffSpd, xp: p.buffXp,
@@ -781,6 +784,7 @@ function playerDie(p: Player): void {
   p.dead = true;
   p.deadAt = Date.now();
   p.killStreak = 0;
+  if (p.tradeId) cancelTrade(p, "Intercambio cancelado");
   p.killStreakAt = 0;
   p.session.deaths++;
   sendMeter(p, true);
@@ -1449,6 +1453,348 @@ function tryBind(p: Player): void {
   sendYou(p);
 }
 
+// ---------------------------------------------------------------------------
+// Player trade
+// ---------------------------------------------------------------------------
+const TRADE_SLOTS = 6;
+const TRADE_RANGE = 12;
+const TRADE_INVITE_MS = 30000;
+
+interface TradeSide {
+  items: (Item | null)[];
+  gold: number;
+  locked: boolean;
+  confirmed: boolean;
+}
+interface TradeSession {
+  id: string;
+  aId: number;
+  bId: number;
+  aName: string;
+  bName: string;
+  a: TradeSide;
+  b: TradeSide;
+  invitesUntil: number; // 0 once open
+}
+
+const trades = new Map<string, TradeSession>();
+const tradeInvites = new Map<string, { fromId: number; fromName: string; until: number }>(); // key = targetName lower
+
+function emptyTradeSide(): TradeSide {
+  return { items: new Array(TRADE_SLOTS).fill(null), gold: 0, locked: false, confirmed: false };
+}
+
+function tradeOf(p: Player): TradeSession | null {
+  return p.tradeId ? (trades.get(p.tradeId) || null) : null;
+}
+
+function tradePartner(sess: TradeSession, p: Player): Player | null {
+  const otherId = p.id === sess.aId ? sess.bId : sess.aId;
+  return playerById(otherId);
+}
+
+function tradeSide(sess: TradeSession, p: Player): TradeSide {
+  return p.id === sess.aId ? sess.a : sess.b;
+}
+
+function tradeOtherSide(sess: TradeSession, p: Player): TradeSide {
+  return p.id === sess.aId ? sess.b : sess.a;
+}
+
+function countFreeInv(p: Player): number {
+  let n = 0;
+  for (const it of p.inv) if (!it) n++;
+  return n;
+}
+
+function tradeItemView(it: Item | null): Item | null {
+  return it ? { ...it, mods: it.mods ? { ...it.mods } : undefined, dmg: it.dmg ? [it.dmg[0], it.dmg[1]] as [number, number] : undefined } : null;
+}
+
+function sendTradeState(p: Player, sess: TradeSession): void {
+  if (!p.ws) return;
+  const mine = tradeSide(sess, p);
+  const theirs = tradeOtherSide(sess, p);
+  const partner = tradePartner(sess, p);
+  send(p.ws, {
+    t: "trade",
+    id: sess.id,
+    partner: partner ? { id: partner.id, name: partner.name, cls: partner.cls, lvl: partner.lvl } : { id: 0, name: p.id === sess.aId ? sess.bName : sess.aName, cls: "?", lvl: 0 },
+    you: mine.items.map(tradeItemView),
+    them: theirs.items.map(tradeItemView),
+    goldYou: mine.gold,
+    goldThem: theirs.gold,
+    lockYou: Boolean(mine.locked),
+    lockThem: Boolean(theirs.locked),
+    confirmYou: Boolean(mine.confirmed),
+    confirmThem: Boolean(theirs.confirmed),
+    phase: (!mine.locked || !theirs.locked) ? "offer" : "confirm",
+  });
+}
+
+function syncTrade(sess: TradeSession): void {
+  const a = playerById(sess.aId);
+  const b = playerById(sess.bId);
+  if (a) sendTradeState(a, sess);
+  if (b) sendTradeState(b, sess);
+}
+
+function returnTradeItems(p: Player, side: TradeSide): void {
+  for (let i = 0; i < side.items.length; i++) {
+    const it = side.items[i];
+    if (!it) continue;
+    if (!invAdd(p, it)) {
+      // emergency: drop near player
+      // reuse ground drop helper if present — otherwise toast and keep trying stash
+      if (!addToSlots(p.stash, it)) toast(p, `No se pudo devolver ${it.name}`);
+    }
+    side.items[i] = null;
+  }
+  side.gold = 0;
+  side.locked = false;
+  side.confirmed = false;
+}
+
+function cancelTrade(p: Player, reason?: string): void {
+  const sess = tradeOf(p);
+  if (!sess) return;
+  const a = playersById.get(sess.aId) || null;
+  const b = playersById.get(sess.bId) || null;
+  if (a) { returnTradeItems(a, sess.a); a.tradeId = null; }
+  if (b) { returnTradeItems(b, sess.b); b.tradeId = null; }
+  trades.delete(sess.id);
+  if (a && a.ws) { send(a.ws, { t: "trade_end", reason: reason || "cancel" }); sendYou(a); }
+  if (b && b.ws) { send(b.ws, { t: "trade_end", reason: reason || "cancel" }); sendYou(b); }
+  if (reason) {
+    if (a && a.ws) toast(a, reason);
+    if (b && b.ws && b !== a) toast(b, reason);
+  }
+}
+
+function unlockTrade(sess: TradeSession): void {
+  sess.a.locked = false; sess.b.locked = false;
+  sess.a.confirmed = false; sess.b.confirmed = false;
+}
+
+function canTradeItem(it: Item): boolean {
+  if (it.slot === "quest") return false;
+  return true;
+}
+
+function tryTradeReq(p: Player, targetId: number, now: number): void {
+  if (p.dead) return;
+  if (p.tradeId) return toast(p, "Ya estás intercambiando");
+  if (now - p.lastTradeReqAt < 1200) return toast(p, "Esperá un momento…");
+  const target = playerById(targetId);
+  if (!target || target === p || !target.ws) return toast(p, "Jugador no disponible");
+  if (BOT_SQUAD.has(target.name)) return toast(p, "No podés comerciar con compañeros IA");
+  if (BOT_SQUAD.has(p.name)) return;
+  if (dist(p.x, p.y, target.x, target.y) > TRADE_RANGE) return toast(p, "Está demasiado lejos");
+  if (target.dead) return toast(p, "No puede comerciar ahora");
+  if (target.tradeId) return toast(p, `${target.name} ya está intercambiando`);
+  p.lastTradeReqAt = now;
+  tradeInvites.set(target.name.toLowerCase(), { fromId: p.id, fromName: p.name, until: now + TRADE_INVITE_MS });
+  send(target.ws, { t: "trade_invited", from: p.name, fromId: p.id, cls: p.cls, lvl: p.lvl });
+  toast(p, `Propuesta de intercambio enviada a ${target.name}`);
+}
+
+function tryTradeAccept(p: Player, fromName: string, now: number): void {
+  if (p.dead || p.tradeId) return;
+  const key = String(fromName || "").trim().toLowerCase();
+  const inv = tradeInvites.get(key);
+  tradeInvites.delete(key);
+  if (!inv || now > inv.until) return toast(p, "La propuesta expiró");
+  const other = playerById(inv.fromId);
+  if (!other || !other.ws || other.name.toLowerCase() !== key) return toast(p, "El jugador ya no está disponible");
+  if (other.tradeId) return toast(p, `${other.name} ya está intercambiando`);
+  if (dist(p.x, p.y, other.x, other.y) > TRADE_RANGE) return toast(p, "Está demasiado lejos");
+  const id = `tr_${other.id}_${p.id}_${now}`;
+  const sess: TradeSession = {
+    id, aId: other.id, bId: p.id, aName: other.name, bName: p.name,
+    a: emptyTradeSide(), b: emptyTradeSide(), invitesUntil: 0,
+  };
+  trades.set(id, sess);
+  other.tradeId = id;
+  p.tradeId = id;
+  if (other.mounted) dismount(other, true);
+  if (p.mounted) dismount(p, true);
+  if (other.sitting) standUp(other, true);
+  if (p.sitting) standUp(p, true);
+  toast(other, `${p.name} aceptó el intercambio`);
+  toast(p, `Intercambio con ${other.name}`);
+  syncTrade(sess);
+  sendYou(other); sendYou(p);
+}
+
+function tryTradeDecline(p: Player, fromName: string): void {
+  const key = String(fromName || "").trim().toLowerCase();
+  const inv = tradeInvites.get(key);
+  if (!inv) return;
+  tradeInvites.delete(key);
+  const other = playerById(inv.fromId);
+  if (other) toast(other, `${p.name} rechazó el intercambio`);
+  toast(p, "Intercambio rechazado");
+}
+
+function tradePut(p: Player, tradeSlot: number, invSlot: number): void {
+  const sess = tradeOf(p);
+  if (!sess) return;
+  const side = tradeSide(sess, p);
+  if (side.locked) return toast(p, "Oferta bloqueada — desbloqueá para cambiar");
+  if (!Number.isInteger(tradeSlot) || tradeSlot < 0 || tradeSlot >= TRADE_SLOTS) return;
+  if (!Number.isInteger(invSlot) || invSlot < 0 || invSlot >= INV_SIZE) return;
+  const it = p.inv[invSlot];
+  if (!it) return;
+  if (!canTradeItem(it)) return toast(p, "No se pueden intercambiar objetos de misión");
+  if (side.items[tradeSlot]) return toast(p, "Ese hueco ya tiene un objeto");
+  // move whole stack into trade
+  p.inv[invSlot] = null;
+  side.items[tradeSlot] = it;
+  unlockTrade(sess);
+  p.dirty = true;
+  syncTrade(sess);
+  sendYou(p);
+}
+
+function tradeTake(p: Player, tradeSlot: number): void {
+  const sess = tradeOf(p);
+  if (!sess) return;
+  const side = tradeSide(sess, p);
+  if (side.locked) return toast(p, "Oferta bloqueada — desbloqueá para cambiar");
+  if (!Number.isInteger(tradeSlot) || tradeSlot < 0 || tradeSlot >= TRADE_SLOTS) return;
+  const it = side.items[tradeSlot];
+  if (!it) return;
+  if (!invAdd(p, it)) return toast(p, "Inventario lleno");
+  side.items[tradeSlot] = null;
+  unlockTrade(sess);
+  p.dirty = true;
+  syncTrade(sess);
+  sendYou(p);
+}
+
+function tradeGold(p: Player, gold: number): void {
+  const sess = tradeOf(p);
+  if (!sess) return;
+  const side = tradeSide(sess, p);
+  if (side.locked) return toast(p, "Oferta bloqueada — desbloqueá para cambiar");
+  const g = Math.floor(gold);
+  if (!Number.isFinite(g) || g < 0) return;
+  if (g > 100000) return toast(p, "Máximo 100.000 de oro");
+  if (g > p.gold) return toast(p, "No tenés suficiente oro");
+  side.gold = g;
+  unlockTrade(sess);
+  syncTrade(sess);
+}
+
+function tradeLock(p: Player): void {
+  const sess = tradeOf(p);
+  if (!sess) return;
+  const side = tradeSide(sess, p);
+  const partner = tradePartner(sess, p);
+  if (!partner) return cancelTrade(p, "Intercambio cancelado");
+  if (dist(p.x, p.y, partner.x, partner.y) > TRADE_RANGE) return cancelTrade(p, "Demasiado lejos — intercambio cancelado");
+  if (side.gold > p.gold) return toast(p, "No tenés el oro ofrecido");
+  side.locked = true;
+  side.confirmed = false;
+  tradeOtherSide(sess, p).confirmed = false;
+  syncTrade(sess);
+  toast(p, "Oferta bloqueada");
+}
+
+function tradeUnlock(p: Player): void {
+  const sess = tradeOf(p);
+  if (!sess) return;
+  unlockTrade(sess);
+  syncTrade(sess);
+  toast(p, "Oferta desbloqueada");
+}
+
+function freeSlotsForIncoming(p: Player, incoming: (Item | null)[]): number {
+  // Approximate: each non-stackable needs a free slot; stackables may merge.
+  let free = countFreeInv(p);
+  // Also account for items we're giving away already removed from inv.
+  for (const it of incoming) {
+    if (!it) continue;
+    if (it.slot === "potion" || it.slot === "fish" || it.slot === "food" || it.slot === "herb" || it.slot === "elixir") {
+      let merged = false;
+      for (const have of p.inv) {
+        if (have && have.base === it.base && (have.qty ?? 1) < 10) { merged = true; break; }
+      }
+      if (!merged) free--;
+    } else free--;
+  }
+  return free;
+}
+
+function tradeConfirm(p: Player): void {
+  const sess = tradeOf(p);
+  if (!sess) return;
+  const side = tradeSide(sess, p);
+  const otherSide = tradeOtherSide(sess, p);
+  if (!side.locked || !otherSide.locked) return toast(p, "Ambos deben bloquear primero");
+  side.confirmed = true;
+  syncTrade(sess);
+  if (!otherSide.confirmed) {
+    toast(p, "Esperando confirmación del otro…");
+    return;
+  }
+  // Execute
+  const a = playerById(sess.aId);
+  const b = playerById(sess.bId);
+  if (!a || !b || !a.ws || !b.ws) return cancelTrade(p, "Intercambio cancelado");
+  if (dist(a.x, a.y, b.x, b.y) > TRADE_RANGE) return cancelTrade(p, "Demasiado lejos — intercambio cancelado");
+  if (a.dead || b.dead) return cancelTrade(p, "Intercambio cancelado");
+  if (sess.a.gold > a.gold || sess.b.gold > b.gold) return cancelTrade(p, "Oro insuficiente — cancelado");
+  if (freeSlotsForIncoming(a, sess.b.items) < 0 || freeSlotsForIncoming(b, sess.a.items) < 0) {
+    toast(a, "Inventario lleno — no se pudo completar");
+    toast(b, "Inventario lleno — no se pudo completar");
+    // unlock to let them adjust
+    unlockTrade(sess);
+    syncTrade(sess);
+    return;
+  }
+  // Transfer gold
+  a.gold -= sess.a.gold; b.gold += sess.a.gold;
+  b.gold -= sess.b.gold; a.gold += sess.b.gold;
+  a.dirty = true; b.dirty = true;
+  // Transfer items
+  const itemsToB = sess.a.items.map((x) => x);
+  const itemsToA = sess.b.items.map((x) => x);
+  sess.a.items.fill(null);
+  sess.b.items.fill(null);
+  for (const it of itemsToB) if (it && !invAdd(b, it)) addToSlots(b.stash, it);
+  for (const it of itemsToA) if (it && !invAdd(a, it)) addToSlots(a.stash, it);
+  a.tradeId = null; b.tradeId = null;
+  trades.delete(sess.id);
+  grantAch(a, "trade_1");
+  grantAch(b, "trade_1");
+  a.dirty = true; b.dirty = true;
+  toast(a, `Intercambio completado con ${b.name}`);
+  toast(b, `Intercambio completado con ${a.name}`);
+  send(a.ws, { t: "trade_end", reason: "done" });
+  send(b.ws, { t: "trade_end", reason: "done" });
+  sendYou(a); sendYou(b);
+}
+
+function maintainTrades(now: number): void {
+  for (const [k, inv] of [...tradeInvites.entries()]) {
+    if (now > inv.until) tradeInvites.delete(k);
+  }
+  for (const sess of [...trades.values()]) {
+    const a = playersById.get(sess.aId) || null;
+    const b = playersById.get(sess.bId) || null;
+    if (!a || !b || !a.ws || !b.ws) {
+      if (a) cancelTrade(a, "Intercambio cancelado");
+      else if (b) cancelTrade(b, "Intercambio cancelado");
+      else trades.delete(sess.id);
+      continue;
+    }
+    if (a.dead || b.dead) { cancelTrade(a, "Intercambio cancelado"); continue; }
+    if (dist(a.x, a.y, b.x, b.y) > TRADE_RANGE + 2) cancelTrade(a, "Demasiado lejos — intercambio cancelado");
+  }
+}
+
+
 function nearWater(p: Player): boolean {
   const cx = Math.floor(p.x), cy = Math.floor(p.y);
   for (let dy = -1; dy <= 1; dy++)
@@ -1792,6 +2138,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     abilityPts: 0, abilities: new Map<string, number>(), loadout: [1, 2, 3, 4],
     pets: new Set<string>(), activePet: null,
     mounts: new Set<string>(), activeMount: null, mounted: false, sitting: false, lastPayAt: 0,
+    tradeId: null, lastTradeReqAt: 0,
     forageCount: 0, forageUntil: 0, brewCount: 0, bindX: 0, bindY: 0,
     str: base.str, dex: base.dex, int: base.int,
     hp: 0, mp: 0,
@@ -2833,6 +3180,57 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       beginBrew(p, now);
       break;
     }
+
+    case "trade_req": {
+      const id = num(msg.id);
+      if (id == null) return;
+      tryTradeReq(p, id, now);
+      break;
+    }
+    case "trade_accept": {
+      const from = typeof msg.from === "string" ? msg.from : "";
+      tryTradeAccept(p, from, now);
+      break;
+    }
+    case "trade_decline": {
+      const from = typeof msg.from === "string" ? msg.from : "";
+      tryTradeDecline(p, from);
+      break;
+    }
+    case "trade_put": {
+      const ts = num(msg.slot), inv = num(msg.inv);
+      if (ts == null || inv == null) return;
+      tradePut(p, ts, inv);
+      break;
+    }
+    case "trade_take": {
+      const ts = num(msg.slot);
+      if (ts == null) return;
+      tradeTake(p, ts);
+      break;
+    }
+    case "trade_gold": {
+      const g = num(msg.gold);
+      if (g == null) return;
+      tradeGold(p, g);
+      break;
+    }
+    case "trade_lock": {
+      tradeLock(p);
+      break;
+    }
+    case "trade_unlock": {
+      tradeUnlock(p);
+      break;
+    }
+    case "trade_confirm": {
+      tradeConfirm(p);
+      break;
+    }
+    case "trade_cancel": {
+      cancelTrade(p, "Intercambio cancelado");
+      break;
+    }
     case "bind": {
       tryBind(p);
       break;
@@ -2920,6 +3318,18 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       }
       if (/^\/brew$/i.test(text) || /^\/alquimia$/i.test(text) || /^\/pocima$/i.test(text)) {
         beginBrew(p, now);
+        return;
+      }
+
+      if (/^\/trade\s+(.+)$/i.test(text) || /^\/comercio\s+(.+)$/i.test(text) || /^\/intercambiar\s+(.+)$/i.test(text)) {
+        const m = text.match(/^\/(?:trade|comercio|intercambiar)\s+(.+)$/i);
+        const name = (m && m[1] || "").trim();
+        let target: Player | null = null;
+        for (const q of players.values()) {
+          if (q.name.toLowerCase() === name.toLowerCase()) { target = q; break; }
+        }
+        if (!target) return toast(p, "Jugador no encontrado");
+        tryTradeReq(p, target.id, now);
         return;
       }
       if (/^\/bind$/i.test(text) || /^\/ligar$/i.test(text) || /^\/hogar$/i.test(text)) {
@@ -3098,6 +3508,7 @@ function simTick(): void {
   lastTick = now;
 
   // --- players ---
+  maintainTrades(now);
   for (const p of players.values()) {
     if (!p.ws) continue;
     p.moving = false;
@@ -3127,6 +3538,7 @@ function simTick(): void {
       toast(p, "El combate te apeó");
       sendYou(p);
     }
+    if (p.tradeId && p.combatUntil > now) cancelTrade(p, "Combate — intercambio cancelado");
     if (p.cookUntil && (p.vel || p.path || p.direct || p.atkTarget != null || p.combatUntil > now || !nearNpc(p, bront))) {
       p.cookUntil = 0;
       p.cookSlot = -1;
@@ -3607,6 +4019,7 @@ const server = Bun.serve<Session, Record<string, never>>({
       const p = ws.data.player;
       ws.data.player = null;
       if (p && p.ws === ws) {
+        if (p.tradeId) cancelTrade(p, "Intercambio cancelado");
         p.ws = null;
         p.disconnectedAt = Date.now(); // linger in memory so a quick reconnect keeps party/state
         savePlayer(p);
