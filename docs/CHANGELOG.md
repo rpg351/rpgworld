@@ -1,3 +1,10 @@
+## 2026-09-35 — syncMerchant + channelCast + equipCriadero
+
+- Helpers `syncMerchant` / `syncShop`, `channelCast`, `equipCriadero`, `notePickup`, `readIdx`.
+- Mapas `QUEST_PORTAL_ACCEPT` / `QUEST_PORTAL_TURNIN` para desbloqueos de portal.
+- Toast mascota: "Mandaste tu mascota al Criadero".
+- Cache bust `?v=20260935`.
+
 ## 2026-09-34 — lootFx + syncStash/Elder + finishCriaderoBuy
 
 - Helpers `lootFx` / `toastRare` unifican log+FX tras pesca/recolección/cocina/alquimia/desguace.

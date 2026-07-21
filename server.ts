@@ -1699,8 +1699,7 @@ function beginFish(p: Player, now: number): void {
   if (notInTown(p, "No podés pescar en la plaza")) return;
   clearMobility(p);
   p.fishUntil = now + 2800;
-  toast(p, "Lanzas el sedal…");
-  bcastAt(p.x, p.y, { t: "fx", k: "fishcast", i: p.id });
+  channelCast(p, "Lanzas el sedal…", "fishcast");
 }
 
 function beginForage(p: Player, now: number): void {
@@ -1709,8 +1708,7 @@ function beginForage(p: Player, now: number): void {
   if (notInTown(p, "No podés recolectar en la plaza")) return;
   clearMobility(p);
   p.forageUntil = now + 2400;
-  toast(p, "Buscas hierbas…");
-  bcastAt(p.x, p.y, { t: "fx", k: "foragecast", i: p.id });
+  channelCast(p, "Buscas hierbas…", "foragecast");
 }
 
 
@@ -2336,9 +2334,7 @@ function beginCook(p: Player, now: number): void {
   clearMobility(p);
   p.cookSlot = slot;
   p.cookUntil = now + 2200;
-  const name = p.inv[slot]!.name;
-  toast(p, `Cocinas ${name}…`);
-  bcastAt(p.x, p.y, { t: "fx", k: "cookcast", i: p.id });
+  channelCast(p, `Cocinas ${p.inv[slot]!.name}…`, "cookcast");
 }
 
 
@@ -2925,6 +2921,25 @@ function finishCriaderoBuy(
   toast(p, doneMsg);
   return true;
 }
+function equipCriadero(
+  p: Player,
+  id: string,
+  owned: Set<string>,
+  defs: Record<string, { name: string }>,
+  setActive: (next: string | null) => void,
+  onMsg: (active: string | null) => string,
+  onClear?: () => void,
+): void {
+  if (p.dead) return;
+  if (id && (!defs[id] || !owned.has(id))) return;
+  const next = id || null;
+  setActive(next);
+  if (!next && onClear) onClear();
+  p.dirty = true;
+  toast(p, onMsg(next));
+  syncPetShop(p);
+}
+
 
 function syncPetShop(p: Player): void {
   sendYou(p);
@@ -2946,6 +2961,44 @@ function syncBuyback(p: Player): void {
   sendBuyback(p);
 }
 
+function syncShop(p: Player, npc: Npc): void {
+  sendShop(p, npc);
+  sendYou(p);
+}
+
+/** After a sale, refresh the nearby merchant panel (or buyback alone). */
+function syncMerchant(p: Player): void {
+  sendYou(p);
+  if (nearNpc(p, kora)) sendShop(p, kora);
+  else if (nearNpc(p, bront)) sendShop(p, bront);
+  else sendBuyback(p);
+}
+
+function channelCast(p: Player, msg: string, fx: string): void {
+  toast(p, msg);
+  bcastAt(p.x, p.y, { t: "fx", k: fx, i: p.id });
+}
+
+const QUEST_PORTAL_ACCEPT: Record<string, string> = {
+  q7: "asfodelos",
+  q10: "hidra",
+};
+const QUEST_PORTAL_TURNIN: Record<string, string> = {
+  q6: "asfodelos",
+  q9: "hidra",
+};
+
+function unlockQuestPortal(p: Player, qid: string, table: Record<string, string>): void {
+  const id = table[qid];
+  if (id) unlockPortal(p, id, true);
+}
+
+function readIdx(msg: { idx?: unknown }, size: number): number | null {
+  const idx = num(msg.idx);
+  if (idx == null || !Number.isInteger(idx) || idx < 0 || idx >= size) return null;
+  return idx;
+}
+
 /** Loot log + local FX + you refresh after a gather/craft success. */
 function lootFx(p: Player, entry: { name: string; rarity: string; icon: string; gold?: number }, fx: string): void {
   pushLootLog(p, entry);
@@ -2955,6 +3008,13 @@ function lootFx(p: Player, entry: { name: string; rarity: string; icon: string; 
 
 function toastRare(p: Player, rare: boolean, rareMsg: string, normalMsg: string): void {
   toast(p, rare ? rareMsg : normalMsg);
+}
+
+function notePickup(p: Player, item: Item): void {
+  pushLootLog(p, { name: item.name, rarity: item.rarity || "common", icon: item.icon || "sword" });
+  if (item.rarity === "rare") toast(p, `¡Raro! Recogiste ${item.name}`);
+  updateCollect(p);
+  sendYou(p);
 }
 
 
@@ -2981,10 +3041,7 @@ function tryPickupLoot(p: Player, id: number): boolean {
     return true;
   }
   loot.delete(id);
-  pushLootLog(p, { name: l.item.name, rarity: l.item.rarity || "common", icon: l.item.icon || "sword" });
-  if (l.item.rarity === "rare") toast(p, `¡Raro! Recogiste ${l.item.name}`);
-  updateCollect(p);
-  sendYou(p);
+  notePickup(p, l.item);
   return true;
 }
 
@@ -3203,8 +3260,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!invAdd(p, bought)) return invFull(p);
       p.gold -= price;
       if (!entry.infinite) stock.splice(idx, 1);
-      sendShop(p, npc);
-      sendYou(p);
+      syncShop(p, npc);
       break;
     }
     case "sell": {
@@ -3221,10 +3277,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.inv[slot] = null;
       pushBuyback(p, it, gain);
       toast(p, `Vendiste ${it.name} por ${gain} de oro`);
-      sendYou(p);
-      if (nearNpc(p, kora)) sendShop(p, kora);
-      else if (nearNpc(p, bront)) sendShop(p, bront);
-      else sendBuyback(p);
+      syncMerchant(p);
       break;
     }
     case "sell_all": {
@@ -3246,17 +3299,14 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.gold += gain;
       noteGold(p, gain);
       toast(p, `Vendiste ${count} objeto${count === 1 ? "" : "s"} por ${gain} de oro`);
-      sendYou(p);
-      if (nearNpc(p, kora)) sendShop(p, kora);
-      else if (nearNpc(p, bront)) sendShop(p, bront);
-      else sendBuyback(p);
+      syncMerchant(p);
       break;
     }
     case "buyback": {
       if (p.dead) return;
       if (needMerchant(p)) return;
-      const idx = num(msg.idx);
-      if (idx == null || !Number.isInteger(idx) || idx < 0 || idx >= p.buyback.length) return;
+      const idx = readIdx(msg, p.buyback.length);
+      if (idx == null) return;
       const entry = p.buyback[idx];
       if (needGold(p, entry.price)) return;
       if (!invAdd(p, entry.item)) return invFull(p);
@@ -3317,14 +3367,9 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "pet_equip": {
-      if (p.dead) return;
       const id = strMsg(msg.id);
-      if (id && (!PET_DEFS[id] || !p.pets.has(id))) return;
-      p.activePet = id || null;
-      p.dirty = true;
-      if (p.activePet) toast(p, `Tu ${PET_DEFS[p.activePet].name} te sigue`);
-      else toast(p, "Tu mascota vuelve al Criadero");
-      syncPetShop(p);
+      equipCriadero(p, id, p.pets, PET_DEFS, (next) => { p.activePet = next; }, (active) =>
+        active ? `Tu ${PET_DEFS[active].name} te sigue` : "Mandaste tu mascota al Criadero");
       break;
     }
     case "mount_buy": {
@@ -3336,15 +3381,9 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       break;
     }
     case "mount_equip": {
-      if (p.dead) return;
       const id = strMsg(msg.id);
-      if (id && (!MOUNT_DEFS[id] || !p.mounts.has(id))) return;
-      p.activeMount = id || null;
-      if (!p.activeMount) dismount(p, true);
-      p.dirty = true;
-      if (p.activeMount) toast(p, `Montura lista: ${MOUNT_DEFS[p.activeMount].name}`);
-      else toast(p, "Sin montura activa");
-      syncPetShop(p);
+      equipCriadero(p, id, p.mounts, MOUNT_DEFS, (next) => { p.activeMount = next; }, (active) =>
+        active ? `Montura lista: ${MOUNT_DEFS[active].name}` : "Sin montura activa", () => dismount(p, true));
       break;
     }
     case "mount": {
@@ -3480,8 +3519,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.quests[qid] = { n: 0, done: false, turned: false };
       if (QUESTS[qid].kind === "collect") updateCollect(p);
       toast(p, `Misión aceptada: ${QUESTS[qid].name}`);
-      if (qid === "q7") unlockPortal(p, "asfodelos", true);
-      if (qid === "q10") unlockPortal(p, "hidra", true);
+      unlockQuestPortal(p, qid, QUEST_PORTAL_ACCEPT);
       syncElder(p);
       break;
     }
@@ -3503,8 +3541,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       noteGold(p, def.rew.gold);
       addXp(p, def.rew.xp);
       toast(p, `Misión completada: +${def.rew.xp} de experiencia, +${def.rew.gold} de oro${rewardItem ? `, ${rewardItem.name}` : ""}`);
-      if (qid === "q6") unlockPortal(p, "asfodelos", true);
-      if (qid === "q9") unlockPortal(p, "hidra", true);
+      unlockQuestPortal(p, qid, QUEST_PORTAL_TURNIN);
       checkProgressAchs(p);
       syncElder(p);
       break;
