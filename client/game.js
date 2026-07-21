@@ -526,6 +526,9 @@ function lsGet(key, fallback = null) {
 function lsSet(key, value) {
   try { localStorage.setItem(key, value); } catch (_) {}
 }
+function lsDel(key) {
+  try { localStorage.removeItem(key); } catch (_) {}
+}
 function lsJson(key, fallback) {
   try {
     const raw = lsGet(key, null);
@@ -3650,10 +3653,8 @@ function loadWaypoint() {
 }
 function saveWaypoint(wp) {
   S.waypoint = wp;
-  try {
-    if (wp) lsSet(LS_WAYPOINT, JSON.stringify(wp));
-    else localStorage.removeItem(LS_WAYPOINT);
-  } catch (_) {}
+  if (wp) lsSet(LS_WAYPOINT, JSON.stringify(wp));
+  else lsDel(LS_WAYPOINT);
 }
 function setPersonalWaypoint(x, y) {
   if (!S.map) return;
@@ -3694,7 +3695,7 @@ function syncMenuControls() {
   if (fh) fh.classList.toggle("hidden", !S.showFps);
 }
 function logout() {
-  try { localStorage.removeItem("aot_creds"); } catch (e) {}
+  lsDel("aot_creds");
   S.wantReconnect = false;
   if (S.ws) { try { S.ws.close(); } catch (e) {} }
   location.reload();
@@ -5152,6 +5153,14 @@ function promptPayGold(name) {
   if (!Number.isFinite(gold) || gold < 1) return;
   send({ t: "pay", name, gold });
 }
+function startWhisper(name) {
+  const inp = $("chatInput");
+  if (!inp) return;
+  inp.value = `/w ${name || ""} `;
+  inp.focus();
+  if (typeof isMobileUi === "function" && isMobileUi()) setChatOpen(true);
+}
+
 
 function openPlayerMenu(e, entId) {
   const E = S.ents.get(entId);
@@ -5194,11 +5203,7 @@ function openPlayerMenu(e, entId) {
   });
   const whBtn = $("pmWhisper");
   if (whBtn) whBtn.addEventListener("click", () => {
-    const inp = $("chatInput");
-    if (inp) {
-      inp.value = `/w ${E.n || ""} `;
-      inp.focus();
-    }
+    startWhisper(E.n || "");
     closePlayerMenu();
   });
   const payBtn = $("pmPay");
@@ -6559,12 +6564,7 @@ function renderWho() {
     btn.addEventListener("click", () => {
       const act = btn.dataset.wact;
       if (act === "whisper") {
-        const inp = $("chatInput");
-        if (inp) {
-          inp.value = `/w ${btn.dataset.name} `;
-          inp.focus();
-          if (isMobileUi()) setChatOpen(true);
-        }
+        startWhisper(btn.dataset.name);
       } else if (act === "invite") {
         const id = Number(btn.dataset.id);
         if (id) send({ t: "party_invite", id });

@@ -348,6 +348,36 @@ function waitToast(p: Player, lastAt: number, ms: number, now: number, msg = "Es
   return false;
 }
 
+function stillDigesting(p: Player, now: number): boolean {
+  if (now < p.potCdUntil) { toast(p, "Aún estás digiriendo"); return true; }
+  return false;
+}
+
+function invFull(p: Player, detail?: string): void {
+  toast(p, detail ? `Inventario lleno — ${detail}` : "Inventario lleno");
+}
+
+function consumeInvSlot(p: Player, slot: number): void {
+  const it = p.inv[slot];
+  if (!it) return;
+  it.qty = (it.qty ?? 1) - 1;
+  if (it.qty <= 0) p.inv[slot] = null;
+}
+
+function applyFoodBuff(p: Player, now: number, def: { dur: number; dmgp?: number; arm?: number; spd?: number; xp?: number }): string {
+  p.buffUntil = now + def.dur;
+  p.buffDmgp = def.dmgp || 0;
+  p.buffArm = def.arm || 0;
+  p.buffSpd = def.spd || 0;
+  p.buffXp = def.xp || 0;
+  const bits: string[] = [];
+  if (def.dmgp) bits.push(`+${def.dmgp}% daño`);
+  if (def.arm) bits.push(`+${def.arm} armadura`);
+  if (def.spd) bits.push(`+${def.spd}% velocidad`);
+  if (def.xp) bits.push(`+${def.xp}% XP`);
+  return bits.join(", ");
+}
+
 function tooFar(p: Player, q: { x: number; y: number }, range: number): boolean {
   if (dist(p.x, p.y, q.x, q.y) > range) { toast(p, "Está demasiado lejos"); return true; }
   return false;
@@ -1457,7 +1487,7 @@ function tryFinishForage(p: Player, now: number): void {
   }
   const herb = rollHerb();
   if (!invAdd(p, herb)) {
-    toast(p, "Inventario lleno — perdiste la hierba");
+    invFull(p, "perdiste la hierba");
     return;
   }
   p.forageCount++;
@@ -1504,6 +1534,7 @@ function beginForage(p: Player, now: number): void {
 function beginBrew(p: Player, now: number): void {
   if (p.dead) return;
   dismountAndStand(p);
+  if (channelBusy(p, now)) return toast(p, "Terminá lo que estás haciendo primero");
   if (now < p.combatUntil) return toast(p, "No puedes preparar brebajes en combate");
   if (needNpc(p, kora, "Prepara brebajes junto a Kora")) return;
   let slot = -1;
@@ -1521,7 +1552,7 @@ function beginBrew(p: Player, now: number): void {
   const outItem = recipe.kind === "potion" ? makePotion(recipe.id) : makeElixir(recipe.id);
   if (!invAdd(p, outItem)) {
     invAdd(p, makeHerb(herbBase));
-    toast(p, "Inventario lleno — no pudiste preparar el brebaje");
+    invFull(p, "no pudiste preparar el brebaje");
     sendYou(p);
     return;
   }
@@ -1839,6 +1870,11 @@ function returnTradeItems(p: Player, side: TradeSide): void {
   side.confirmed = false;
 }
 
+function tradeLocked(p: Player, side: { locked: boolean }): boolean {
+  if (side.locked) { toast(p, "Oferta bloqueada — desbloqueá para cambiar"); return true; }
+  return false;
+}
+
 function cancelTrade(p: Player, reason?: string): void {
   const sess = tradeOf(p);
   if (!sess) return;
@@ -1922,7 +1958,7 @@ function tradePut(p: Player, tradeSlot: number, invSlot: number): void {
   const sess = tradeOf(p);
   if (!sess) return;
   const side = tradeSide(sess, p);
-  if (side.locked) return toast(p, "Oferta bloqueada — desbloqueá para cambiar");
+  if (tradeLocked(p, side)) return;
   if (!Number.isInteger(tradeSlot) || tradeSlot < 0 || tradeSlot >= TRADE_SLOTS) return;
   if (!Number.isInteger(invSlot) || invSlot < 0 || invSlot >= INV_SIZE) return;
   const it = p.inv[invSlot];
@@ -1942,11 +1978,11 @@ function tradeTake(p: Player, tradeSlot: number): void {
   const sess = tradeOf(p);
   if (!sess) return;
   const side = tradeSide(sess, p);
-  if (side.locked) return toast(p, "Oferta bloqueada — desbloqueá para cambiar");
+  if (tradeLocked(p, side)) return;
   if (!Number.isInteger(tradeSlot) || tradeSlot < 0 || tradeSlot >= TRADE_SLOTS) return;
   const it = side.items[tradeSlot];
   if (!it) return;
-  if (!invAdd(p, it)) return toast(p, "Inventario lleno");
+  if (!invAdd(p, it)) return invFull(p);
   side.items[tradeSlot] = null;
   unlockTrade(sess);
   p.dirty = true;
@@ -1958,7 +1994,7 @@ function tradeGold(p: Player, gold: number): void {
   const sess = tradeOf(p);
   if (!sess) return;
   const side = tradeSide(sess, p);
-  if (side.locked) return toast(p, "Oferta bloqueada — desbloqueá para cambiar");
+  if (tradeLocked(p, side)) return;
   const g = Math.floor(gold);
   if (!Number.isFinite(g) || g < 0) return;
   if (g > 100000) return toast(p, "Máximo 100.000 de oro");
@@ -2028,8 +2064,8 @@ function tradeConfirm(p: Player): void {
   if (a.dead || b.dead) return cancelTrade(p, "Intercambio cancelado");
   if (sess.a.gold > a.gold || sess.b.gold > b.gold) return cancelTrade(p, "Oro insuficiente — cancelado");
   if (freeSlotsForIncoming(a, sess.b.items) < 0 || freeSlotsForIncoming(b, sess.a.items) < 0) {
-    toast(a, "Inventario lleno — no se pudo completar");
-    toast(b, "Inventario lleno — no se pudo completar");
+    invFull(a, "no se pudo completar");
+    invFull(b, "no se pudo completar");
     // unlock to let them adjust
     unlockTrade(sess);
     syncTrade(sess);
@@ -2094,7 +2130,7 @@ function tryFinishFish(p: Player, now: number): void {
   }
   const fish = rollFish();
   if (!invAdd(p, fish)) {
-    toast(p, "Inventario lleno — la captura se escapó");
+    invFull(p, "la captura se escapó");
     return;
   }
   p.fishCount++;
@@ -2132,7 +2168,7 @@ function tryFinishCook(p: Player, now: number): void {
   if (!invAdd(p, food)) {
     // refund the consumed fish unit if inventory is somehow full
     invAdd(p, makeFish(fishBase));
-    toast(p, "Inventario lleno — no pudiste cocinar");
+    invFull(p, "no pudiste cocinar");
     return;
   }
   p.cookCount++;
@@ -2723,7 +2759,7 @@ function tryPickupLoot(p: Player, id: number): boolean {
   if (!l) return true;
   if (dist(p.x, p.y, l.x, l.y) > 2) return false;
   if (!invAdd(p, l.item)) {
-    toast(p, "Inventario lleno");
+    invFull(p);
     return true;
   }
   loot.delete(id);
@@ -2974,7 +3010,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.gold < price) return toast(p, "No tenés suficiente oro");
       // Infinite stock hands out fresh copies; uniques transfer + leave stock.
       const bought = entry.infinite ? makePotion(entry.item.base) : entry.item;
-      if (!invAdd(p, bought)) return toast(p, "Inventario lleno");
+      if (!invAdd(p, bought)) return invFull(p);
       p.gold -= price;
       if (!entry.infinite) stock.splice(idx, 1);
       sendShop(p, npc);
@@ -3031,7 +3067,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (idx == null || !Number.isInteger(idx) || idx < 0 || idx >= p.buyback.length) return;
       const entry = p.buyback[idx];
       if (p.gold < entry.price) return toast(p, "No tenés suficiente oro");
-      if (!invAdd(p, entry.item)) return toast(p, "Inventario lleno");
+      if (!invAdd(p, entry.item)) return invFull(p);
       p.gold -= entry.price;
       p.buyback.splice(idx, 1);
       toast(p, `Recompraste ${entry.item.name}`);
@@ -3079,7 +3115,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= STASH_SIZE) return;
       const it = p.stash[slot];
       if (!it) return;
-      if (!invAdd(p, it)) return toast(p, "Inventario lleno");
+      if (!invAdd(p, it)) return invFull(p);
       p.stash[slot] = null;
       sendYou(p);
       sendStash(p);
@@ -3206,7 +3242,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const it = p.eq[eslot];
       if (!it) return;
       const free = p.inv.indexOf(null);
-      if (free < 0) return toast(p, "Inventario lleno");
+      if (free < 0) return invFull(p);
       p.inv[free] = it;
       p.eq[eslot] = null;
       sendYou(p);
@@ -3218,79 +3254,44 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
       const it = p.inv[slot];
       if (!it) return;
+      if (it.slot === "herb") return toast(p, "Lleva la hierba a Kora y usa /brew (V)");
       if (it.slot === "fish") {
         const fdef = FISH_DEFS[it.base];
         if (!fdef) return;
-        if (now < p.potCdUntil) return toast(p, "Aún estás digiriendo");
+        if (stillDigesting(p, now)) return;
         const d = derive(p);
         p.hp = Math.min(d.mhp, p.hp + d.mhp * fdef.heal);
         p.potCdUntil = now + POTION_CD;
-        it.qty = (it.qty ?? 1) - 1;
-        if (it.qty <= 0) p.inv[slot] = null;
+        consumeInvSlot(p, slot);
         toast(p, `Comiste ${it.name}`);
         bcastAt(p.x, p.y, { t: "fx", k: "heal", i: p.id });
         sendYou(p);
         break;
       }
-      if (it.slot === "elixir") {
-        const edef = ELIXIR_DEFS[it.base];
-        if (!edef) return;
-        if (now < p.potCdUntil) return toast(p, "Aún estás digiriendo");
+      if (it.slot === "elixir" || it.slot === "food") {
+        const def = it.slot === "elixir" ? ELIXIR_DEFS[it.base] : FOOD_DEFS[it.base];
+        if (!def) return;
+        if (stillDigesting(p, now)) return;
         const d0 = derive(p);
-        p.hp = Math.min(d0.mhp, p.hp + d0.mhp * edef.heal);
+        p.hp = Math.min(d0.mhp, p.hp + d0.mhp * def.heal);
         p.potCdUntil = now + POTION_CD;
-        p.buffUntil = now + edef.dur;
-        p.buffDmgp = edef.dmgp || 0;
-        p.buffArm = edef.arm || 0;
-        p.buffSpd = edef.spd || 0;
-        p.buffXp = edef.xp || 0;
-        it.qty = (it.qty ?? 1) - 1;
-        if (it.qty <= 0) p.inv[slot] = null;
-        const bits: string[] = [];
-        if (edef.dmgp) bits.push(`+${edef.dmgp}% daño`);
-        if (edef.arm) bits.push(`+${edef.arm} armadura`);
-        if (edef.spd) bits.push(`+${edef.spd}% velocidad`);
-        if (edef.xp) bits.push(`+${edef.xp}% XP`);
-        toast(p, bits.length ? `Bebiste ${it.name} (${bits.join(", ")})` : `Bebiste ${it.name}`);
-        bcastAt(p.x, p.y, { t: "fx", k: "heal", i: p.id });
-        sendYou(p);
-        break;
-      }
-      if (it.slot === "herb") return toast(p, "Lleva la hierba a Kora y usa /brew (V)");
-      if (it.slot === "food") {
-        const fdef = FOOD_DEFS[it.base];
-        if (!fdef) return;
-        if (now < p.potCdUntil) return toast(p, "Aún estás digiriendo");
-        const d0 = derive(p);
-        p.hp = Math.min(d0.mhp, p.hp + d0.mhp * fdef.heal);
-        p.potCdUntil = now + POTION_CD;
-        p.buffUntil = now + fdef.dur;
-        p.buffDmgp = fdef.dmgp || 0;
-        p.buffArm = fdef.arm || 0;
-        p.buffSpd = fdef.spd || 0;
-        p.buffXp = fdef.xp || 0;
-        it.qty = (it.qty ?? 1) - 1;
-        if (it.qty <= 0) p.inv[slot] = null;
-        const bits: string[] = [];
-        if (fdef.dmgp) bits.push(`+${fdef.dmgp}% daño`);
-        if (fdef.arm) bits.push(`+${fdef.arm} armadura`);
-        if (fdef.spd) bits.push(`+${fdef.spd}% velocidad`);
-        if (fdef.xp) bits.push(`+${fdef.xp}% XP`);
-        toast(p, bits.length ? `Comiste ${it.name} (${bits.join(", ")})` : `Comiste ${it.name}`);
+        const bits = applyFoodBuff(p, now, def);
+        const verb = it.slot === "elixir" ? "Bebiste" : "Comiste";
+        consumeInvSlot(p, slot);
+        toast(p, bits ? `${verb} ${it.name} (${bits})` : `${verb} ${it.name}`);
         bcastAt(p.x, p.y, { t: "fx", k: "heal", i: p.id });
         sendYou(p);
         break;
       }
       if (it.slot !== "potion") return;
       if (now < p.potCdUntil) return toast(p, "Las pociones están en enfriamiento");
-      const def = POTION_DEFS[it.base];
-      if (!def) return;
+      const pdef = POTION_DEFS[it.base];
+      if (!pdef) return;
       const d = derive(p);
-      if (def.pool === "hp") p.hp = Math.min(d.mhp, p.hp + d.mhp * def.heal);
-      else p.mp = Math.min(d.mmp, p.mp + d.mmp * def.heal);
+      if (pdef.pool === "hp") p.hp = Math.min(d.mhp, p.hp + d.mhp * pdef.heal);
+      else p.mp = Math.min(d.mmp, p.mp + d.mmp * pdef.heal);
       p.potCdUntil = now + POTION_CD;
-      it.qty = (it.qty ?? 1) - 1;
-      if (it.qty <= 0) p.inv[slot] = null;
+      consumeInvSlot(p, slot);
       bcastAt(p.x, p.y, { t: "fx", k: "heal", i: p.id });
       sendYou(p);
       break;
@@ -3730,7 +3731,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (now < p.recallCdUntil) return toast(p, `Recall en enfriamiento (${Math.ceil((p.recallCdUntil - now) / 1000)}s)`);
       p.recallCdUntil = now + RECALL_CD;
       dismountAndStand(p);
-      const hasBind = __omp_shell("!(p.bindX || p.bindY);")
+      const hasBind = Boolean(p.bindX || p.bindY);
       if (hasBind) {
         p.x = p.bindX + (Math.random() - 0.5) * 0.4;
         p.y = p.bindY + (Math.random() - 0.5) * 0.4;

@@ -1,3 +1,13 @@
+## 2026-09-19 — Hotfix recall bind + dedupe consumibles
+
+- **Crítico**: el recall (B) tenía `__omp_shell(...)` corrupto en el check de
+  hogar ligado (fallaba al volver). Corregido a `Boolean(p.bindX || p.bindY)`.
+- Alquimia respeta canales activos (`channelBusy`).
+- Helpers `stillDigesting` / `consumeInvSlot` / `applyFoodBuff` unifican comer
+  pescado/comida/elixir; `invFull` y `tradeLocked` reducen toasts repetidos.
+- Cliente: `lsDel`, `startWhisper` (menú + Quién).
+- Cache bust `?v=20260919`.
+
 ## 2026-09-18 — Hotfix lsSet + helpers de distancia
 
 - **Crítico**: `lsSet` se llamaba a sí misma (stack overflow al guardar idioma,
