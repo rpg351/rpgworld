@@ -1,3 +1,21 @@
+## 2026-07-21 — Misiones del Pantano, mascotas nuevas y logs limpios
+
+- **Cadena de misiones q10–q12 (Pantano de la Hidra)**: tras Asterión, Nikandros
+  envía a matar 12 hombres lagarto, 10 fuegos fatuos y finalmente a la Hidra de
+  Lerna. Aceptar q10 (o entregar q9) desbloquea el portal del pantano; matar a
+  la Hidra también lo desbloquea para el grupo cercano.
+- **Mascotas nuevas**: Zorro (+8% velocidad), Halcón (+8% daño) y Cuervo (+30
+  maná). Perks `spd`/`dmgp`/`mp` aplicados en `derive`. Al equipar/desequipar
+  hay toast claro; el panel de Personaje muestra la mascota activa y su bono.
+- **“Fetch” de mascota**: ~8% de probabilidad al matar de que tu compañero
+  encuentre un poco de oro extra (toast corto, sin spamear).
+- **Diálogos NPC**: líneas nuevas para Cofre, Criadero y Tablón; Nikandros
+  menciona el pantano.
+- **Logs**: bot companion deja de imprimir cada follow/invite/leave; startup del
+  servidor y del bot más compactos. Errores y reconexión se mantienen.
+- Cache bust `?v=20260831`.
+
+
 ## 2026-07-19 — Árboles de rango para todas las clases, daño plano, Pantano de la Hidra
 
 - **Nuevo modelo de daño de habilidades (plano)**: se abandonó el % del daño del arma.

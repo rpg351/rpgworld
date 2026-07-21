@@ -146,7 +146,7 @@ class Companion {
 
       ws.onopen = () => {
         opened = true;
-        console.log(`[bot:${NAME}] connected → login as ${NAME} (${BOT_CLS})`);
+        console.log(`[bot:${NAME}] connected`);
         this.send({ t: "login", name: NAME, pass: PASS, cls: BOT_CLS });
       };
 
@@ -193,7 +193,7 @@ class Companion {
         kind: typeof sk.kind === "string" ? sk.kind : "self",
       })).filter((sk) => sk.n >= 1 && sk.n <= 4);
       this.cds = {};
-      console.log(`[bot:${NAME}] welcome id=${this.id} cls=${this.cls} skills=${this.skills.map((x) => x.n).join(",")} allot=${BOT_ALLOT}`);
+      console.log(`[bot:${NAME}] online id=${this.id} ${this.cls}`);
       return;
     }
     if (t === "you") {
@@ -219,7 +219,6 @@ class Companion {
         const from = this.pendingInvite;
         this.pendingInvite = null;
         this.leaveEmptyAt = 0;
-        console.log(`[bot:${NAME}] accepting deferred party invite from ${from}`);
         this.send({ t: "party_accept", from });
         this.maybeSay(`¡Vamos, ${from}! ${NAME} te sigue.`);
         return;
@@ -236,23 +235,19 @@ class Companion {
       if (from) {
         const allowed = this.isAllowedInviter(from);
         if (!allowed) {
-          console.log(`[bot:${NAME}] declining party invite from ${from} (not whitelisted)`);
           this.send({ t: "party_decline", from });
           return;
         }
         if (this.hasOnlinePartyMate()) {
-          console.log(`[bot:${NAME}] already in live party — declining invite from ${from}`);
           this.send({ t: "party_decline", from });
           return;
         }
         if (this.party.length && !this.hasSquadRosterMate()) {
-          console.log(`[bot:${NAME}] leaving stale party to accept invite from ${from}`);
           this.pendingInvite = from;
           this.send({ t: "party_leave" });
           return;
         }
         // Whitelisted humans inviting bots are auto-joined server-side (partyJoinHumanToBotSquad).
-        console.log(`[bot:${NAME}] accepting party invite from ${from}`);
         this.send({ t: "party_accept", from });
         this.maybeSay(`¡Vamos, ${from}! ${NAME} te sigue.`);
       }
@@ -466,7 +461,6 @@ class Companion {
     }
 
     if (this.leaveEmptyAt && Date.now() >= this.leaveEmptyAt && this.party.length && !this.hasOnlinePartyMate() && !this.hasSquadRosterMate()) {
-      console.log(`[bot:${NAME}] leaving empty/offline party`);
       this.leaveEmptyAt = 0;
       this.send({ t: "party_leave" });
       return;
@@ -477,7 +471,6 @@ class Companion {
       if (this.followId !== mate.id) {
         this.send({ t: "party_follow", id: mate.id });
         this.followId = mate.id;
-        console.log(`[bot:${NAME}] following ${mate.name} id=${mate.id}${mate.visible ? "" : " (out of AOI)"}`);
       }
       const mob = this.nearestMob(mate.visible ? 12 : 8);
       if (mob) {
@@ -525,5 +518,5 @@ const bot = new Companion();
 process.on("SIGTERM", () => { console.log(`[bot:${NAME}] SIGTERM`); bot.stop(); });
 process.on("SIGINT", () => { console.log(`[bot:${NAME}] SIGINT`); bot.stop(); });
 
-console.log(`[bot:${NAME}] ${BOT_CLS} companion starting (allot ${BOT_ALLOT}) → ${WS_URL}`);
+console.log(`[bot:${NAME}] start ${BOT_CLS} → ${WS_URL}`);
 await bot.start();

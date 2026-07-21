@@ -417,12 +417,17 @@ export function makeQuestItem(base: string): Item {
 // Pets (cosmetic followers with a small passive perk while equipped, bought
 // from the pet-shop NPC). `stat` matches a Derived field except "gold",
 // which instead boosts gold earned from kills (applied in rollDrops).
+// Pets also have a small chance to "fetch" bonus gold on kill (server).
 // ---------------------------------------------------------------------------
-export const PET_DEFS: Record<string, { name: string; cost: number; stat: "arm" | "crit" | "hp" | "gold"; amount: number; desc: string }> = {
+export type PetStat = "arm" | "crit" | "hp" | "gold" | "spd" | "dmgp" | "mp";
+export const PET_DEFS: Record<string, { name: string; cost: number; stat: PetStat; amount: number; desc: string }> = {
   dog: { name: "Perro", cost: 150, stat: "arm", amount: 4, desc: "+4 armadura" },
   cat: { name: "Gato", cost: 150, stat: "crit", amount: 3, desc: "+3% crítico" },
   owl: { name: "Búho", cost: 300, stat: "gold", amount: 15, desc: "+15% oro de las bajas" },
   turtle: { name: "Tortuga", cost: 250, stat: "hp", amount: 40, desc: "+40 vida máxima" },
+  fox: { name: "Zorro", cost: 400, stat: "spd", amount: 8, desc: "+8% velocidad" },
+  hawk: { name: "Halcón", cost: 450, stat: "dmgp", amount: 8, desc: "+8% daño" },
+  raven: { name: "Cuervo", cost: 350, stat: "mp", amount: 30, desc: "+30 maná máximo" },
 };
 
 // ---------------------------------------------------------------------------
@@ -437,7 +442,7 @@ export interface QuestDef {
   rew: { xp: number; gold: number; item?: "weapon" | "armor" | "rare" };
 }
 
-export const QUEST_ORDER = ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9"];
+export const QUEST_ORDER = ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12"];
 export const QUESTS: Record<string, QuestDef> = {
   q1: { name: "Jabalíes revoltosos", desc: "Los jabalíes pisotean nuestros olivares. Elimina a 8 de ellos.", kind: "kill", target: "boar", count: 8, rew: { xp: 120, gold: 50 } },
   q2: { name: "Cuernos salvajes", desc: "Tráeme 5 cuernos de sátiro de los juerguistas salvajes de los olivares.", kind: "collect", target: "horn", count: 5, rew: { xp: 250, gold: 100, item: "weapon" } },
@@ -448,6 +453,9 @@ export const QUESTS: Record<string, QuestDef> = {
   q7: { name: "Sombras del Asfódelo", desc: "Más allá de Polifemo se abren los Campos Asfódelos. Disuelve a 12 sombras de los muertos.", kind: "kill", target: "shade", count: 12, rew: { xp: 2800, gold: 1200 } },
   q8: { name: "Alas de venganza", desc: "Las Erinias cazan entre las nieblas. Derriba a 10 furias.", kind: "kill", target: "fury", count: 10, rew: { xp: 3600, gold: 1600, item: "armor" } },
   q9: { name: "El laberinto de Asterión", desc: "En el corazón del laberinto ruge el Minotauro Asterión. Entra y derrota al señor de la bestia.", kind: "kill", target: "minotaur", count: 1, rew: { xp: 5500, gold: 2500, item: "rare" } },
+  q10: { name: "Escamas del pantano", desc: "Más allá de los vados, hombres lagarto patrullan el Pantano de la Hidra. Elimina a 12 de ellos.", kind: "kill", target: "lizardman", count: 12, rew: { xp: 4500, gold: 2000 } },
+  q11: { name: "Luces engañosas", desc: "Los fuegos fatuos atraen a los viajeros hacia las aguas negras. Apaga a 10 de ellos.", kind: "kill", target: "wisp", count: 10, rew: { xp: 5500, gold: 2400, item: "armor" } },
+  q12: { name: "Las siete cabezas", desc: "En lo hondo del pantano duerme la Hidra de Lerna. Decapítala y vuelve con la prueba.", kind: "kill", target: "hydra", count: 1, rew: { xp: 8000, gold: 3500, item: "rare" } },
 };
 
 /** Class-matched weapon type for the q2 reward. */
@@ -466,6 +474,7 @@ export const NPC_LINES: Record<string, string[]> = {
     "Bienvenido a Helike, viajero. Los caminos del este se vuelven más peligrosos cada día.",
     "Los dioses nos ponen a prueba: bestias en los olivares, muertos que caminan en Argos.",
     "Demuestra tu valía, y Helike no lo olvidará.",
+    "Cuando Asterión caiga, el pantano te llamará. No vayas solo.",
   ],
   merchant: [
     "¡Pociones, anillos, baratijas! Todo lo que un aventurero olvida hasta que es demasiado tarde.",
@@ -478,5 +487,17 @@ export const NPC_LINES: Record<string, string[]> = {
   smith: [
     "Bronce, hierro, acero: el argumento que zanja todas las discusiones.",
     "Lo forjé yo mismo. Si se rompe, lo estabas sujetando mal.",
+  ],
+  stash: [
+    "Guarda aquí lo que no quepa en la mochila. Nadie más puede abrir tu cofre.",
+    "Las reliquias del pantano pesan — deja sitio antes de salir.",
+  ],
+  petshop: [
+    "Criaturas de Helike, domesticadas y leales. Elige bien: solo una te sigue a la vez.",
+    "Un buen compañero no solo alegra el camino — también te fortalece en combate.",
+  ],
+  board: [
+    "Escribe lo que el pueblo necesita. Los moderadores leen cada petición.",
+    "Una idea clara vale más que mil quejas. Sé breve.",
   ],
 };

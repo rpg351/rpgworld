@@ -350,6 +350,9 @@ function derive(p: Player): Derived {
   if (pet?.stat === "arm") arm += pet.amount;
   if (pet?.stat === "crit") crit += pet.amount;
   if (pet?.stat === "hp") hpB += pet.amount;
+  if (pet?.stat === "mp") mpB += pet.amount;
+  if (pet?.stat === "dmgp") dmgp += pet.amount;
+  const petSpdPct = pet?.stat === "spd" ? pet.amount : 0;
   const w = p.eq.weapon;
   const [lo0, hi0] = w?.dmg ?? [1, 3];
   const [stat, mult] = WEAPON_SCALING[w?.icon ?? "sword"] ?? ["str", 0.5];
@@ -363,7 +366,7 @@ function derive(p: Player): Derived {
     lo: (lo0 + bonus) * dm, hi: (hi0 + bonus) * dm,
     crit: 5 + 0.15 * dex + crit,
     dmgp,
-    spd: PLAYER_SPD * (1 + 0.01 * abilityRank(p, "h_veloz")),
+    spd: PLAYER_SPD * (1 + 0.01 * abilityRank(p, "h_veloz") + petSpdPct / 100),
   };
 }
 
@@ -485,8 +488,15 @@ const BOSS_KILL_MSG: Record<string, (killer: string) => string> = {
 };
 
 function rollDrops(m: Mob, killer: Player): void {
-  const petGoldPct = killer.activePet ? PET_DEFS[killer.activePet]?.stat === "gold" ? PET_DEFS[killer.activePet].amount : 0 : 0;
+  const petDef = killer.activePet ? PET_DEFS[killer.activePet] : null;
+  const petGoldPct = petDef?.stat === "gold" ? petDef.amount : 0;
   killer.gold += Math.round(m.gold() * (1 + petGoldPct / 100));
+  // Equipped pet occasionally "fetches" a little extra gold (toast rate kept low).
+  if (petDef && Math.random() < 0.08) {
+    const bonus = 2 + Math.floor(Math.random() * (3 + Math.max(1, Math.floor(m.lvl / 2))));
+    killer.gold += bonus;
+    toast(killer, `Tu ${petDef.name} encontró ${bonus} de oro`);
+  }
   const boss = BOSS_LOOT[m.kind];
   if (boss) {
     for (let i = 0; i < boss.count; i++)
@@ -569,6 +579,11 @@ function mobDie(m: Mob, killer: Player): void {
     sysChat(`¡${killer.name} ha derrotado a Polifemo, el terror del este!`);
     unlockPortal(killer, "asfodelos", true);
     for (const q of sharers) unlockPortal(q, "asfodelos", true);
+  } else if (m.kind === "hydra") {
+    const msg = BOSS_KILL_MSG.hydra;
+    if (msg) sysChat(msg(killer.name));
+    unlockPortal(killer, "hidra", true);
+    for (const q of sharers) unlockPortal(q, "hidra", true);
   } else {
     const msg = BOSS_KILL_MSG[m.kind];
     if (msg) sysChat(msg(killer.name));
@@ -1864,6 +1879,8 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (id && (!PET_DEFS[id] || !p.pets.has(id))) return;
       p.activePet = id || null;
       p.dirty = true;
+      if (p.activePet) toast(p, `Tu ${PET_DEFS[p.activePet].name} te sigue`);
+      else toast(p, "Tu mascota vuelve al criadero");
       sendYou(p);
       sendPetShop(p);
       break;
@@ -1956,6 +1973,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (QUESTS[qid].kind === "collect") updateCollect(p);
       toast(p, `Misión aceptada: ${QUESTS[qid].name}`);
       if (qid === "q7") unlockPortal(p, "asfodelos", true);
+      if (qid === "q10") unlockPortal(p, "hidra", true);
       sendYou(p);
       sendElderDialog(p);
       break;
@@ -1978,6 +1996,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       addXp(p, def.rew.xp);
       toast(p, `Misión completada: +${def.rew.xp} de experiencia, +${def.rew.gold} de oro${rewardItem ? `, ${rewardItem.name}` : ""}`);
       if (qid === "q6") unlockPortal(p, "asfodelos", true);
+      if (qid === "q9") unlockPortal(p, "hidra", true);
       sendYou(p);
       sendElderDialog(p);
       break;
@@ -2669,7 +2688,5 @@ process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
 console.log(
-  `[rpg] Age of Titans listening on 127.0.0.1:${server.port} — world ${W}x${W}, ` +
-  `${world.spawns.length} spawn points, ${world.reachCount} tiles reachable from town (reachability OK), ` +
-  `${npcs.length} NPCs, boss at (${BOSS_POS.x},${BOSS_POS.y}), db=${DB_PATH}`,
+  `[rpg] listening :${server.port} world ${W}x${W} spawns=${world.spawns.length} reach=${world.reachCount} npcs=${npcs.length} db=${DB_PATH}`,
 );

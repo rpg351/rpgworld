@@ -124,6 +124,14 @@ Cleric: **Oración** (cura 20 +1.2·int +8/rango a ti y al aliado más herido a 
 | q4 | Feathers and Fury | kill 8 harpies | 700 xp, 280 g, magic armor |
 | q5 | Stone Gaze | kill 6 gorgons | 1000 xp, 420 g |
 | q6 | The Eye of the Storm | slay Polyphemus | 2200 xp, 1000 g, rare item |
+| q7 | Shades of Asphodel | kill 12 shades | 2800 xp, 1200 g |
+| q8 | Wings of Vengeance | kill 10 furies | 3600 xp, 1600 g, magic armor |
+| q9 | Labyrinth of Asterion | slay Asterion | 5500 xp, 2500 g, rare item |
+| q10 | Scales of the Swamp | kill 12 lizardmen | 4500 xp, 2000 g |
+| q11 | Deceptive Lights | kill 10 wisps | 5500 xp, 2400 g, magic armor |
+| q12 | The Seven Heads | slay the Hydra | 8000 xp, 3500 g, rare item |
+
+Pets (pet-shop NPC): dog/cat/owl/turtle/fox/hawk/raven — one equipped at a time; passive perk while active; ~8% chance to fetch bonus gold on kill.
 
 Turn-in removes quest items. `dialog.quests[].state:"locked"` for not-yet-available chain entries (show greyed with requirement).
 

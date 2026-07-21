@@ -25,6 +25,15 @@ function thash(x, y, salt) {
 }
 var RARITY_COLOR = { common: "#e8e0d0", magic: "#7fb3ff", rare: "#ffcf40" };
 var MOD_NAMES = { str: "Fuerza", dex: "Destreza", int: "Inteligencia", hp: "Vida", mp: "Maná", arm: "Armadura", dmgp: "% Daño", crit: "% Crítico" };
+var PET_LABELS = {
+  dog: { name: "Perro", desc: "+4 armadura" },
+  cat: { name: "Gato", desc: "+3% crítico" },
+  owl: { name: "Búho", desc: "+15% oro" },
+  turtle: { name: "Tortuga", desc: "+40 vida" },
+  fox: { name: "Zorro", desc: "+8% velocidad" },
+  hawk: { name: "Halcón", desc: "+8% daño" },
+  raven: { name: "Cuervo", desc: "+30 maná" },
+};
 var RARITY_ES = { common: "común", magic: "mágico", rare: "raro" };
 var SLOT_ES = { weapon: "arma", armor: "armadura", helm: "yelmo", ring: "anillo", potion: "poción", quest: "misión" };
 // ---------------------------------------------------------------------------
@@ -67,7 +76,7 @@ var I18N = {
     "menu.title": "Menú", "menu.help": "Ayuda", "menu.options": "Opciones", "menu.logout": "Cerrar sesión",
     "help.h.about": "Cómo funciona",
     "help.about1": "Sos un héroe en Helike, un pueblo de la Grecia mítica. Elegís una clase (guerrero, cazador, mago o clérigo) y salís a matar monstruos por el mapa para ganar experiencia, oro y objetos. Cada nivel te da puntos de estadística y, desde el nivel 4, un punto de habilidad para tu árbol de clase.",
-    "help.about2": "En el pueblo hay NPCs útiles: el Anciano da misiones, el herrero/Circe compran y venden objetos, el Portal te teleporta a otras zonas ya visitadas, y el tablón de peticiones deja que cualquiera escriba ideas para el juego.",
+    "help.about2": "En el pueblo hay NPCs útiles: el Anciano da misiones, el herrero/Circe compran y venden objetos, el Portal te teleporta a zonas ya visitadas, el Cofre guarda botín, el Criadero vende mascotas con bonos pasivos, y el tablón de peticiones deja ideas para el juego.",
     "help.about3": "Si morís, tu personaje queda caído: revive solo a los 30s, o apretá el botón \"Resucitar\" para volver antes a Helike. Cerca de la fuente de la plaza (zona santuario) la vida y el maná regeneran mucho más rápido, y no llega daño de fuera.",
     "help.about4": "Podés agruparte con otros jugadores: invitalos haciendo clic en ellos, y usá \"Seguir\" en el panel de grupo para que tu personaje camine solo detrás del líder. La experiencia de las misiones de caza se comparte entre los miembros cercanos.",
     "help.h.move": "Movimiento",
@@ -175,7 +184,7 @@ var I18N = {
     "menu.title": "Menu", "menu.help": "Help", "menu.options": "Options", "menu.logout": "Log out",
     "help.h.about": "How it works",
     "help.about1": "You're a hero in Helike, a town in mythic Greece. Pick a class (warrior, hunter, mage or cleric) and go kill monsters across the map to earn experience, gold and loot. Every level grants stat points and, from level 4 on, an ability point for your class tree.",
-    "help.about2": "The town has useful NPCs: the Elder gives quests, the smith/Circe buy and sell items, the Portal teleports you to zones you've already visited, and the request board lets anyone write ideas for the game.",
+    "help.about2": "The town has useful NPCs: the Elder gives quests, the smith/Circe buy and sell items, the Portal teleports to visited zones, the Chest stores loot, the Pet shop sells companions with passive perks, and the request board takes ideas for the game.",
     "help.about3": "If you die, your character falls: it revives on its own after 30s, or hit the \"Revive\" button to return to Helike right away. Near the plaza fountain (sanctuary zone) HP/MP regen much faster and no damage from outside reaches you.",
     "help.about4": "You can group up with other players: invite them by clicking them, and use \"Follow\" in the party panel so your character walks behind the leader on its own. Hunt-quest XP is shared with nearby party members.",
     "help.h.move": "Movement",
@@ -4895,6 +4904,10 @@ function renderChar() {
     html += `<div class="stat-row"><span>${label}</span><span><b>${y[st]}</b>` + (y.pts > 0 ? ` <button class="plus" data-st="${st}">+</button>` : "") + `</span></div>`;
   }
   html += `<button type="button" class="btn ghost char-reset-btn" id="charResetBtn" data-i18n="char.resetBtn">${t("char.resetBtn")}</button>`;
+  const petInfo = y.activePet && PET_LABELS[y.activePet];
+  const petLine = petInfo
+    ? `<div class="stat-row"><span>Mascota</span><b>${esc(petInfo.name)} · ${esc(petInfo.desc)}</b></div>`
+    : "";
   html += `<div class="derived">
     <div class="stat-row"><span>Daño</span><b>${y.dmg[0]}–${y.dmg[1]}</b></div>
     <div class="stat-row"><span>Prob. de crítico</span><b>${(+y.crit).toFixed(1)}%</b></div>
@@ -4903,6 +4916,7 @@ function renderChar() {
     <div class="stat-row"><span>Maná</span><b>${Math.max(0, Math.round(y.mp))} / ${Math.round(y.mmp)}</b></div>
     <div class="stat-row"><span>Velocidad</span><b>${y.spd}</b></div>
     <div class="stat-row"><span>Oro</span><b>${y.gold}</b></div>
+    ${petLine}
   </div>`;
   b.innerHTML = html;
   b.querySelectorAll(".plus").forEach((btn) => btn.addEventListener("click", () => send({ t: "allot", stat: btn.dataset.st })));
@@ -4921,7 +4935,10 @@ var QUEST_META = {
   q6: { name: "El ojo de la tormenta", goal: "Derrota a Polifemo", count: 1 },
   q7: { name: "Sombras del Asfódelo", goal: "Disuelve 12 sombras", count: 12 },
   q8: { name: "Alas de venganza", goal: "Derriba 10 furias", count: 10 },
-  q9: { name: "El laberinto de Asterión", goal: "Derrota al Minotauro", count: 1 }
+  q9: { name: "El laberinto de Asterión", goal: "Derrota al Minotauro", count: 1 },
+  q10: { name: "Escamas del pantano", goal: "Elimina 12 hombres lagarto", count: 12 },
+  q11: { name: "Luces engañosas", goal: "Apaga 10 fuegos fatuos", count: 10 },
+  q12: { name: "Las siete cabezas", goal: "Derrota a la Hidra de Lerna", count: 1 }
 };
 function renderAbilities() {
   const pts = $("abilityPts"), b = $("abilityBody");
@@ -5299,6 +5316,59 @@ function drawPetIcon(g, id, cx, cy, size) {
       g.fillStyle = "#7ba14f";
       g.beginPath(); g.arc(-8, 0, 2, 0, 7); g.fill();
       g.beginPath(); g.arc(8, 0, 2, 0, 7); g.fill();
+      break;
+    case "fox":
+      g.fillStyle = "#d4782e";
+      g.beginPath(); g.arc(0, 1, 6.5, 0, 7); g.fill();
+      g.save(); g.clip();
+      g.fillStyle = "rgba(255,255,255,.22)"; g.beginPath(); g.arc(-2.4, -1.4, 2.8, 0, 7); g.fill();
+      g.fillStyle = "rgba(0,0,0,.14)"; g.beginPath(); g.arc(2.6, 2.8, 2.8, 0, 7); g.fill();
+      g.restore();
+      g.beginPath(); g.moveTo(-5.5, -3); g.lineTo(-8.5, -10); g.lineTo(-2, -5); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(5.5, -3); g.lineTo(8.5, -10); g.lineTo(2, -5); g.closePath(); g.fill();
+      g.fillStyle = "#f2e6d0";
+      g.beginPath(); g.ellipse(0, 3.2, 3.2, 2.2, 0, 0, 7); g.fill();
+      g.fillStyle = "#1a0e06";
+      g.beginPath(); g.arc(-2.2, 0, 0.9, 0, 7); g.fill();
+      g.beginPath(); g.arc(2.2, 0, 0.9, 0, 7); g.fill();
+      g.beginPath(); g.arc(0, 2.2, 0.9, 0, 7); g.fill();
+      break;
+    case "hawk":
+      g.fillStyle = "#6b4e32";
+      g.beginPath(); g.moveTo(0, -8); g.lineTo(7, 2); g.lineTo(0, 7); g.lineTo(-7, 2); g.closePath(); g.fill();
+      g.save(); g.clip();
+      g.fillStyle = "rgba(255,255,255,.16)"; g.beginPath(); g.arc(-2, -2, 3, 0, 7); g.fill();
+      g.fillStyle = "rgba(0,0,0,.14)"; g.beginPath(); g.arc(2.5, 3, 3, 0, 7); g.fill();
+      g.restore();
+      g.fillStyle = "#c9a46a";
+      g.beginPath(); g.arc(-2.2, -1, 1.8, 0, 7); g.fill();
+      g.beginPath(); g.arc(2.2, -1, 1.8, 0, 7); g.fill();
+      g.fillStyle = "#1a1206";
+      g.beginPath(); g.arc(-2.2, -1, 0.8, 0, 7); g.fill();
+      g.beginPath(); g.arc(2.2, -1, 0.8, 0, 7); g.fill();
+      g.fillStyle = "#e09a2e";
+      g.beginPath(); g.moveTo(-1, 2); g.lineTo(1, 2); g.lineTo(0, 5); g.closePath(); g.fill();
+      g.strokeStyle = "#4a3420"; g.lineWidth = 1.2;
+      g.beginPath(); g.moveTo(-8, 0); g.lineTo(-3, 1); g.moveTo(8, 0); g.lineTo(3, 1); g.stroke();
+      break;
+    case "raven":
+      g.fillStyle = "#2a2a32";
+      g.beginPath(); g.arc(0, 0, 7, 0, 7); g.fill();
+      g.save(); g.clip();
+      g.fillStyle = "rgba(255,255,255,.12)"; g.beginPath(); g.arc(-2.6, -2.4, 3, 0, 7); g.fill();
+      g.fillStyle = "rgba(0,0,0,.25)"; g.beginPath(); g.arc(2.8, 2.8, 3, 0, 7); g.fill();
+      g.restore();
+      g.fillStyle = "#e8c84a";
+      g.beginPath(); g.arc(-2.5, -0.5, 1.1, 0, 7); g.fill();
+      g.beginPath(); g.arc(2.5, -0.5, 1.1, 0, 7); g.fill();
+      g.fillStyle = "#111";
+      g.beginPath(); g.arc(-2.5, -0.5, 0.45, 0, 7); g.fill();
+      g.beginPath(); g.arc(2.5, -0.5, 0.45, 0, 7); g.fill();
+      g.fillStyle = "#c9782a";
+      g.beginPath(); g.moveTo(-1, 2); g.lineTo(1, 2); g.lineTo(0, 5); g.closePath(); g.fill();
+      g.strokeStyle = "#1a1a22"; g.lineWidth = 1.1;
+      g.beginPath(); g.moveTo(-7, 1); g.quadraticCurveTo(-10, -2, -6, -5);
+      g.moveTo(7, 1); g.quadraticCurveTo(10, -2, 6, -5); g.stroke();
       break;
     default:
       g.fillStyle = "#ccc";
