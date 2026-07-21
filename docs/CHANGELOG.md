@@ -1,3 +1,13 @@
+## 2026-09-27 — Invites online + abortChannel + toasts
+
+- **Bugfix**: duelo y party invite ahora usan `needOnline` (no “éxito” silencioso
+  contra jugadores desconectados en linger).
+- Helper `abortChannel` unifica stop+toast al interrumpir pesca/recolección/cocina.
+- Toasts/i18n: Debes→Tenés que, Apeáte, Podés / tenés en login y tablón.
+- CSS: merge del `@media 900px` chico en el bloque combinado.
+- Bots: sin log `connected` (queda `online` una vez).
+- Cache bust `?v=20260927`.
+
 ## 2026-09-26 — Hotfix follow drift + anuncios de jefe
 
 - **Crítico**: el follow de grupo tenía `__omp_shell(...)` en el check de

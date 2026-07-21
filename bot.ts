@@ -154,7 +154,7 @@ class Companion {
 
       ws.onopen = () => {
         opened = true;
-        if (!this._seenConnect) { this._seenConnect = true; console.log(`[bot:${NAME}] connected`); }
+        
         this.send({ t: "login", name: NAME, pass: PASS, cls: BOT_CLS });
       };
 

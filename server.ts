@@ -1466,13 +1466,13 @@ function notInTown(p: Player, msg: string): boolean {
 
 function needWater(p: Player): boolean {
   if (nearWater(p)) return false;
-  toast(p, "Debes estar junto al agua");
+  toast(p, "Tenés que estar junto al agua");
   return true;
 }
 
 function needTree(p: Player): boolean {
   if (nearTree(p)) return false;
-  toast(p, "Debes estar junto a un árbol");
+  toast(p, "Tenés que estar junto a un árbol");
   return true;
 }
 
@@ -1493,16 +1493,18 @@ function stopChannels(p: Player): void {
   p.forageUntil = 0;
 }
 
+function abortChannel(p: Player, msg: string): void {
+  stopChannels(p);
+  toast(p, msg);
+}
+
 function interruptChannels(p: Player, now: number): void {
   if (p.fishUntil && channelInterrupted(p, now)) {
-    stopChannels(p);
-    toast(p, "Dejas de pescar");
+    abortChannel(p, "Dejas de pescar");
   } else if (p.forageUntil && channelInterrupted(p, now)) {
-    stopChannels(p);
-    toast(p, "Dejas de recolectar");
+    abortChannel(p, "Dejas de recolectar");
   } else if (p.cookUntil && (channelInterrupted(p, now) || !nearNpc(p, bront))) {
-    stopChannels(p);
-    toast(p, "Dejas de cocinar");
+    abortChannel(p, "Dejas de cocinar");
   }
 }
 
@@ -1793,7 +1795,7 @@ function tryDuelReq(p: Player, targetId: number, now: number): void {
   if (p.tradeId) return toast(p, "Terminá el intercambio primero");
   if (waitToast(p, p.lastDuelReqAt, 1500, now)) return;
   const target = playerById(targetId);
-  if (!target || target === p) return;
+  if (!target || target === p || !needOnline(p, target)) return;
   if (BOT_SQUAD.has(target.name)) return toast(p, "Los compañeros no aceptan duelos");
   if (targetDown(p, target)) return;
   if (target.duelWith) return toast(p, `${target.name} ya está en un duelo`);
@@ -2035,7 +2037,7 @@ function tryTradeReq(p: Player, targetId: number, now: number): void {
   if (BOT_SQUAD.has(target.name)) return toast(p, "No podés comerciar con compañeros IA");
   if (BOT_SQUAD.has(p.name)) return;
   if (tooFar(p, target, TRADE_RANGE)) return;
-  if (target.dead) return toast(p, "No puede comerciar ahora");
+  if (target.dead) return toast(p, "Ese jugador no puede comerciar ahora");
   if (target.tradeId) return toast(p, `${target.name} ya está intercambiando`);
   p.lastTradeReqAt = now;
   tradeInvites.set(target.name.toLowerCase(), { fromId: p.id, fromName: p.name, until: now + TRADE_INVITE_MS });
@@ -2435,7 +2437,7 @@ function trySit(p: Player): void {
   if (p.sitting) { standUp(p); return; }
   const now = Date.now();
   if (inCombatBlock(p, now, "No podés sentarte en combate")) return;
-  if (p.mounted) return toast(p, "Apeate antes de sentarte");
+  if (p.mounted) return toast(p, "Apeáte antes de sentarte");
   if (channelBlocked(p, now)) return;
   clearMobility(p);
   p.sitting = true;
@@ -3022,7 +3024,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "board_post": {
       if (p.dead) return;
-      if (needNpc(p, board, "Debes estar junto al tablón de peticiones")) return;
+      if (needNpc(p, board, "Tenés que estar junto al tablón de peticiones")) return;
       if (!isBoardMod(p) && qBoardFindByAuthor.get(p.name)) {
         sendBoard(p);
         return toast(p, "Ya tenés una petición activa — esperá a que un moderador la resuelva");
@@ -3196,7 +3198,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "stash_deposit": {
       if (p.dead) return;
-      if (needNpc(p, stashNpc, "Debes estar junto al cofre")) return;
+      if (needNpc(p, stashNpc, "Tenés que estar junto al cofre")) return;
       const slot = num(msg.slot);
       if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
       const it = p.inv[slot];
@@ -3210,7 +3212,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "stash_withdraw": {
       if (p.dead) return;
-      if (needNpc(p, stashNpc, "Debes estar junto al cofre")) return;
+      if (needNpc(p, stashNpc, "Tenés que estar junto al cofre")) return;
       const slot = num(msg.slot);
       if (slot == null || !Number.isInteger(slot) || slot < 0 || slot >= STASH_SIZE) return;
       const it = p.stash[slot];
@@ -3223,7 +3225,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "pet_buy": {
       if (p.dead) return;
-      if (needNpc(p, petshopNpc, "Debes estar junto al criadero")) return;
+      if (needNpc(p, petshopNpc, "Tenés que estar junto al criadero")) return;
       const id = typeof msg.id === "string" ? msg.id : "";
       const def = PET_DEFS[id];
       if (!def) return;
@@ -3252,7 +3254,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "mount_buy": {
       if (p.dead) return;
-      if (needNpc(p, petshopNpc, "Debes estar junto al criadero")) return;
+      if (needNpc(p, petshopNpc, "Tenés que estar junto al criadero")) return;
       const id = typeof msg.id === "string" ? msg.id : "";
       const def = MOUNT_DEFS[id];
       if (!def) return;
@@ -3409,7 +3411,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       const qid = typeof msg.qid === "string" ? msg.qid : "";
       if (!QUESTS[qid]) return;
-      if (needNpc(p, elder, "Debes hablar con Nikandros")) return;
+      if (needNpc(p, elder, "Tenés que hablar con Nikandros")) return;
       if (questState(p, qid) !== "available") return toast(p, "Aún no podés aceptar esa misión");
       p.quests[qid] = { n: 0, done: false, turned: false };
       if (QUESTS[qid].kind === "collect") updateCollect(p);
@@ -3425,7 +3427,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const qid = typeof msg.qid === "string" ? msg.qid : "";
       const def = QUESTS[qid];
       if (!def) return;
-      if (needNpc(p, elder, "Debes hablar con Nikandros")) return;
+      if (needNpc(p, elder, "Tenés que hablar con Nikandros")) return;
       if (questState(p, qid) !== "complete") return toast(p, "Esa misión no está completa");
       let rewardItem: Item | null = null;
       if (def.rew.item) {
@@ -3468,6 +3470,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (id == null) return;
       const target = playerById(id);
       if (!target || target === p) return;
+      if (!needOnline(p, target)) return;
       if (partyJoinHumanToBotSquad(p, target)) break;
       const myPt = p.party || (p.partyId ? getOrLoadParty(p.partyId) : null);
       if (myPt && myPt.roster.length >= PARTY_MAX) return toastPartyFull(p);
@@ -3689,7 +3692,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!wp) return;
       if (dest !== "helike" && !p.visitedZones.includes(dest))
         return toast(p, "Primero debes visitar esa región a pie");
-      if (needNpc(p, portalNpc, "Debes estar junto al Portal")) return;
+      if (needNpc(p, portalNpc, "Tenés que estar junto al Portal")) return;
       if (inCombatBlock(p, now, "No podés viajar en combate")) return;
       p.x = wp.x;
       p.y = wp.y;
