@@ -1,3 +1,11 @@
+## 2026-09-09 — Ventanas sin solapamiento
+
+- Al abrir cualquier ventana (inventario, personaje, misiones, tienda, mapa, logros, quién, inspeccionar, etc.) se coloca automáticamente en una posición libre que no solapa otras ventanas abiertas.
+- El mapa del mundo es exclusivo: al abrirlo se cierran las demás ventanas; al abrir otra ventana se cierra el mapa.
+- En móvil (panel inferior compartido) solo queda una ventana a la vez (con el par tienda/cofre + inventario).
+- Al soltar una ventana arrastrada sobre otra, se recoloca para evitar solapamiento.
+- Cache bust `?v=20260909`.
+
 ## 2026-07-21 — Pesca y marca de muerte
 
 - **Pesca (N / `/fish` / `/pescar`)**: junto al agua (fuera de la plaza) lanzas el

@@ -3539,7 +3539,13 @@ function closeCityPanels(except) {
   if (changed) renderInventory();
 }
 function togglePanel(id) {
-  $(id).classList.toggle("hidden");
+  const el = $(id);
+  if (!el) return;
+  if (el.classList.contains("hidden")) {
+    revealPanel(el);
+  } else {
+    el.classList.add("hidden");
+  }
   if (id === "invPanel")
     renderInventory();
   if (id === "charPanel")
@@ -3548,7 +3554,7 @@ function togglePanel(id) {
     renderQuests();
   if (id === "abilityPanel")
     renderAbilities();
-  if (id === "menuPanel" && !$(id).classList.contains("hidden"))
+  if (id === "menuPanel" && !el.classList.contains("hidden"))
     syncMenuControls();
 }
 var MOVE_KEYS = {
@@ -4641,7 +4647,7 @@ function openPortalPanel(m) {
       if (window.AOTAudio) AOTAudio.sfx("ui");
     });
   });
-  $("dialogPanel").classList.remove("hidden");
+  revealPanel("dialogPanel");
 }
 
 function refreshHud() {
@@ -5179,7 +5185,7 @@ function toggleWorldMap() {
   const p = $("worldMapPanel");
   if (!p || !S.map) return;
   if (p.classList.contains("hidden")) {
-    p.classList.remove("hidden");
+    revealPanel(p);
     drawWorldMap();
   } else {
     p.classList.add("hidden");
@@ -6055,7 +6061,7 @@ function showInspect(m) {
   if (!any) html += `<div class="inspect-empty">${t("inspect.empty")}</div>`;
   html += `<button type="button" class="btn" id="inspectCloseBtn">${t("inspect.close")}</button>`;
   panel.innerHTML = html;
-  panel.classList.remove("hidden");
+  revealPanel(panel);
   const x = panel.querySelector(".panel-x");
   if (x) x.addEventListener("click", () => panel.classList.add("hidden"));
   const c = $("inspectCloseBtn");
@@ -6102,7 +6108,7 @@ function showDialog(m) {
     d.appendChild(btn);
     b.appendChild(d);
   }
-  p.classList.remove("hidden");
+  revealPanel(p);
 }
 var _boardTick = null;
 function updateBoardFormState() {
@@ -6155,7 +6161,7 @@ function showBoard(m) {
   closeCityPanels("boardPanel");
   S.boardEntries = m.entries || [];
   S.boardMeta = { isMod: !!m.isMod, hasActive: !!m.hasActive, cooldownUntil: m.cooldownUntil || 0 };
-  $("boardPanel").classList.remove("hidden");
+  revealPanel("boardPanel");
   renderBoard(S.boardEntries);
   updateBoardFormState();
 }
@@ -6203,8 +6209,8 @@ function showShop(m) {
     renderInventory();
   });
   renderShop();
-  $("shopPanel").classList.remove("hidden");
-  $("invPanel").classList.remove("hidden");
+  revealPanel("shopPanel");
+  revealPanel("invPanel");
   renderInventory();
 }
 function renderShop() {
@@ -6288,8 +6294,8 @@ function showStash(m) {
   S.stashOpen = true;
   S.stash = m.items || [];
   renderStash();
-  $("stashPanel").classList.remove("hidden");
-  $("invPanel").classList.remove("hidden");
+  revealPanel("stashPanel");
+  revealPanel("invPanel");
   renderInventory();
 }
 function drawPetIcon(g, id, cx, cy, size) {
@@ -6448,7 +6454,7 @@ function showPetShop(m) {
   closeCityPanels("petPanel");
   S.petShop = { defs: m.defs || [], owned: m.owned || [], active: m.active || null };
   renderPetShop();
-  $("petPanel").classList.remove("hidden");
+  revealPanel("petPanel");
 }
 function renderPetShop() {
   const b = $("petBody");
@@ -6509,6 +6515,149 @@ function savePanelLayout(id, patch) {
   all[id] = Object.assign({}, all[id], patch);
   try { localStorage.setItem(PANEL_LAYOUT_KEY, JSON.stringify(all)); } catch (_) {}
 }
+var WINDOW_IDS = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "achPanel", "whoPanel", "inspectPanel"];
+var WINDOW_GAP = 10;
+function listOpenWindows(except) {
+  const skip = except instanceof Set ? except : new Set(except ? [except] : []);
+  const out = [];
+  for (const id of WINDOW_IDS) {
+    if (skip.has(id)) continue;
+    const el = $(id);
+    if (el && !el.classList.contains("hidden")) out.push(el);
+  }
+  return out;
+}
+function windowRect(el) {
+  const r = el.getBoundingClientRect();
+  return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+}
+function rectsOverlap(a, b, pad) {
+  const p = pad == null ? WINDOW_GAP : pad;
+  return !(a.right + p <= b.left || b.right + p <= a.left || a.bottom + p <= b.top || b.bottom + p <= a.top);
+}
+function setWindowPos(el, left, top) {
+  el.style.left = Math.round(left) + "px";
+  el.style.top = Math.round(top) + "px";
+  el.style.right = "auto";
+  el.style.bottom = "auto";
+  el.style.transform = "none";
+}
+function closeWindowsExcept(keepIds) {
+  const keep = new Set(keepIds || []);
+  let invDirty = false;
+  for (const id of WINDOW_IDS) {
+    if (keep.has(id)) continue;
+    const el = $(id);
+    if (!el || el.classList.contains("hidden")) continue;
+    el.classList.add("hidden");
+    if (id === "shopPanel" && S.shopOpen) { S.shopOpen = false; invDirty = true; }
+    if (id === "stashPanel" && S.stashOpen) { S.stashOpen = false; invDirty = true; }
+  }
+  if (invDirty) renderInventory();
+}
+function findFreeWindowPos(el, prefLeft, prefTop) {
+  const w = Math.max(120, el.offsetWidth || el.getBoundingClientRect().width || 280);
+  const h = Math.max(80, el.offsetHeight || el.getBoundingClientRect().height || 180);
+  const margin = 8;
+  const maxL = Math.max(margin, window.innerWidth - w - margin);
+  const maxT = Math.max(margin, window.innerHeight - h - margin);
+  const others = listOpenWindows(el.id).map(windowRect);
+  function fits(L, T) {
+    const cand = { left: L, top: T, right: L + w, bottom: T + h };
+    if (L < margin - 0.5 || T < margin - 0.5 || L > maxL + 0.5 || T > maxT + 0.5) return false;
+    for (const o of others) {
+      if (rectsOverlap(cand, o, WINDOW_GAP)) return false;
+    }
+    return true;
+  }
+  let L = clamp(prefLeft, margin, maxL);
+  let T = clamp(prefTop, margin, maxT);
+  if (fits(L, T)) return { left: L, top: T };
+  const step = 24;
+  for (let i = 1; i <= 48; i++) {
+    const d = i * step;
+    const tries = [
+      [L + d, T], [L - d, T], [L, T + d], [L, T - d],
+      [L + d, T + d], [L - d, T + d], [L + d, T - d], [L - d, T - d],
+      [L + d, T + d / 2], [L - d, T + d / 2], [L + d / 2, T + d], [L + d / 2, T - d]
+    ];
+    for (const [x, y] of tries) {
+      const nx = clamp(x, margin, maxL);
+      const ny = clamp(y, margin, maxT);
+      if (fits(nx, ny)) return { left: nx, top: ny };
+    }
+  }
+  for (let y = margin; y <= maxT; y += step) {
+    for (let x = margin; x <= maxL; x += step) {
+      if (fits(x, y)) return { left: x, top: y };
+    }
+  }
+  // Last resort: cascade from top-left (may still clip, but avoids stacking on same spot)
+  const n = others.length;
+  return { left: clamp(margin + (n % 8) * step, margin, maxL), top: clamp(56 + Math.floor(n / 8) * step + (n % 8) * step, margin, maxT) };
+}
+function placePanelNoOverlap(el) {
+  if (!el) return;
+  if (typeof isMobileUi === "function" && isMobileUi()) return;
+  if (el.id === "worldMapPanel") {
+    // Near-fullscreen map: exclusive — close every other window first.
+    closeWindowsExcept(["worldMapPanel"]);
+    el.style.left = "";
+    el.style.top = "";
+    el.style.right = "";
+    el.style.bottom = "";
+    el.style.transform = "";
+    return;
+  }
+  const wm = $("worldMapPanel");
+  if (wm && !wm.classList.contains("hidden")) wm.classList.add("hidden");
+  // Convert centered/transformed CSS into absolute coords before measuring.
+  const r0 = el.getBoundingClientRect();
+  setWindowPos(el, r0.left, r0.top);
+  void el.offsetWidth;
+  const pos = findFreeWindowPos(el, r0.left, r0.top);
+  setWindowPos(el, pos.left, pos.top);
+}
+function revealPanel(idOrEl) {
+  const el = typeof idOrEl === "string" ? $(idOrEl) : idOrEl;
+  if (!el) return null;
+  const opening = el.classList.contains("hidden");
+  if (typeof isMobileUi === "function" && isMobileUi()) {
+    // Mobile bottom-sheet panels share one slot — keep only this window (+ paired inv).
+    const keep = [el.id];
+    if (el.id === "shopPanel" || el.id === "stashPanel") keep.push("invPanel");
+    if (el.id === "invPanel" && (S.shopOpen || S.stashOpen)) {
+      if (S.shopOpen) keep.push("shopPanel");
+      if (S.stashOpen) keep.push("stashPanel");
+    }
+    closeWindowsExcept(keep);
+    el.classList.remove("hidden");
+    return el;
+  }
+  if (opening) {
+    const layouts = loadPanelLayouts();
+    const saved = layouts[el.id];
+    el.classList.remove("hidden");
+    if (saved && saved.left != null && saved.top != null) {
+      setWindowPos(el, saved.left, saved.top);
+    }
+    void el.offsetWidth;
+    placePanelNoOverlap(el);
+  } else {
+    // Already open: still ensure it isn't covering another window (e.g. shop re-open).
+    placePanelNoOverlap(el);
+  }
+  return el;
+}
+function resolveDragOverlap(el) {
+  if (!el || (typeof isMobileUi === "function" && isMobileUi())) return;
+  const r = el.getBoundingClientRect();
+  const pos = findFreeWindowPos(el, r.left, r.top);
+  if (Math.abs(pos.left - r.left) > 0.5 || Math.abs(pos.top - r.top) > 0.5) {
+    setWindowPos(el, pos.left, pos.top);
+  }
+}
+
 function initDraggablePanels() {
   const layouts = loadPanelLayouts();
   document.querySelectorAll(".panel").forEach((panel) => {
@@ -6570,6 +6719,7 @@ function initDraggablePanels() {
       if (!dragging) return;
       dragging = false;
       panel.classList.remove("dragging");
+      resolveDragOverlap(panel);
       savePanelLayout(id, { left: parseFloat(panel.style.left), top: parseFloat(panel.style.top) });
     });
   });
