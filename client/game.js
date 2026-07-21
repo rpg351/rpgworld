@@ -515,8 +515,20 @@ var I18N = {
   },
 };
 var LS_LANG = "aot_lang";
+function lsGet(key, fallback = null) {
+  try {
+    const v = localStorage.getItem(key);
+    return v == null ? fallback : v;
+  } catch (_) {
+    return fallback;
+  }
+}
+function lsSet(key, value) {
+  lsSet(key, value)
+}
 function getLang() {
-  try { return localStorage.getItem(LS_LANG) === "en" ? "en" : "es"; } catch (e) { return "es"; }
+  const v = lsGet(LS_LANG, "es");
+  return v === "en" ? "en" : "es";
 }
 function t(key, ...args) {
   const dict = I18N[getLang()] || I18N.es;
@@ -524,7 +536,7 @@ function t(key, ...args) {
   return typeof v === "function" ? v(...args) : v;
 }
 function applyLang(lang) {
-  try { localStorage.setItem(LS_LANG, lang === "en" ? "en" : "es"); } catch (e) {}
+  lsSet(LS_LANG, lang === "en" ? "en" : "es")
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     el.textContent = t(el.dataset.i18n);
   });
@@ -3282,7 +3294,7 @@ function nearestEnemy(maxR) {
 }
 function setAutoAtk(on) {
   S.autoAtk = Boolean(on);
-  try { localStorage.setItem("aot_autoatk", S.autoAtk ? "1" : "0"); } catch (_) {}
+  lsSet("aot_autoatk", S.autoAtk ? "1" : "0")
   const btn = $("xpBar");
   if (btn) {
     btn.classList.toggle("on", S.autoAtk);
@@ -3329,8 +3341,6 @@ function tickAutoAtk(t) {
 
 var _lastFrameT = 0;
 var _dustAt = 0;
-function frame() {
-  
 (function initWorldMapUi() {
   const cv = $("worldMap");
   if (cv) {
@@ -3353,10 +3363,11 @@ function frame() {
   });
 })();
 
-requestAnimationFrame(frame);
+function frame() {
   const t = now();
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   if (!S.loggedIn || !S.map) {
+    requestAnimationFrame(frame);
     return;
   }
   const dt = Math.min(0.05, Math.max(0, (t - (_lastFrameT || t)) / 1000));
@@ -3441,6 +3452,9 @@ requestAnimationFrame(frame);
   checkZone(curZone);
   if (t - S.chatIdleT > 8000)
     $("chatLog").classList.add("idle");
+  updateCoordHud();
+  updateFpsHud(t);
+  requestAnimationFrame(frame);
 }
 function entRadius(E) {
   return BOSS_KINDS.has(E.k) ? 1.4 : 0.7;
@@ -3607,29 +3621,18 @@ var LS_METER = "aot_meter";
 var LS_FPS = "aot_fps";
 var LS_WAYPOINT = "aot_waypoint";
 function loadAutoLoot() {
-  try {
-    const v = localStorage.getItem(LS_AUTOLOOT);
-    S.autoLoot = v === "all" || v === "magic" || v === "rare" ? v : "off";
-  } catch (e) { S.autoLoot = "off"; }
+  const v = lsGet(LS_AUTOLOOT, "off");
+  S.autoLoot = v === "all" || v === "magic" || v === "rare" ? v : "off";
 }
 function loadAutoPotion() {
-  try {
-    const v = localStorage.getItem(LS_AUTOPOTION);
-    S.autoPotion = v === "on" || v === "hp" ? v : "off";
-  } catch (e) { S.autoPotion = "off"; }
+  const v = lsGet(LS_AUTOPOTION, "off");
+  S.autoPotion = v === "on" || v === "hp" ? v : "off";
 }
 function loadLogPanels() {
-  try {
-    S.showLootLog = localStorage.getItem(LS_LOOTLOG) !== "0";
-    S.showCombatLog = localStorage.getItem(LS_COMBATLOG) === "1";
-    S.showMeter = localStorage.getItem(LS_METER) !== "0";
-    S.showFps = localStorage.getItem(LS_FPS) === "1";
-  } catch (e) {
-    S.showLootLog = true;
-    S.showCombatLog = false;
-    S.showMeter = true;
-    S.showFps = false;
-  }
+  S.showLootLog = lsGet(LS_LOOTLOG, "1") !== "0";
+  S.showCombatLog = lsGet(LS_COMBATLOG, "0") === "1";
+  S.showMeter = lsGet(LS_METER, "1") !== "0";
+  S.showFps = lsGet(LS_FPS, "0") === "1";
 }
 function loadWaypoint() {
   try {
@@ -3711,32 +3714,32 @@ function initMenu() {
   if (lang) lang.addEventListener("change", () => applyLang(lang.value));
   if (al) al.addEventListener("change", () => {
     S.autoLoot = al.value;
-    try { localStorage.setItem(LS_AUTOLOOT, S.autoLoot); } catch (e) {}
+    lsSet(LS_AUTOLOOT, S.autoLoot)
   });
   if (ap) ap.addEventListener("change", () => {
     S.autoPotion = ap.value;
-    try { localStorage.setItem(LS_AUTOPOTION, S.autoPotion); } catch (e) {}
+    lsSet(LS_AUTOPOTION, S.autoPotion)
   });
   const ll = $("optLootLog"), cl = $("optCombatLog"), mt = $("optMeter");
   if (ll) ll.addEventListener("change", () => {
     S.showLootLog = Boolean(ll.checked);
-    try { localStorage.setItem(LS_LOOTLOG, S.showLootLog ? "1" : "0"); } catch (e) {}
+    lsSet(LS_LOOTLOG, S.showLootLog ? "1" : "0")
     renderLootLog();
   });
   if (cl) cl.addEventListener("change", () => {
     S.showCombatLog = Boolean(cl.checked);
-    try { localStorage.setItem(LS_COMBATLOG, S.showCombatLog ? "1" : "0"); } catch (e) {}
+    lsSet(LS_COMBATLOG, S.showCombatLog ? "1" : "0")
     renderCombatLog();
   });
   if (mt) mt.addEventListener("change", () => {
     S.showMeter = Boolean(mt.checked);
-    try { localStorage.setItem(LS_METER, S.showMeter ? "1" : "0"); } catch (e) {}
+    lsSet(LS_METER, S.showMeter ? "1" : "0")
     renderMeter();
   });
   const fp = $("optFps");
   if (fp) fp.addEventListener("change", () => {
     S.showFps = Boolean(fp.checked);
-    try { localStorage.setItem(LS_FPS, S.showFps ? "1" : "0"); } catch (e) {}
+    lsSet(LS_FPS, S.showFps ? "1" : "0")
     const fh = $("fpsHud");
     if (fh) fh.classList.toggle("hidden", !S.showFps);
   });
@@ -5226,7 +5229,7 @@ function setPartyMinimized(on) {
   S.partyMinimized = Boolean(on);
   const pf = $("partyFrames");
   if (pf) pf.classList.toggle("minimized", S.partyMinimized);
-  try { localStorage.setItem("aot_party_mini", S.partyMinimized ? "1" : "0"); } catch (_) {}
+  lsSet("aot_party_mini", S.partyMinimized ? "1" : "0")
 }
 function bindPartyChrome() {
   const toggle = $("pfToggle");
@@ -6474,7 +6477,7 @@ function loadFriends() {
   } catch (_) { S.friends = []; }
 }
 function saveFriends() {
-  try { localStorage.setItem(LS_FRIENDS, JSON.stringify(S.friends || [])); } catch (_) {}
+  lsSet(LS_FRIENDS, JSON.stringify(S.friends || []))
 }
 function isFriend(name) {
   return (S.friends || []).some((n) => n.toLowerCase() === String(name || "").toLowerCase());
@@ -7161,7 +7164,7 @@ function loadPanelLayouts() {
 function savePanelLayout(id, patch) {
   const all = loadPanelLayouts();
   all[id] = Object.assign({}, all[id], patch);
-  try { localStorage.setItem(PANEL_LAYOUT_KEY, JSON.stringify(all)); } catch (_) {}
+  lsSet(PANEL_LAYOUT_KEY, JSON.stringify(all))
 }
 var WINDOW_IDS = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "achPanel", "whoPanel", "inspectPanel", "tradePanel"];
 var WINDOW_GAP = 10;

@@ -1,3 +1,13 @@
+## 2026-09-17 — frame() fix + más dedupe
+
+- **Crítico**: `initWorldMapUi` corría *dentro* de `frame()` cada tick (listeners
+  duplicados en el mapa mundial). Sacado afuera; el loop de animación quedó limpio.
+- **HUD**: `updateCoordHud` / `updateFpsHud` volvieron a llamarse cada frame (coords/FPS).
+- Servidor: helper `waitToast` para rate-limits; toasts de oro unificados (`No tenés…`);
+  gesto usa "Esperá".
+- Cliente: `lsGet` / `lsSet` para localStorage sin try/catch repetido.
+- Cache bust `?v=20260917`.
+
 ## 2026-09-16 — Hotfix recursion + más limpieza
 
 - **Crítico**: `dismountAndStand` se llamaba a sí misma (stack overflow al pescar,

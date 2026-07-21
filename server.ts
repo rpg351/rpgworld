@@ -343,6 +343,11 @@ function toast(p: Player, msg: string): void {
   send(p.ws, { t: "toast", msg });
 }
 
+function waitToast(p: Player, lastAt: number, ms: number, now: number, msg = "Esperá un momento…"): boolean {
+  if (now - lastAt < ms) { toast(p, msg); return true; }
+  return false;
+}
+
 function pushLootLog(p: Player, entry: { name: string; rarity: string; icon: string; gold?: number }): void {
   p.lootHist.unshift({ ...entry, at: Date.now() });
   if (p.lootHist.length > 30) p.lootHist.length = 30;
@@ -1248,7 +1253,7 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
   if (n !== 1 && rank < 1) return toast(p, "Asigna un punto a esta habilidad en tu árbol (tecla H)");
   if (p.lvl < def.unlock) return toast(p, `Se desbloquea al nivel ${def.unlock}`);
   if (now < p.skillCds[n]) return toast(p, `${def.name} está en enfriamiento`);
-  if (p.mp < def.cost) return toast(p, "No tienes suficiente maná");
+  if (p.mp < def.cost) return toast(p, "No tenés suficiente maná");
   const effRank = Math.max(1, rank);
   const d = derive(p);
 
@@ -1495,7 +1500,7 @@ function beginBrew(p: Player, now: number): void {
     const it = p.inv[i];
     if (it && it.slot === "herb" && BREW_MAP[it.base]) { slot = i; break; }
   }
-  if (slot < 0) return toast(p, "No tienes hierbas para preparar");
+  if (slot < 0) return toast(p, "No tenés hierbas para preparar");
   const it = p.inv[slot]!;
   const herbBase = it.base;
   const herbName = it.name;
@@ -1620,7 +1625,7 @@ function tryDuelReq(p: Player, targetId: number, now: number): void {
   if (p.dead) return;
   if (p.duelWith) return toast(p, "Ya estás en un duelo");
   if (p.tradeId) return toast(p, "Terminá el intercambio primero");
-  if (now - p.lastDuelReqAt < 1500) return toast(p, "Esperá un momento…");
+  if (waitToast(p, p.lastDuelReqAt, 1500, now)) return;
   const target = playerById(targetId);
   if (!target || target === p) return;
   if (BOT_SQUAD.has(target.name)) return toast(p, "Los compañeros no aceptan duelos");
@@ -1852,7 +1857,7 @@ function canTradeItem(it: Item): boolean {
 function tryTradeReq(p: Player, targetId: number, now: number): void {
   if (p.dead) return;
   if (p.tradeId) return toast(p, "Ya estás intercambiando");
-  if (now - p.lastTradeReqAt < 1200) return toast(p, "Esperá un momento…");
+  if (waitToast(p, p.lastTradeReqAt, 1200, now)) return;
   const target = playerById(targetId);
   if (!target || target === p || !target.ws) return toast(p, "Jugador no disponible");
   if (BOT_SQUAD.has(target.name)) return toast(p, "No podés comerciar con compañeros IA");
@@ -2141,7 +2146,7 @@ function beginCook(p: Player, now: number): void {
     const it = p.inv[i];
     if (it && it.slot === "fish" && foodFromFish(it.base)) { slot = i; break; }
   }
-  if (slot < 0) return toast(p, "No tienes pescado para cocinar");
+  if (slot < 0) return toast(p, "No tenés pescado para cocinar");
   clearMobility(p);
   p.cookSlot = slot;
   p.cookUntil = now + 2200;
@@ -2271,7 +2276,7 @@ function tryPay(p: Player, targetName: string, amount: number, now: number): voi
   const gold = Math.floor(amount);
   if (!name || !Number.isFinite(gold) || gold < 1) return toast(p, "Uso: /pay Nombre cantidad");
   if (gold > 50000) return toast(p, "Máximo 50.000 de oro por envío");
-  if (now - p.lastPayAt < 1500) return toast(p, "Esperá un momento…");
+  if (waitToast(p, p.lastPayAt, 1500, now)) return;
   if (name.toLowerCase() === p.name.toLowerCase()) return toast(p, "No podés pagarte a vos mismo");
   const target = playerByName(name, true);
   if (!target) return toast(p, "Ese jugador no está en línea");
@@ -2884,7 +2889,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "board_delete": {
       if (p.dead) return;
-      if (!isBoardMod(p)) return toast(p, "No tienes permiso para borrar peticiones");
+      if (!isBoardMod(p)) return toast(p, "No tenés permiso para borrar peticiones");
       const id = num(msg.id);
       if (id == null) return;
       qBoardDelete.run(id);
@@ -2893,7 +2898,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "board_edit": {
       if (p.dead) return;
-      if (!isBoardMod(p)) return toast(p, "No tienes permiso para editar peticiones");
+      if (!isBoardMod(p)) return toast(p, "No tenés permiso para editar peticiones");
       const id = num(msg.id);
       const raw = typeof msg.text === "string" ? msg.text.trim() : "";
       if (id == null || raw.length < 3 || raw.length > 240) return;
@@ -2908,7 +2913,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!def) return;
       const cur = abilityRank(p, id);
       if (cur >= def.max) return toast(p, "Ese nodo ya está al rango máximo");
-      if (p.abilityPts < 1) return toast(p, "No tienes puntos de habilidad");
+      if (p.abilityPts < 1) return toast(p, "No tenés puntos de habilidad");
       if (spentPoints(p) < tierReq(def.tier))
         return toast(p, `Necesitas ${tierReq(def.tier)} puntos gastados en el árbol`);
       p.abilities.set(id, cur + 1);
@@ -2920,7 +2925,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       let refund = 0;
       for (const r of p.abilities.values()) refund += r;
-      if (refund === 0) return toast(p, "No tienes puntos de habilidad gastados");
+      if (refund === 0) return toast(p, "No tenés puntos de habilidad gastados");
       p.abilities.clear();
       p.abilityPts += refund;
       p.dirty = true;
@@ -2932,7 +2937,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (p.dead) return;
       const base = CLASS_BASE[p.cls];
       const refund = (p.str - base.str) + (p.dex - base.dex) + (p.int - base.int);
-      if (refund === 0) return toast(p, "No tienes puntos de característica gastados");
+      if (refund === 0) return toast(p, "No tenés puntos de característica gastados");
       p.pts += refund;
       p.str = base.str; p.dex = base.dex; p.int = base.int;
       p.dirty = true;
@@ -2949,7 +2954,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (idx == null || !Number.isInteger(idx) || idx < 0 || idx >= stock.length) return;
       const entry = stock[idx];
       const price = entry.item.val;
-      if (p.gold < price) return toast(p, "No tienes suficiente oro");
+      if (p.gold < price) return toast(p, "No tenés suficiente oro");
       // Infinite stock hands out fresh copies; uniques transfer + leave stock.
       const bought = entry.infinite ? makePotion(entry.item.base) : entry.item;
       if (!invAdd(p, bought)) return toast(p, "Inventario lleno");
@@ -2993,7 +2998,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         pushBuyback(p, it, price);
         p.inv[i] = null;
       }
-      if (count === 0) return toast(p, "No tienes objetos de esa rareza para vender");
+      if (count === 0) return toast(p, "No tenés objetos de esa rareza para vender");
       p.gold += gain;
       toast(p, `Vendiste ${count} objeto${count === 1 ? "" : "s"} por ${gain} de oro`);
       sendYou(p);
@@ -3008,7 +3013,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const idx = num(msg.idx);
       if (idx == null || !Number.isInteger(idx) || idx < 0 || idx >= p.buyback.length) return;
       const entry = p.buyback[idx];
-      if (p.gold < entry.price) return toast(p, "No tienes suficiente oro");
+      if (p.gold < entry.price) return toast(p, "No tenés suficiente oro");
       if (!invAdd(p, entry.item)) return toast(p, "Inventario lleno");
       p.gold -= entry.price;
       p.buyback.splice(idx, 1);
@@ -3070,7 +3075,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const def = PET_DEFS[id];
       if (!def) return;
       if (p.pets.has(id)) return toast(p, "Ya tienes esa mascota");
-      if (p.gold < def.cost) return toast(p, "No tienes suficiente oro");
+      if (p.gold < def.cost) return toast(p, "No tenés suficiente oro");
       p.gold -= def.cost;
       p.pets.add(id);
       p.dirty = true;
@@ -3099,7 +3104,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const def = MOUNT_DEFS[id];
       if (!def) return;
       if (p.mounts.has(id)) return toast(p, "Ya tienes esa montura");
-      if (p.gold < def.cost) return toast(p, "No tienes suficiente oro");
+      if (p.gold < def.cost) return toast(p, "No tenés suficiente oro");
       p.gold -= def.cost;
       p.mounts.add(id);
       if (!p.activeMount) p.activeMount = id;
@@ -3276,7 +3281,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     case "allot": {
       const stat = msg.stat;
       if (stat !== "str" && stat !== "dex" && stat !== "int") return;
-      if (p.pts <= 0) return toast(p, "No tienes puntos de característica disponibles");
+      if (p.pts <= 0) return toast(p, "No tenés puntos de característica disponibles");
       p.pts--;
       p[stat]++;
       sendYou(p);
@@ -3585,7 +3590,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     case "chat": {
       const text = typeof msg.text === "string" ? msg.text.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 200) : "";
       if (!text) return;
-      if (now - p.lastChat < 1000) return toast(p, "Estás escribiendo demasiado rápido");
+      if (waitToast(p, p.lastChat, 1000, now, "Estás escribiendo demasiado rápido")) return;
       p.lastChat = now;
       if (/^\/mount$/i.test(text) || /^\/montar$/i.test(text) || /^\/dismount$/i.test(text) || /^\/apear$/i.test(text)) {
         tryMount(p);
@@ -3674,7 +3679,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       }
       const em = text.match(/^\/(?:me\s+)?(wave|dance|cheer|bow|salute|saludo|bailar|aplaudir|reverencia)\s*$/i);
       if (em) {
-        if (now - p.lastEmoteAt < 2500) return toast(p, "Espera un momento para otro gesto");
+        if (waitToast(p, p.lastEmoteAt, 2500, now, "Esperá un momento para otro gesto")) return;
         p.lastEmoteAt = now;
         const rawE = em[1].toLowerCase();
         const map: Record<string, string> = {
