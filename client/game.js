@@ -5956,7 +5956,7 @@ function onInvDragUp(e) {
   setTimeout(() => { invDrag.suppressClick = false; }, 0);
   if (!outside) return;
   if (!item || item.slot === "quest") {
-    toast("No puedes tirar objetos de misión");
+    toast("No podés tirar objetos de misión");
     return;
   }
   send({ t: "drop", slot });

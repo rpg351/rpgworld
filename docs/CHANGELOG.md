@@ -1,3 +1,12 @@
+## 2026-09-24 — setPathTo + oro de ventas + toasts
+
+- **Bugfix**: vender / desguazar / venta por rareza ahora cuentan en `noteGold`
+  (logros de oro ganado).
+- Helper `setPathTo` unifica A* + fallback de persecución/movimiento.
+- `alreadyBusy` / `notInTown`; toasts "tenés/esperá" en mascotas/monturas/logros/peticiones.
+- Cliente: "No podés tirar objetos de misión".
+- Cache bust `?v=20260924`.
+
 ## 2026-09-23 — clearMobility keepVel + quest toasts
 
 - **Ataque / loot / NPC / move / joystick**: unifican locks con `clearMobility`

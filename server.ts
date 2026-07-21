@@ -1426,6 +1426,30 @@ function clearMobility(p: Player, keepVel = false): void {
   p.npcTarget = null;
 }
 
+/** A* toward a point, with straight-line fallback when blocked. */
+function setPathTo(p: Player, x: number, y: number): void {
+  const path = astar(world.walk, p.x, p.y, x, y);
+  if (path) {
+    p.path = path;
+    p.direct = null;
+  } else {
+    p.path = null;
+    p.direct = { x, y };
+  }
+}
+
+function alreadyBusy(p: Player, until: number, now: number, msg: string): boolean {
+  if (until && now < until) { toast(p, msg); return true; }
+  return false;
+}
+
+function notInTown(p: Player, msg: string): boolean {
+  if (!inTown(p.x, p.y)) return false;
+  toast(p, msg);
+  return true;
+}
+
+
 function dropMountSit(p: Player): void {
   p.mounted = false;
   p.sitting = false;
@@ -1576,11 +1600,11 @@ function tryFinishForage(p: Player, now: number): void {
 function beginFish(p: Player, now: number): void {
   if (p.dead) return;
   dismountAndStand(p);
-  if (p.fishUntil && now < p.fishUntil) return toast(p, "Ya estás pescando…");
+  if (alreadyBusy(p, p.fishUntil, now, "Ya estás pescando…")) return;
   if (channelBlocked(p, now)) return;
   if (inCombatBlock(p, now, "No podés pescar en combate")) return;
   if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
-  if (inTown(p.x, p.y)) return toast(p, "No se puede pescar en la plaza");
+  if (notInTown(p, "No se puede pescar en la plaza")) return;
   clearMobility(p);
   p.fishUntil = now + 2800;
   toast(p, "Lanzas el sedal…");
@@ -1590,11 +1614,11 @@ function beginFish(p: Player, now: number): void {
 function beginForage(p: Player, now: number): void {
   if (p.dead) return;
   dismountAndStand(p);
-  if (p.forageUntil && now < p.forageUntil) return toast(p, "Ya estás recolectando…");
+  if (alreadyBusy(p, p.forageUntil, now, "Ya estás recolectando…")) return;
   if (channelBlocked(p, now)) return;
   if (inCombatBlock(p, now, "No podés recolectar en combate")) return;
   if (!nearTree(p)) return toast(p, "Debes estar junto a un árbol");
-  if (inTown(p.x, p.y)) return toast(p, "No se recolecta en la plaza");
+  if (notInTown(p, "No se puede recolectar en la plaza")) return;
   clearMobility(p);
   p.forageUntil = now + 2400;
   toast(p, "Buscas hierbas…");
@@ -1857,6 +1881,7 @@ function trySalvage(p: Player, slot: number): void {
   const name = it.name;
   p.inv[slot] = null;
   p.gold += gain;
+  noteGold(p, gain);
   p.salvageCount++;
   p.dirty = true;
   grantAch(p, "salvage_1");
@@ -2258,7 +2283,7 @@ function tryFinishCook(p: Player, now: number): void {
 function beginCook(p: Player, now: number): void {
   if (p.dead) return;
   dismountAndStand(p);
-  if (p.cookUntil && now < p.cookUntil) return toast(p, "Ya estás cocinando…");
+  if (alreadyBusy(p, p.cookUntil, now, "Ya estás cocinando…")) return;
   if (channelBlocked(p, now)) return;
   if (inCombatBlock(p, now, "No podés cocinar en combate")) return;
   if (needNpc(p, bront, "Cocina junto a la forja de Bront")) return;
@@ -2877,14 +2902,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const tx = Math.max(0.5, Math.min(W - 0.5, x));
       const ty = Math.max(0.5, Math.min(W - 0.5, y));
       clearMobility(p);
-      const path = astar(world.walk, p.x, p.y, tx, ty);
-      if (path) {
-        p.path = path;
-        p.direct = null;
-      } else {
-        p.path = null;
-        p.direct = { x: tx, y: ty }; // straight-line fallback
-      }
+      setPathTo(p, tx, ty);
       break;
     }
     case "dir": {
@@ -2980,7 +2998,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (needNpc(p, board, "Debes estar junto al tablón de peticiones")) return;
       if (!isBoardMod(p) && qBoardFindByAuthor.get(p.name)) {
         sendBoard(p);
-        return toast(p, "Ya tienes una petición activa — espera a que un moderador la resuelva");
+        return toast(p, "Ya tenés una petición activa — esperá a que un moderador la resuelva");
       }
       const raw = typeof msg.text === "string" ? msg.text.trim() : "";
       if (raw.length < 3) return toast(p, "Escribe un poco más");
@@ -3080,6 +3098,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (it.slot === "quest") return questItemBlocked(p, "vender");
       const gain = sellValue(it);
       p.gold += gain;
+      noteGold(p, gain);
       p.inv[slot] = null;
       pushBuyback(p, it, gain);
       toast(p, `Vendiste ${it.name} por ${gain} de oro`);
@@ -3106,6 +3125,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       }
       if (count === 0) return toast(p, "No tenés objetos de esa rareza para vender");
       p.gold += gain;
+      noteGold(p, gain);
       toast(p, `Vendiste ${count} objeto${count === 1 ? "" : "s"} por ${gain} de oro`);
       sendYou(p);
       if (nearNpc(p, kora)) sendShop(p, kora);
@@ -3180,7 +3200,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const id = typeof msg.id === "string" ? msg.id : "";
       const def = PET_DEFS[id];
       if (!def) return;
-      if (p.pets.has(id)) return toast(p, "Ya tienes esa mascota");
+      if (p.pets.has(id)) return toast(p, "Ya tenés esa mascota");
       if (needGold(p, def.cost)) return;
       p.gold -= def.cost;
       p.pets.add(id);
@@ -3209,7 +3229,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const id = typeof msg.id === "string" ? msg.id : "";
       const def = MOUNT_DEFS[id];
       if (!def) return;
-      if (p.mounts.has(id)) return toast(p, "Ya tienes esa montura");
+      if (p.mounts.has(id)) return toast(p, "Ya tenés esa montura");
       if (needGold(p, def.cost)) return;
       p.gold -= def.cost;
       p.mounts.add(id);
@@ -3615,7 +3635,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         sendYou(p);
         break;
       }
-      if (!ACHIEVEMENTS[id] || !p.achs.has(id)) return toast(p, "Aún no tienes ese logro");
+      if (!ACHIEVEMENTS[id] || !p.achs.has(id)) return toast(p, "Aún no tenés ese logro");
       p.title = id;
       p.dirty = true;
       toast(p, `Título: ${ACHIEVEMENTS[id].name}`);
@@ -3995,14 +4015,7 @@ function simTick(): void {
         } else if (!p.vel) {
           if (now >= p.repathAt) {
             p.repathAt = now + 500;
-            const path = astar(world.walk, p.x, p.y, tx, ty);
-            if (path) {
-              p.path = path;
-              p.direct = null;
-            } else {
-              p.path = null;
-              p.direct = { x: tx, y: ty };
-            }
+            setPathTo(p, tx, ty);
           }
           if (p.path) followPath(p, speed, dt);
           else if (p.direct && !stepToward(p, p.direct.x, p.direct.y, speed * dt)) p.direct = null;
@@ -4023,14 +4036,7 @@ function simTick(): void {
         } else if (!p.vel) {
           if (now >= p.repathAt) {
             p.repathAt = now + 500;
-            const path = astar(world.walk, p.x, p.y, l.x, l.y);
-            if (path) {
-              p.path = path;
-              p.direct = null;
-            } else {
-              p.path = null;
-              p.direct = { x: l.x, y: l.y };
-            }
+            setPathTo(p, l.x, l.y);
           }
           if (p.path) followPath(p, speed, dt);
           else if (p.direct && !stepToward(p, p.direct.x, p.direct.y, speed * dt)) p.direct = null;
@@ -4050,14 +4056,7 @@ function simTick(): void {
       } else if (!p.vel) {
         if (now >= p.repathAt) {
           p.repathAt = now + 500;
-          const path = astar(world.walk, p.x, p.y, npc.x, npc.y);
-          if (path) {
-            p.path = path;
-            p.direct = null;
-          } else {
-            p.path = null;
-            p.direct = { x: npc.x, y: npc.y };
-          }
+          setPathTo(p, npc.x, npc.y);
         }
         if (p.path) followPath(p, speed, dt);
         else if (p.direct && !stepToward(p, p.direct.x, p.direct.y, speed * dt)) p.direct = null;
