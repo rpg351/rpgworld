@@ -1,3 +1,10 @@
+## 2026-09-36 — syncYouBoth + cmdIs + noteGather
+
+- Helpers `syncYouBoth` / `syncAchs` unifican refresh de pares y logros/títulos.
+- `cmdIs` simplifica comandos slash sin argumentos; `noteGather` unifica pesca/recolección.
+- Compra en mercader usa `readIdx` (mismo camino que buyback).
+- Cache bust `?v=20260936`.
+
 ## 2026-09-35 — syncMerchant + channelCast + equipCriadero
 
 - Helpers `syncMerchant` / `syncShop`, `channelCast`, `equipCriadero`, `notePickup`, `readIdx`.

@@ -461,8 +461,7 @@ function grantAch(p: Player, id: string): void {
   p.dirty = true;
   toast(p, `Logro: ${def.name} (+${def.gold} oro)`);
   pushLootLog(p, { name: `Logro: ${def.name}`, rarity: "rare", icon: "coin", gold: def.gold });
-  sendAchs(p);
-  sendYou(p);
+  syncAchs(p);
 }
 
 /** Unlock count-based achievements for a profession counter. */
@@ -1686,10 +1685,7 @@ function tryFinishForage(p: Player, now: number): void {
     return;
   }
   p.forageCount++;
-  noteProf(p, p.forageCount, [20, "forage_20"]);
-  const rare = herb.rarity === "magic";
-  toastRare(p, rare, `¡Encontraste ${herb.name}!`, `Recolectaste: ${herb.name}`);
-  lootFx(p, { name: herb.name, rarity: herb.rarity, icon: "herb" }, "forage");
+  noteGather(p, herb, p.forageCount, `¡Encontraste ${herb.name}!`, `Recolectaste: ${herb.name}`, "herb", "forage", [20, "forage_20"]);
 }
 
 
@@ -1825,8 +1821,7 @@ function endDuel(a: Player, b: Player, reason: string, winner: Player | null = n
   }
   send(a.ws, { t: "duel", state: "end", reason: reason || "end", wins: a.duelWins });
   send(b.ws, { t: "duel", state: "end", reason: reason || "end", wins: b.duelWins });
-  sendYou(a);
-  sendYou(b);
+  syncYouBoth(a, b);
 }
 
 function cancelDuel(p: Player, reason: string): void {
@@ -1881,8 +1876,7 @@ function tryDuelAccept(p: Player, fromName: string, now: number): void {
   send(p.ws, { t: "duel", state: "start", id: other.id, name: other.name });
   send(other.ws, { t: "duel", state: "start", id: p.id, name: p.name });
   bcastAt(p.x, p.y, { t: "fx", k: "slash", x: r2(p.x), y: r2(p.y), tx: r2(other.x), ty: r2(other.y) });
-  sendYou(p);
-  sendYou(other);
+  syncYouBoth(p, other);
 }
 
 function tryDuelDecline(p: Player, fromName: string): void {
@@ -2110,7 +2104,7 @@ function tryTradeAccept(p: Player, fromName: string, now: number): void {
   toast(other, `${p.name} aceptó el intercambio`);
   toast(p, `Intercambio con ${other.name}`);
   syncTrade(sess);
-  sendYou(other); sendYou(p);
+  syncYouBoth(other, p);
 }
 
 function tryTradeDecline(p: Player, fromName: string): void {
@@ -2259,7 +2253,7 @@ function tradeConfirm(p: Player): void {
   toast(b, `Intercambio completado con ${a.name}`);
   send(a.ws, { t: "trade_end", reason: "done" });
   send(b.ws, { t: "trade_end", reason: "done" });
-  sendYou(a); sendYou(b);
+  syncYouBoth(a, b);
 }
 
 function maintainTrades(now: number): void {
@@ -2291,10 +2285,7 @@ function tryFinishFish(p: Player, now: number): void {
     return;
   }
   p.fishCount++;
-  noteProf(p, p.fishCount, [10, "fish_10"], [50, "fish_50"]);
-  const rare = fish.rarity === "magic";
-  toastRare(p, rare, `¡Capturaste ${fish.name}!`, `Pescaste: ${fish.name}`);
-  lootFx(p, { name: fish.name, rarity: fish.rarity, icon: "fish" }, "fish");
+  noteGather(p, fish, p.fishCount, `¡Capturaste ${fish.name}!`, `Pescaste: ${fish.name}`, "fish", "fish", [10, "fish_10"], [50, "fish_50"]);
 }
 
 function tryFinishCook(p: Player, now: number): void {
@@ -2475,8 +2466,7 @@ function tryPay(p: Player, targetName: string, amount: number, now: number): voi
   target.dirty = true;
   toast(p, `Le diste ${gold} de oro a ${target.name}`);
   toast(target, `${p.name} te dio ${gold} de oro`);
-  sendYou(p);
-  sendYou(target);
+  syncYouBoth(p, target);
 }
 
 // ---------------------------------------------------------------------------
@@ -2974,6 +2964,38 @@ function syncMerchant(p: Player): void {
   else sendBuyback(p);
 }
 
+function syncYouBoth(a: Player, b: Player): void {
+  sendYou(a);
+  sendYou(b);
+}
+
+function syncAchs(p: Player): void {
+  sendAchs(p);
+  sendYou(p);
+}
+
+/** Exact slash command match: /mount, /pescar, … */
+function cmdIs(text: string, ...aliases: string[]): boolean {
+  if (!text.startsWith("/")) return false;
+  const body = text.slice(1).toLowerCase();
+  return aliases.some((a) => a.toLowerCase() === body);
+}
+
+function noteGather(
+  p: Player,
+  item: Item,
+  count: number,
+  rareMsg: string,
+  normalMsg: string,
+  icon: string,
+  fx: string,
+  ...tiers: [number, string][]
+): void {
+  noteProf(p, count, ...tiers);
+  toastRare(p, item.rarity === "magic", rareMsg, normalMsg);
+  lootFx(p, { name: item.name, rarity: item.rarity, icon }, fx);
+}
+
 function channelCast(p: Player, msg: string, fx: string): void {
   toast(p, msg);
   bcastAt(p.x, p.y, { t: "fx", k: fx, i: p.id });
@@ -3247,11 +3269,12 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "buy": {
       if (p.dead) return;
-      const npcId = num(msg.npc), idx = num(msg.idx);
+      const npcId = num(msg.npc);
       const npc = npcs.find((n) => n.id === npcId);
       if (!npc || (npc !== kora && npc !== bront) || !nearNpc(p, npc)) return;
       const stock = npc === kora ? koraStock : brontStock;
-      if (idx == null || !Number.isInteger(idx) || idx < 0 || idx >= stock.length) return;
+      const idx = readIdx(msg, stock.length);
+      if (idx == null) return;
       const entry = stock[idx];
       const price = entry.item.val;
       if (needGold(p, price)) return;
@@ -3761,16 +3784,14 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         p.title = "";
         p.dirty = true;
         toast(p, "Título quitado");
-        sendAchs(p);
-        sendYou(p);
+        syncAchs(p);
         break;
       }
       if (!ACHIEVEMENTS[id] || !p.achs.has(id)) return toast(p, "Aún no tenés ese logro");
       p.title = id;
       p.dirty = true;
       toast(p, `Título: ${ACHIEVEMENTS[id].name}`);
-      sendAchs(p);
-      sendYou(p);
+      syncAchs(p);
       break;
     }
     case "party_ping": {
@@ -3808,11 +3829,11 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!text) return;
       if (waitToast(p, p.lastChat, 1000, now, "Estás escribiendo demasiado rápido")) return;
       p.lastChat = now;
-      if (/^\/mount$/i.test(text) || /^\/montar$/i.test(text) || /^\/dismount$/i.test(text) || /^\/apear$/i.test(text)) {
+      if (cmdIs(text, "mount", "montar", "dismount", "apear")) {
         tryMount(p);
         return;
       }
-      if (/^\/sit$/i.test(text) || /^\/sentar$/i.test(text) || /^\/rest$/i.test(text)) {
+      if (cmdIs(text, "sit", "sentar", "rest")) {
         trySit(p);
         return;
       }
@@ -3823,15 +3844,15 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
           return;
         }
       }
-      if (/^\/cook$/i.test(text) || /^\/cocinar$/i.test(text)) {
+      if (cmdIs(text, "cook", "cocinar")) {
         beginCook(p, now);
         return;
       }
-      if (/^\/forage$/i.test(text) || /^\/recolectar$/i.test(text) || /^\/herbs$/i.test(text)) {
+      if (cmdIs(text, "forage", "recolectar", "herbs")) {
         beginForage(p, now);
         return;
       }
-      if (/^\/brew$/i.test(text) || /^\/alquimia$/i.test(text) || /^\/pocima$/i.test(text)) {
+      if (cmdIs(text, "brew", "alquimia", "pocima")) {
         beginBrew(p, now);
         return;
       }
@@ -3844,7 +3865,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         tryTradeReq(p, target.id, now);
         return;
       }
-      if (/^\/bind$/i.test(text) || /^\/ligar$/i.test(text) || /^\/hogar$/i.test(text)) {
+      if (cmdIs(text, "bind", "ligar", "hogar")) {
         tryBind(p);
         return;
       }
@@ -3858,13 +3879,13 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
           return;
         }
       }
-      if (/^\/salvage$/i.test(text) || /^\/desguazar$/i.test(text) || /^\/fundir$/i.test(text)) {
-        let slot = findInvSlot(p, (it) => SALVAGE_SLOTS.has(it.slot));
+      if (cmdIs(text, "salvage", "desguazar", "fundir")) {
+        const slot = findInvSlot(p, (it) => SALVAGE_SLOTS.has(it.slot));
         if (slot < 0) toast(p, "No tenés equipo para desguazar");
         else trySalvage(p, slot);
         return;
       }
-      if (/^\/fish$/i.test(text) || /^\/pescar$/i.test(text)) {
+      if (cmdIs(text, "fish", "pescar")) {
         beginFish(p, now);
         return;
       }
