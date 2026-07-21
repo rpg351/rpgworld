@@ -47,7 +47,10 @@ Client renders 32 px/tile, may add procedural per-tile decoration seeded by `(x,
 - `{t:"party_accept", from}` / `{t:"party_decline", from}` — answer a pending invite (`from` = inviter name, invites expire after 30 s).
 - `{t:"party_leave"}` — leave; a party of 1 disbands.
 - `{t:"quest_accept", qid}` / `{t:"quest_turnin", qid}` — while near the Elder.
-- `{t:"chat", text}` — ≤200 chars, rate-limit 1/s.
+- `{t:"chat", text}` — ≤200 chars, rate-limit 1/s. Prefix `/w Name msg` or `/susurro Name msg` for a private whisper.
+- `{t:"party_ping", x, y}` — mark a world position for your party (2s cooldown).
+- `{t:"inv_sort"}` — compact inventory (rarity → slot → tier → name).
+- `{t:"buyback", idx}` — repurchase a session-sold item from the vendor buyback list (must be near a merchant).
 - `{t:"respawn"}` — after death: revive at town, full hp/mp, lose 10% gold.
 
 Server replies to invalid/denied actions with `{t:"toast", msg}` (short human string).
@@ -64,7 +67,10 @@ Server replies to invalid/denied actions with `{t:"toast", msg}` (short human st
 - `{t:"fx", k, ...}` — cosmetic. `k:"proj", from:{x,y}, to:{x,y}, style:"arrow"|"fire"|"spit"` · `k:"aoe", x, y, r, style:"cleave"|"nova"|"meteor"|"volley"|"slam"|"cry"` · `k:"heal", i` · `k:"level", i`.
 - `{t:"dialog", npc, name, kind:"elder"|"merchant"|"smith", lines:[…], quests?:[{qid,name,desc,state:"available"|"active"|"complete"|"turned"|"locked",n,count,rew:{xp,gold,item?}}]}`
 - `{t:"shop", npc, name, items:[{idx, item, price}]}` — sent with dialog for merchants; re-sent after buy (stock without the bought unique item; potions infinite).
-- `{t:"chat", from, text, sys?}` — `sys:1` for system lines (joins, level-ups, boss kills; `from` omitted).
+- `{t:"chat", from, text, sys?, whisper?}` — `sys:1` for system lines (joins, level-ups, boss kills; `from` omitted). `whisper:1` for private `/w` lines.
+- `{t:"ping", from, x, y}` — party map ping (client shows world + minimap marker ~6s).
+- `{t:"buyback", items:[{idx,item,price}]}` — session vendor repurchase list (sent with shop / after sells).
+- `{t:"st", …, bosses?:[{k,t}]}` — optional boss timers: `t` = seconds until respawn (0 = alive).
 - `{t:"dead"}` — you died (client shows overlay + Respawn button).
 - `{t:"streak", n}` — killer-only kill-streak counter (`n=0` on death).
 - `{t:"toast", msg}` — transient info/error line.

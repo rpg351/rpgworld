@@ -435,6 +435,13 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .inv-btns .btn.ghost{cursor:pointer}
 .sell-all-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .sell-all-row .btn.ghost{cursor:pointer;font-size:11px;padding:3px 8px}
+.inv-tools{display:flex;gap:6px;margin:6px 0 2px}
+.inv-tools .btn{font-size:11px;padding:3px 10px}
+.shop-buyback-title{margin:12px 0 6px;font-size:12px;letter-spacing:1px;color:var(--bronze-bright);border-top:1px solid var(--edge);padding-top:8px}
+.shop-buyback-empty{font-size:12px;color:var(--ink-dim);margin-bottom:6px}
+.shop-item.buyback{opacity:.95;border-color:rgba(120,160,200,.35)}
+#chatLog .whisper{color:#7ec8ff}
+#chatLog .whisper .who{color:#9fd6ff}
 
 .portal-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .portal-btn{background:rgba(40,30,60,.85);border:1px solid #6a4cff;color:#e8e0ff;

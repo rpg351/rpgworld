@@ -142,6 +142,8 @@ interface Player extends StatusHolder {
   skillCds: number[]; potCdUntil: number; combatUntil: number; recallCdUntil: number;
   killStreak: number; killStreakAt: number; // consecutive kills within a short window
   restedUntil: number; restAccum: number; // fountain rest XP buff
+  buyback: { item: Item; price: number }[]; // last sold items this session (vendor repurchase)
+  lastPingAt: number; // party map-ping rate limit
   dead: boolean; deadAt: number; lastChat: number; dirty: boolean;
   visitedZones: string[]; // portal destinations unlocked by visiting regions
   party: Party | null; partyId: string | null; // live party + durable id (survives logout/restart)
@@ -1192,12 +1194,26 @@ function restock(): void {
 }
 restock();
 
+function pushBuyback(p: Player, item: Item, price: number): void {
+  // Session-only repurchase list (newest first). Cap at 6 to keep the panel short.
+  p.buyback.unshift({ item, price });
+  if (p.buyback.length > 6) p.buyback.length = 6;
+}
+
+function sendBuyback(p: Player): void {
+  send(p.ws, {
+    t: "buyback",
+    items: p.buyback.map((b, idx) => ({ idx, item: b.item, price: b.price })),
+  });
+}
+
 function sendShop(p: Player, npc: Npc): void {
   const stock = npc === kora ? koraStock : brontStock;
   send(p.ws, {
     t: "shop", npc: npc.id, name: npc.name,
     items: stock.map((s, idx) => ({ idx, item: s.item, price: s.item.val })),
   });
+  sendBuyback(p);
 }
 
 function sendStash(p: Player): void {
@@ -1333,6 +1349,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     path: null, direct: null, vel: null, atkTarget: null, lootTarget: null, npcTarget: null, nextAtk: 0, repathAt: 0,
     skillCds: [0, 0, 0, 0, 0], potCdUntil: 0, combatUntil: 0, recallCdUntil: 0,
     killStreak: 0, killStreakAt: 0, restedUntil: 0, restAccum: 0,
+    buyback: [], lastPingAt: 0,
     dead: false, deadAt: 0, lastChat: 0, dirty: true, seen: new Set(),
     party: null, partyId: null, invites: new Map(), disconnectedAt: null, followId: null,
     followStuck: 0,
@@ -1541,7 +1558,7 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
     checkZoneVisit(player);
     if (player.party) partyBcast(player.party); // reenvía el roster tras reconectar / restaurar
     if (player.followId != null) send(ws, { t: "follow_state", id: player.followId });
-    sysChat(`${player.name} ha entrado en Helike.`);
+    if (!BOT_SQUAD.has(player.name)) sysChat(`${player.name} ha entrado en Helike.`);
   } finally {
     sess.loggingIn = false;
   }
@@ -1831,8 +1848,12 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const gain = sellValue(it);
       p.gold += gain;
       p.inv[slot] = null;
+      pushBuyback(p, it, gain);
       toast(p, `Vendiste ${it.name} por ${gain} de oro`);
       sendYou(p);
+      if (nearNpc(p, kora)) sendShop(p, kora);
+      else if (nearNpc(p, bront)) sendShop(p, bront);
+      else sendBuyback(p);
       break;
     }
     case "sell_all": {
@@ -1844,13 +1865,52 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       for (let i = 0; i < INV_SIZE; i++) {
         const it = p.inv[i];
         if (!it || it.slot === "quest" || it.rarity !== rarity) continue;
-        gain += sellValue(it);
+        const price = sellValue(it);
+        gain += price;
         count++;
+        pushBuyback(p, it, price);
         p.inv[i] = null;
       }
       if (count === 0) return toast(p, "No tienes objetos de esa rareza para vender");
       p.gold += gain;
       toast(p, `Vendiste ${count} objeto${count === 1 ? "" : "s"} por ${gain} de oro`);
+      sendYou(p);
+      if (nearNpc(p, kora)) sendShop(p, kora);
+      else if (nearNpc(p, bront)) sendShop(p, bront);
+      else sendBuyback(p);
+      break;
+    }
+    case "buyback": {
+      if (p.dead) return;
+      if (!nearAnyMerchant(p)) return toast(p, "No hay ningún mercader cerca");
+      const idx = num(msg.idx);
+      if (idx == null || !Number.isInteger(idx) || idx < 0 || idx >= p.buyback.length) return;
+      const entry = p.buyback[idx];
+      if (p.gold < entry.price) return toast(p, "No tienes suficiente oro");
+      if (!invAdd(p, entry.item)) return toast(p, "Inventario lleno");
+      p.gold -= entry.price;
+      p.buyback.splice(idx, 1);
+      toast(p, `Recompraste ${entry.item.name}`);
+      sendYou(p);
+      sendBuyback(p);
+      break;
+    }
+    case "inv_sort": {
+      if (p.dead) return;
+      const rank: Record<string, number> = { rare: 0, magic: 1, common: 2 };
+      const slotRank: Record<string, number> = { weapon: 0, armor: 1, helm: 2, ring: 3, potion: 4, quest: 5 };
+      const items = p.inv.filter((it): it is Item => !!it);
+      items.sort((a, b) => {
+        const rr = (rank[a.rarity] ?? 9) - (rank[b.rarity] ?? 9);
+        if (rr) return rr;
+        const sr = (slotRank[a.slot] ?? 9) - (slotRank[b.slot] ?? 9);
+        if (sr) return sr;
+        const tr = (b.tier || 0) - (a.tier || 0);
+        if (tr) return tr;
+        return a.name.localeCompare(b.name, "es");
+      });
+      for (let i = 0; i < INV_SIZE; i++) p.inv[i] = items[i] ?? null;
+      p.dirty = true;
       sendYou(p);
       break;
     }
@@ -2090,6 +2150,18 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       send(p.ws, { t: "follow_state", id });
       break;
     }
+    case "party_ping": {
+      if (p.dead) return;
+      if (!p.party) return toast(p, "No estás en un grupo");
+      if (now - p.lastPingAt < 2000) return;
+      const x = num(msg.x), y = num(msg.y);
+      if (x == null || y == null) return;
+      if (x < 0 || y < 0 || x >= W || y >= W) return;
+      p.lastPingAt = now;
+      const pkt = { t: "ping", from: p.name, x: r2(x), y: r2(y) };
+      for (const m of p.party.members) if (m.ws) send(m.ws, pkt);
+      break;
+    }
     case "portal_travel": {
       if (p.dead || stunned) return;
       const dest = typeof msg.dest === "string" ? msg.dest : "";
@@ -2118,6 +2190,21 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!text) return;
       if (now - p.lastChat < 1000) return toast(p, "Estás escribiendo demasiado rápido");
       p.lastChat = now;
+      // Whisper: /w Name message  |  /susurro Name message
+      const wm = text.match(/^\/(?:w|susurro)\s+(\S+)\s+(.+)$/i);
+      if (wm) {
+        const targetName = wm[1];
+        const body = wm[2].slice(0, 180);
+        let target: Player | null = null;
+        for (const q of players.values()) {
+          if (q.name.toLowerCase() === targetName.toLowerCase()) { target = q; break; }
+        }
+        if (!target || !target.ws) return toast(p, `No hay nadie online llamado ${targetName}`);
+        if (target.id === p.id) return toast(p, "No puedes susurrarte a ti mismo");
+        send(p.ws, { t: "chat", from: `Para ${target.name}`, text: body, whisper: 1 });
+        send(target.ws, { t: "chat", from: `De ${p.name}`, text: body, whisper: 1 });
+        break;
+      }
       const s = JSON.stringify({ t: "chat", from: p.name, text });
       for (const q of players.values()) if (q.ws && q.ws.readyState === 1) q.ws.send(s);
       break;
@@ -2578,6 +2665,12 @@ function entFlags(e: StatusHolder, now: number): number {
 function snapshotTick(): void {
   const now = Date.now();
   const pop = players.size;
+  // Compact boss timers (alive=0, else seconds until respawn) — shared across all snapshots.
+  const bossTimers: { k: string; t: number }[] = [];
+  for (const m of mobs) {
+    if (!BOSS_KINDS.has(m.kind)) continue;
+    bossTimers.push({ k: m.kind, t: m.dead ? Math.max(0, Math.ceil((m.respawnAt - now) / 1000)) : 0 });
+  }
   for (const p of players.values()) {
     if (!p.ws || p.ws.readyState !== 1) continue;
     const ents: Record<string, unknown>[] = [];
@@ -2641,7 +2734,7 @@ function snapshotTick(): void {
       });
     }
 
-    send(p.ws, { t: "st", pop, ents, gone, loot: lootList });
+    send(p.ws, { t: "st", pop, ents, gone, loot: lootList, bosses: bossTimers });
   }
 }
 
@@ -2687,7 +2780,7 @@ const server = Bun.serve<Session, Record<string, never>>({
         p.ws = null;
         p.disconnectedAt = Date.now(); // linger in memory so a quick reconnect keeps party/state
         savePlayer(p);
-        sysChat(`${p.name} se ha ido.`);
+        if (!BOT_SQUAD.has(p.name)) sysChat(`${p.name} se ha ido.`);
       }
     },
   },

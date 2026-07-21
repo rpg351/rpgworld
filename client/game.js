@@ -108,7 +108,9 @@ var I18N = {
     "help.h.social": "Pueblo y grupo",
     "help.recall": "Volver a Helike (recall)",
     "help.enterKey": "Enter",
-    "help.chat": "Escribir en el chat",
+    "help.chat": "Escribir en el chat (/w nombre mensaje = susurro)",
+    "help.pingKey": "G / clic minimapa",
+    "help.ping": "Marcar una posición para tu grupo",
     "help.playerKey": "Clic en otro jugador",
     "help.player": "Invitarlo a tu grupo",
     "help.followKey": "\"Seguir\" (panel de grupo)",
@@ -140,6 +142,10 @@ var I18N = {
     "sell.all.magic": "Vender mágicos",
     "sell.all.rare": "Vender raros",
     "sell.all.confirm": (r) => `¿Vender todos los objetos ${r}?`,
+    "inv.sort": "Ordenar",
+    "shop.buyback": "Recompra",
+    "shop.buybackEmpty": "Nada que recomprar aún",
+    "shop.rebuy": "Recomprar",
     "panel.ability": "Árbol de habilidades",
     "mob.ability": "Hab.",
     "ability.unavailable": "Tu clase aún no tiene árbol de habilidades.",
@@ -219,7 +225,9 @@ var I18N = {
     "help.h.social": "Town and party",
     "help.recall": "Return to Helike (recall)",
     "help.enterKey": "Enter",
-    "help.chat": "Type in chat",
+    "help.chat": "Type in chat (/w name message = whisper)",
+    "help.pingKey": "G / minimap click",
+    "help.ping": "Mark a position for your party",
     "help.playerKey": "Click another player",
     "help.player": "Invite them to your party",
     "help.followKey": "\"Follow\" (party panel)",
@@ -251,6 +259,10 @@ var I18N = {
     "sell.all.magic": "Sell magic",
     "sell.all.rare": "Sell rare",
     "sell.all.confirm": (r) => `Sell all ${r} items?`,
+    "inv.sort": "Sort",
+    "shop.buyback": "Buyback",
+    "shop.buybackEmpty": "Nothing to buy back yet",
+    "shop.rebuy": "Buy back",
     "panel.ability": "Ability tree",
     "mob.ability": "Skills",
     "ability.unavailable": "Your class doesn't have an ability tree yet.",
@@ -323,6 +335,9 @@ var S = {
   boardMeta: { isMod: false, hasActive: false, cooldownUntil: 0 },
   autoLoot: "off",
   autoPotion: "off",
+  buyback: [],
+  bossTimers: {},
+  pings: [],
   streak: 0,
   shakeMag: 0,
   targetId: 0,
@@ -554,7 +569,26 @@ function handleWorld(m) {
           }
         }
       }
+      if (Array.isArray(m.bosses)) {
+        const bt = {};
+        for (const b of m.bosses) if (b && b.k) bt[b.k] = Number(b.t) || 0;
+        S.bossTimers = bt;
+      }
       $("popHud").textContent = t("pop.online", S.pop);
+      break;
+    }
+    case "buyback": {
+      S.buyback = m.items || [];
+      if (S.shopOpen) renderShop();
+      break;
+    }
+    case "ping": {
+      const x = Number(m.x), y = Number(m.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) break;
+      S.pings.push({ x, y, from: m.from || "?", t0: now() });
+      if (S.pings.length > 8) S.pings.splice(0, S.pings.length - 8);
+      toast(`${m.from || "Grupo"} marcó el mapa`);
+      if (window.AOTAudio) AOTAudio.sfx("invite");
       break;
     }
     case "dmg": {
@@ -2879,6 +2913,24 @@ function frame() {
   drawFx(t);
   drawParticles(t);
   drawFloats(t);
+  // Party pings as world rings (same markers shown on the minimap).
+  for (const P of S.pings) {
+    const age = t - P.t0;
+    if (age > 6000) continue;
+    const a = 1 - age / 6000;
+    const sx = w2sx(P.x), sy = w2sy(P.y);
+    const rad = 10 + (age / 6000) * 28;
+    ctx.strokeStyle = `rgba(80,210,255,${0.25 + a * 0.55})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(sx, sy, rad, 0, 7);
+    ctx.stroke();
+    ctx.fillStyle = `rgba(180,240,255,${a})`;
+    ctx.font = "12px Georgia,serif";
+    ctx.textAlign = "center";
+    ctx.fillText(P.from, sx, sy - rad - 4);
+    ctx.textAlign = "left";
+  }
   if (me) {
     // Warm torchlight pool around the local hero — cozier readout in dark zones.
     const psx = w2sx(me.rx), psy = w2sy(me.ry);
@@ -3355,6 +3407,13 @@ window.addEventListener("keydown", (e) => {
     case "F":
       setAutoAtk(!S.autoAtk);
       break;
+    case "g":
+    case "G": {
+      if (S.dead) break;
+      const me = S.ents.get(S.myId);
+      if (me) sendPartyPing(me.rx, me.ry);
+      break;
+    }
     case "b":
     case "B":
       if (!S.dead)
@@ -4643,6 +4702,25 @@ function buildMinimapBase() {
   g.putImageData(img, 0, 0);
   mmBase = off;
 }
+function sendPartyPing(wx, wy) {
+  if (!S.party || !S.party.length) return toast("No estás en un grupo");
+  send({ t: "party_ping", x: wx, y: wy });
+}
+function minimapEventToWorld(e) {
+  const r = mmCanvas.getBoundingClientRect();
+  const mx = (e.clientX - r.left) / r.width;
+  const my = (e.clientY - r.top) / r.height;
+  return { x: mx * S.map.w, y: my * S.map.h };
+}
+if (mmCanvas) {
+  mmCanvas.style.cursor = "crosshair";
+  mmCanvas.title = "Clic: marcar posición al grupo";
+  mmCanvas.addEventListener("click", (e) => {
+    if (!S.loggedIn || !S.map || S.dead) return;
+    const w = minimapEventToWorld(e);
+    sendPartyPing(w.x, w.y);
+  });
+}
 function drawMinimapDots() {
   if (!mmBase)
     return;
@@ -4652,9 +4730,12 @@ function drawMinimapDots() {
   mmCtx.drawImage(mmBase, 0, 0, W, H);
   const kx = W / S.map.w, ky = H / S.map.h;
   const questTargets = activeQuestTargets();
+  const tNow = now();
   for (const b of BOSS_MARKERS) {
     const x = b.x * kx, y = b.y * ky;
-    mmCtx.fillStyle = "#ffb04a";
+    const cd = S.bossTimers[b.k] || 0;
+    mmCtx.globalAlpha = cd > 0 ? 0.45 : 1;
+    mmCtx.fillStyle = cd > 0 ? "#8a6a3e" : "#ffb04a";
     mmCtx.beginPath();
     mmCtx.moveTo(x, y - 3.2);
     mmCtx.lineTo(x + 2.6, y);
@@ -4662,6 +4743,14 @@ function drawMinimapDots() {
     mmCtx.lineTo(x - 2.6, y);
     mmCtx.closePath();
     mmCtx.fill();
+    mmCtx.globalAlpha = 1;
+    if (cd > 0) {
+      mmCtx.fillStyle = "rgba(255,220,180,.95)";
+      mmCtx.font = "bold 8px sans-serif";
+      mmCtx.textAlign = "center";
+      mmCtx.fillText(String(cd), x, y - 5);
+      mmCtx.textAlign = "left";
+    }
     if (questTargets.has(b.k)) {
       mmCtx.strokeStyle = "rgba(255,220,120,.95)";
       mmCtx.lineWidth = 1;
@@ -4669,6 +4758,22 @@ function drawMinimapDots() {
       mmCtx.arc(x, y, 5, 0, 7);
       mmCtx.stroke();
     }
+  }
+  for (let i = S.pings.length - 1; i >= 0; i--) {
+    const P = S.pings[i];
+    const age = tNow - P.t0;
+    if (age > 6000) { S.pings.splice(i, 1); continue; }
+    const a = 1 - age / 6000;
+    const pulse = 3 + Math.sin(tNow / 120) * 1.2;
+    mmCtx.strokeStyle = `rgba(80,220,255,${0.35 + a * 0.55})`;
+    mmCtx.lineWidth = 1.4;
+    mmCtx.beginPath();
+    mmCtx.arc(P.x * kx, P.y * ky, pulse, 0, 7);
+    mmCtx.stroke();
+    mmCtx.fillStyle = `rgba(120,230,255,${a})`;
+    mmCtx.beginPath();
+    mmCtx.arc(P.x * kx, P.y * ky, 1.8, 0, 7);
+    mmCtx.fill();
   }
   for (const [id, E] of S.ents) {
     if (E.dieT)
@@ -4712,6 +4817,7 @@ function addChat(m) {
     el.className = "sys";
     el.textContent = m.text;
   } else {
+    if (m.whisper) el.className = "whisper";
     const who = document.createElement("span");
     who.className = "who";
     who.textContent = m.from + ": ";
@@ -5368,6 +5474,46 @@ function renderShop() {
     row.addEventListener("mouseleave", hideTooltip);
     b.appendChild(row);
   }
+  // Buyback list (session sales) under the live stock.
+  const bbTitle = document.createElement("div");
+  bbTitle.className = "shop-buyback-title";
+  bbTitle.textContent = t("shop.buyback");
+  b.appendChild(bbTitle);
+  const bb = S.buyback || [];
+  if (!bb.length) {
+    const empty = document.createElement("div");
+    empty.className = "shop-buyback-empty";
+    empty.textContent = t("shop.buybackEmpty");
+    b.appendChild(empty);
+  } else {
+    for (const { idx, item, price } of bb) {
+      const row = document.createElement("div");
+      row.className = "shop-item buyback";
+      const cv = document.createElement("canvas");
+      cv.width = 34; cv.height = 34;
+      drawItemIcon(cv.getContext("2d"), item.icon, item.rarity, 17, 17, 24);
+      row.appendChild(cv);
+      const nm = document.createElement("div");
+      nm.className = `si-name ${item.rarity}`;
+      nm.textContent = item.name;
+      row.appendChild(nm);
+      const pr = document.createElement("div");
+      pr.className = "si-price";
+      pr.textContent = `${price} g`;
+      row.appendChild(pr);
+      const buy = document.createElement("button");
+      buy.className = "btn";
+      buy.textContent = t("shop.rebuy");
+      if (S.you && S.you.gold < price) buy.className = "btn ghost";
+      else buy.addEventListener("click", () => send({ t: "buyback", idx }));
+      row.appendChild(buy);
+      const act = `${t("shop.rebuy")} por ${price} de oro`;
+      row._tip = { item, action: act };
+      row.addEventListener("mousemove", (e) => showTooltip(e, item, act));
+      row.addEventListener("mouseleave", hideTooltip);
+      b.appendChild(row);
+    }
+  }
   $("shopGold").textContent = S.you ? `Tu oro: ${S.you.gold}` : "";
   refreshHoverTooltip();
 }
@@ -5681,6 +5827,8 @@ function initShopSellAll() {
       send({ t: "sell_all", rarity });
     });
   }
+  const sortBtn = $("invSortBtn");
+  if (sortBtn) sortBtn.addEventListener("click", () => send({ t: "inv_sort" }));
 }
 initBoard();
 initAbilityReset();

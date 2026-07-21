@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>La Era de los Titanes — Ideitas</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a140c'/%3E%3Cpath d='M6 8h20v4h-7v14h-6V12H6z' fill='%23c8933b'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=20260901">
+<link rel="stylesheet" href="style.css?v=20260902">
 </head>
 <body>
 
@@ -108,6 +108,9 @@
     <div id="eqGrid"></div>
     <div id="invGrid"></div>
     <div id="invGold"></div>
+    <div class="inv-tools">
+      <button type="button" class="btn ghost" id="invSortBtn" data-i18n="inv.sort">Ordenar</button>
+    </div>
     <div id="dropHint" data-i18n="panel.dropHint">Arrastra un objeto fuera del inventario para tirarlo al suelo.</div>
     <div id="sellHint" class="hidden" data-i18n="panel.sellHint">Clic en un objeto para venderlo al mercader.</div>
     <div id="sellAllRow" class="hidden sell-all-row">
@@ -206,7 +209,8 @@
 
       <div class="menu-help-h" data-i18n="help.h.social">Pueblo y grupo</div>
       <div class="menu-help-row"><b>B</b> — <span data-i18n="help.recall">Volver a Helike (recall)</span></div>
-      <div class="menu-help-row"><b data-i18n="help.enterKey">Enter</b> — <span data-i18n="help.chat">Escribir en el chat</span></div>
+      <div class="menu-help-row"><b data-i18n="help.enterKey">Enter</b> — <span data-i18n="help.chat">Escribir en el chat (/w nombre mensaje = susurro)</span></div>
+      <div class="menu-help-row"><b data-i18n="help.pingKey">G / clic minimapa</b> — <span data-i18n="help.ping">Marcar una posición para tu grupo</span></div>
       <div class="menu-help-row"><b data-i18n="help.playerKey">Clic en otro jugador</b> — <span data-i18n="help.player">Invitarlo a tu grupo</span></div>
       <div class="menu-help-row"><b data-i18n="help.followKey">"Seguir" (panel de grupo)</b> — <span data-i18n="help.follow">Tu personaje camina solo hacia el líder del grupo</span></div>
       <div class="menu-help-row"><b>P</b> — <span data-i18n="help.party">Minimizar/expandir el panel de grupo</span></div>
@@ -274,7 +278,7 @@ if (!document.getElementById("respawnBtn") && !location.search.includes("v=")) {
   location.replace(location.pathname + "?v=" + Date.now());
 }
 </script>
-<script src="audio.js?v=20260901"></script>
-<script src="game.js?v=20260901"></script>
+<script src="audio.js?v=20260902"></script>
+<script src="game.js?v=20260902"></script>
 </body>
 </html>

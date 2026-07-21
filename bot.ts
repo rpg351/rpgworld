@@ -105,11 +105,15 @@ class Companion {
         await waitHealthy();
         await this.connectOnce();
       } catch (e) {
-        console.error(`[bot:${NAME}] session ended:`, e);
+        if (!this.stopping) console.error(`[bot:${NAME}] session ended:`, e);
       }
       this.resetSession();
       if (this.stopping) return;
-      console.log(`[bot:${NAME}] reconnecting in ${RECONNECT_MS}ms…`);
+      // Keep reconnect notices rare so journal stays readable across bot restarts.
+      this._reconnects = (this._reconnects || 0) + 1;
+      if (this._reconnects <= 2 || this._reconnects % 10 === 0) {
+        console.log(`[bot:${NAME}] reconnecting in ${RECONNECT_MS}ms… (#${this._reconnects})`);
+      }
       await sleep(RECONNECT_MS);
     }
   }

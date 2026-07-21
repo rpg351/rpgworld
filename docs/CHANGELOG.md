@@ -1,3 +1,18 @@
+## 2026-07-21 — Recompra, susurros, pings de grupo y timers de jefes
+
+- **Recompra en tienda**: los últimos 6 objetos vendidos en la sesión se pueden
+  recuperar al mismo precio de venta (panel bajo el stock del mercader).
+- **Ordenar inventario**: botón "Ordenar" compacta por rareza → tipo → tier.
+- **Susurros**: `/w nombre mensaje` o `/susurro` (solo lo ven ambos).
+- **Ping de grupo**: clic en el minimapa o tecla **G** marca una posición;
+  el grupo ve el anillo en el mundo y en el minimapa (~6s).
+- **Timers de jefes**: el minimapa muestra la cuenta regresiva de respawn
+  cuando Polifemo/Asterión/Hidra están muertos.
+- **Logs**: bots ya no spamean cada reconexión (solo las 2 primeras y luego
+  cada 10); join/leave de compañeros no ensucian el chat del mundo.
+- Cache bust `?v=20260902`.
+
+
 ## 2026-07-21 — Rachas, auto-pociones, minimapa y descanso en la fuente
 
 - **Racha de bajas**: kills seguidos en ≤8s acumulan racha; HUD centrado desde ×2;
