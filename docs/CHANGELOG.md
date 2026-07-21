@@ -1,3 +1,10 @@
+## 2026-09-34 — lootFx + syncStash/Elder + finishCriaderoBuy
+
+- Helpers `lootFx` / `toastRare` unifican log+FX tras pesca/recolección/cocina/alquimia/desguace.
+- `syncStash` / `syncElder` / `syncBuyback`; `finishCriaderoBuy` completa compras del criadero.
+- Constantes `MSG_KORA` / `MSG_COOK` / `MSG_SALVAGE`.
+- Cache bust `?v=20260934`.
+
 ## 2026-09-33 — strMsg + toastQuestDone + syncPetShop
 
 - Helper `strMsg` unifica lecturas string de packets; `toastQuestDone` para misiones.

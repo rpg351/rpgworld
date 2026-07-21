@@ -1688,10 +1688,8 @@ function tryFinishForage(p: Player, now: number): void {
   p.forageCount++;
   noteProf(p, p.forageCount, [20, "forage_20"]);
   const rare = herb.rarity === "magic";
-  toast(p, rare ? `¡Encontraste ${herb.name}!` : `Recolectaste: ${herb.name}`);
-  pushLootLog(p, { name: herb.name, rarity: herb.rarity, icon: "herb" });
-  bcastAt(p.x, p.y, { t: "fx", k: "forage", i: p.id });
-  sendYou(p);
+  toastRare(p, rare, `¡Encontraste ${herb.name}!`, `Recolectaste: ${herb.name}`);
+  lootFx(p, { name: herb.name, rarity: herb.rarity, icon: "herb" }, "forage");
 }
 
 
@@ -1719,7 +1717,7 @@ function beginForage(p: Player, now: number): void {
 
 function beginBrew(p: Player, now: number): void {
   if (beginChannelGate(p, now, 0, "Ya estás preparando…", "No podés preparar brebajes en combate")) return;
-  if (needNpc(p, kora, "Prepara brebajes junto a Kora")) return;
+  if (needNpc(p, kora, MSG_KORA)) return;
   const slot = findInvSlot(p, (it) => it.slot === "herb" && Boolean(BREW_MAP[it.base]));
   if (slot < 0) return toast(p, "No tenés hierbas para preparar");
   const it = p.inv[slot]!;
@@ -1737,9 +1735,7 @@ function beginBrew(p: Player, now: number): void {
   p.brewCount++;
   noteProf(p, p.brewCount, [15, "brew_15"]);
   toast(p, `Preparaste: ${outItem.name} (con ${herbName})`);
-  pushLootLog(p, { name: outItem.name, rarity: outItem.rarity, icon: outItem.icon });
-  bcastAt(p.x, p.y, { t: "fx", k: "brew", i: p.id });
-  sendYou(p);
+  lootFx(p, { name: outItem.name, rarity: outItem.rarity, icon: outItem.icon }, "brew");
 }
 
 function tryBind(p: Player): void {
@@ -1951,7 +1947,7 @@ function salvageValue(it: Item): number {
 
 function trySalvage(p: Player, slot: number): void {
   if (p.dead) return;
-  if (needNpc(p, bront, "Desguazá equipo en la forja de Bront")) return;
+  if (needNpc(p, bront, MSG_SALVAGE)) return;
   if (slot < 0 || slot >= INV_SIZE) return;
   const it = p.inv[slot];
   if (!it) return;
@@ -1965,9 +1961,7 @@ function trySalvage(p: Player, slot: number): void {
   p.salvageCount++;
   noteProf(p, p.salvageCount, [1, "salvage_1"], [20, "salvage_20"]);
   toast(p, `Desguazaste ${name} (+${gain} oro)`);
-  pushLootLog(p, { name: `Desguace: ${name}`, rarity: it.rarity, icon: it.icon || "armor", gold: gain });
-  bcastAt(p.x, p.y, { t: "fx", k: "brew", i: p.id });
-  sendYou(p);
+  lootFx(p, { name: `Desguace: ${name}`, rarity: it.rarity, icon: it.icon || "armor", gold: gain }, "brew");
 }
 
 
@@ -2301,10 +2295,8 @@ function tryFinishFish(p: Player, now: number): void {
   p.fishCount++;
   noteProf(p, p.fishCount, [10, "fish_10"], [50, "fish_50"]);
   const rare = fish.rarity === "magic";
-  toast(p, rare ? `¡Capturaste ${fish.name}!` : `Pescaste: ${fish.name}`);
-  pushLootLog(p, { name: fish.name, rarity: fish.rarity, icon: "fish" });
-  bcastAt(p.x, p.y, { t: "fx", k: "fish", i: p.id });
-  sendYou(p);
+  toastRare(p, rare, `¡Capturaste ${fish.name}!`, `Pescaste: ${fish.name}`);
+  lootFx(p, { name: fish.name, rarity: fish.rarity, icon: "fish" }, "fish");
 }
 
 function tryFinishCook(p: Player, now: number): void {
@@ -2333,14 +2325,12 @@ function tryFinishCook(p: Player, now: number): void {
   p.cookCount++;
   noteProf(p, p.cookCount, [10, "cook_10"], [40, "cook_40"]);
   toast(p, `Cocinaste: ${food.name}`);
-  pushLootLog(p, { name: food.name, rarity: food.rarity, icon: "food" });
-  bcastAt(p.x, p.y, { t: "fx", k: "cook", i: p.id });
-  sendYou(p);
+  lootFx(p, { name: food.name, rarity: food.rarity, icon: "food" }, "cook");
 }
 
 function beginCook(p: Player, now: number): void {
   if (beginChannelGate(p, now, p.cookUntil, "Ya estás cocinando…", "No podés cocinar en combate")) return;
-  if (needNpc(p, bront, "Cocina junto a la forja de Bront")) return;
+  if (needNpc(p, bront, MSG_COOK)) return;
   const slot = findInvSlot(p, (it) => it.slot === "fish" && Boolean(foodFromFish(it.base)));
   if (slot < 0) return toast(p, "No tenés pescado para cocinar");
   clearMobility(p);
@@ -2891,6 +2881,9 @@ const MSG_CRIADERO = "Tenés que estar junto al criadero";
 const MSG_ELDER = "Tenés que hablar con Nikandros";
 const MSG_BOARD = "Tenés que estar junto al tablón de peticiones";
 const MSG_PORTAL = "Tenés que estar junto al Portal";
+const MSG_KORA = "Prepara brebajes junto a Kora";
+const MSG_COOK = "Cocina junto a la forja de Bront";
+const MSG_SALVAGE = "Desguazá equipo en la forja de Bront";
 
 function needNpc(p: Player, npc: Npc, msg: string, range = 3): boolean {
   if (!nearNpc(p, npc, range)) { toast(p, msg); return true; }
@@ -2913,9 +2906,55 @@ function buyAtCriadero(
   return true;
 }
 
+function finishCriaderoBuy(
+  p: Player,
+  owned: Set<string>,
+  id: string,
+  def: { cost: number; name: string } | undefined,
+  alreadyMsg: string,
+  achId: string,
+  doneMsg: string,
+  afterPay?: () => void,
+): boolean {
+  if (!buyAtCriadero(p, owned, id, def, alreadyMsg)) return false;
+  owned.add(id);
+  if (afterPay) afterPay();
+  p.dirty = true;
+  grantAch(p, achId);
+  syncPetShop(p);
+  toast(p, doneMsg);
+  return true;
+}
+
 function syncPetShop(p: Player): void {
   sendYou(p);
   sendPetShop(p);
+}
+
+function syncStash(p: Player): void {
+  sendYou(p);
+  sendStash(p);
+}
+
+function syncElder(p: Player): void {
+  sendYou(p);
+  sendElderDialog(p);
+}
+
+function syncBuyback(p: Player): void {
+  sendYou(p);
+  sendBuyback(p);
+}
+
+/** Loot log + local FX + you refresh after a gather/craft success. */
+function lootFx(p: Player, entry: { name: string; rarity: string; icon: string; gold?: number }, fx: string): void {
+  pushLootLog(p, entry);
+  bcastAt(p.x, p.y, { t: "fx", k: fx, i: p.id });
+  sendYou(p);
+}
+
+function toastRare(p: Player, rare: boolean, rareMsg: string, normalMsg: string): void {
+  toast(p, rare ? rareMsg : normalMsg);
 }
 
 
@@ -3224,8 +3263,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       p.gold -= entry.price;
       p.buyback.splice(idx, 1);
       toast(p, `Recompraste ${entry.item.name}`);
-      sendYou(p);
-      sendBuyback(p);
+      syncBuyback(p);
       break;
     }
     case "inv_sort": {
@@ -3257,8 +3295,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (it.slot === "quest") return questItemBlocked(p, "guardar");
       if (!addToSlots(p.stash, it)) return toast(p, "El cofre está lleno");
       p.inv[slot] = null;
-      sendYou(p);
-      sendStash(p);
+      syncStash(p);
       break;
     }
     case "stash_withdraw": {
@@ -3270,19 +3307,13 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (!it) return;
       if (!invAdd(p, it)) return invFull(p);
       p.stash[slot] = null;
-      sendYou(p);
-      sendStash(p);
+      syncStash(p);
       break;
     }
     case "pet_buy": {
       const id = strMsg(msg.id);
       const def = PET_DEFS[id];
-      if (!buyAtCriadero(p, p.pets, id, def, "Ya tenés esa mascota")) return;
-      p.pets.add(id);
-      p.dirty = true;
-      grantAch(p, "pet_1");
-      syncPetShop(p);
-      toast(p, `Adoptaste a ${def.name}`);
+      finishCriaderoBuy(p, p.pets, id, def, "Ya tenés esa mascota", "pet_1", def ? `Adoptaste a ${def.name}` : "");
       break;
     }
     case "pet_equip": {
@@ -3299,13 +3330,9 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     case "mount_buy": {
       const id = strMsg(msg.id);
       const def = MOUNT_DEFS[id];
-      if (!buyAtCriadero(p, p.mounts, id, def, "Ya tenés esa montura")) return;
-      p.mounts.add(id);
-      if (!p.activeMount) p.activeMount = id;
-      p.dirty = true;
-      grantAch(p, "mount_1");
-      syncPetShop(p);
-      toast(p, `Compraste: ${def.name}`);
+      finishCriaderoBuy(p, p.mounts, id, def, "Ya tenés esa montura", "mount_1", def ? `Compraste: ${def.name}` : "", () => {
+        if (!p.activeMount) p.activeMount = id;
+      });
       break;
     }
     case "mount_equip": {
@@ -3455,8 +3482,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       toast(p, `Misión aceptada: ${QUESTS[qid].name}`);
       if (qid === "q7") unlockPortal(p, "asfodelos", true);
       if (qid === "q10") unlockPortal(p, "hidra", true);
-      sendYou(p);
-      sendElderDialog(p);
+      syncElder(p);
       break;
     }
     case "quest_turnin": {
@@ -3480,8 +3506,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (qid === "q6") unlockPortal(p, "asfodelos", true);
       if (qid === "q9") unlockPortal(p, "hidra", true);
       checkProgressAchs(p);
-      sendYou(p);
-      sendElderDialog(p);
+      syncElder(p);
       break;
     }
     case "inspect": {
