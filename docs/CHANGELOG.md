@@ -1,3 +1,13 @@
+## 2026-07-21 — Botín reciente, registro de combate y logs aún más limpios
+
+- **Botín reciente**: panel lateral con los últimos recolectables/oro de la sesión
+  (se actualiza al recoger y al ganar oro de kills; se puede ocultar en Opciones).
+- **Registro de combate**: panel opcional con el daño recibido reciente (quién y cuánto).
+- **Logs**: bots solo anuncian connected/online la primera vez; reconexiones y errores
+  de sesión/tick mucho menos frecuentes (1ª + cada 20).
+- Cache bust `?v=20260904`.
+
+
 ## 2026-07-21 — Tracker de misiones, recap de muerte, inspeccionar y gestos
 
 - **Tracker de misiones**: HUD compacto a la izquierda con hasta 4 misiones activas

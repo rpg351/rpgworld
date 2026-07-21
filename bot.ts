@@ -107,7 +107,7 @@ class Companion {
       } catch (e) {
         if (!this.stopping) {
           this._sessionErrs = (this._sessionErrs || 0) + 1;
-          if (this._sessionErrs <= 2 || this._sessionErrs % 10 === 0)
+          if (this._sessionErrs <= 1 || this._sessionErrs % 20 === 0)
             console.error(`[bot:${NAME}] session ended (#${this._sessionErrs}):`, e);
         }
       }
@@ -115,7 +115,7 @@ class Companion {
       if (this.stopping) return;
       // Keep reconnect notices rare so journal stays readable across bot restarts.
       this._reconnects = (this._reconnects || 0) + 1;
-      if (this._reconnects <= 2 || this._reconnects % 10 === 0) {
+      if (this._reconnects <= 1 || this._reconnects % 20 === 0) {
         console.log(`[bot:${NAME}] reconnecting in ${RECONNECT_MS}ms… (#${this._reconnects})`);
       }
       await sleep(RECONNECT_MS);
@@ -154,7 +154,7 @@ class Companion {
 
       ws.onopen = () => {
         opened = true;
-        console.log(`[bot:${NAME}] connected`);
+        if (!this._seenConnect) { this._seenConnect = true; console.log(`[bot:${NAME}] connected`); }
         this.send({ t: "login", name: NAME, pass: PASS, cls: BOT_CLS });
       };
 
@@ -205,7 +205,7 @@ class Companion {
         kind: typeof sk.kind === "string" ? sk.kind : "self",
       })).filter((sk) => sk.n >= 1 && sk.n <= 4);
       this.cds = {};
-      console.log(`[bot:${NAME}] online id=${this.id} ${this.cls}`);
+      if (!this._seenOnline) { this._seenOnline = true; console.log(`[bot:${NAME}] online id=${this.id} ${this.cls}`); }
       return;
     }
     if (t === "you") {

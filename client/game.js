@@ -74,6 +74,14 @@ var I18N = {
     "death.countdown": (s) => `Revives automáticamente en ${s}s`,
     "death.countdownNow": "Revives en un instante…",
     "death.recap": "Últimos golpes",
+    "panel.lootlog": "Botín reciente",
+    "panel.combatlog": "Registro de combate",
+    "lootlog.empty": "Aún no has recogido nada en esta sesión.",
+    "combatlog.empty": "Aún no has recibido daño en esta sesión.",
+    "opt.lootlog": "Mostrar botín reciente",
+    "opt.combatlog": "Mostrar registro de combate",
+    "help.lootlog": "Botín reciente de la sesión",
+    "help.combatlog": "Daño recibido reciente",
     "inspect.title": "Inspeccionar",
     "inspect.btn": "Inspeccionar",
     "inspect.close": "Cerrar",
@@ -199,6 +207,14 @@ var I18N = {
     "death.countdown": (s) => `Auto-revives in ${s}s`,
     "death.countdownNow": "Reviving…",
     "death.recap": "Last hits",
+    "panel.lootlog": "Recent loot",
+    "panel.combatlog": "Combat log",
+    "lootlog.empty": "No loot picked up this session yet.",
+    "combatlog.empty": "No damage taken this session yet.",
+    "opt.lootlog": "Show recent loot",
+    "opt.combatlog": "Show combat log",
+    "help.lootlog": "Recent session loot",
+    "help.combatlog": "Recent damage taken",
     "inspect.title": "Inspect",
     "inspect.btn": "Inspect",
     "inspect.close": "Close",
@@ -354,6 +370,10 @@ var S = {
   buyback: [],
   bossTimers: {},
   pings: [],
+  lootLog: [],
+  combatLog: [],
+  showLootLog: true,
+  showCombatLog: false,
   emotes: {},
   deathRecap: [],
   streak: 0,
@@ -684,6 +704,16 @@ function handleWorld(m) {
     case "streak": {
       S.streak = Math.max(0, Number(m.n) || 0);
       updateStreakHud();
+      break;
+    }
+    case "lootlog": {
+      S.lootLog = Array.isArray(m.entries) ? m.entries : [];
+      renderLootLog();
+      break;
+    }
+    case "combatlog": {
+      S.combatLog = Array.isArray(m.entries) ? m.entries : [];
+      renderCombatLog();
       break;
     }
     case "toast": {
@@ -3162,6 +3192,8 @@ function castSkill(n) {
 }
 var LS_AUTOLOOT = "aot_autoloot";
 var LS_AUTOPOTION = "aot_autopotion";
+var LS_LOOTLOG = "aot_lootlog";
+var LS_COMBATLOG = "aot_combatlog";
 function loadAutoLoot() {
   try {
     const v = localStorage.getItem(LS_AUTOLOOT);
@@ -3174,6 +3206,15 @@ function loadAutoPotion() {
     S.autoPotion = v === "on" || v === "hp" ? v : "off";
   } catch (e) { S.autoPotion = "off"; }
 }
+function loadLogPanels() {
+  try {
+    S.showLootLog = localStorage.getItem(LS_LOOTLOG) !== "0";
+    S.showCombatLog = localStorage.getItem(LS_COMBATLOG) === "1";
+  } catch (e) {
+    S.showLootLog = true;
+    S.showCombatLog = false;
+  }
+}
 var RARITY_RANK = { common: 0, magic: 1, rare: 2 };
 function lootMatchesAutoFilter(item) {
   if (S.autoLoot === "off") return false;
@@ -3183,6 +3224,7 @@ function lootMatchesAutoFilter(item) {
 }
 function syncMenuControls() {
   const vm = $("volMusic"), vf = $("volFx"), lang = $("langSelect"), al = $("autoLootSelect"), ap = $("autoPotionSelect");
+  const ll = $("optLootLog"), cl = $("optCombatLog");
   if (window.AOTAudio) {
     if (vm) vm.value = Math.round((AOTAudio.musicVol ?? 1) * 100);
     if (vf) vf.value = Math.round((AOTAudio.sfxVol ?? 1) * 100);
@@ -3190,6 +3232,8 @@ function syncMenuControls() {
   if (lang) lang.value = getLang();
   if (al) al.value = S.autoLoot;
   if (ap) ap.value = S.autoPotion;
+  if (ll) ll.checked = !!S.showLootLog;
+  if (cl) cl.checked = !!S.showCombatLog;
 }
 function logout() {
   try { localStorage.removeItem("aot_creds"); } catch (e) {}
@@ -3200,6 +3244,7 @@ function logout() {
 function initMenu() {
   loadAutoLoot();
   loadAutoPotion();
+  loadLogPanels();
   document.querySelectorAll(".menu-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".menu-tab").forEach((b) => b.classList.toggle("sel", b === btn));
@@ -3221,9 +3266,22 @@ function initMenu() {
     S.autoPotion = ap.value;
     try { localStorage.setItem(LS_AUTOPOTION, S.autoPotion); } catch (e) {}
   });
+  const ll = $("optLootLog"), cl = $("optCombatLog");
+  if (ll) ll.addEventListener("change", () => {
+    S.showLootLog = __omp_shell("!ll.checked;")
+    try { localStorage.setItem(LS_LOOTLOG, S.showLootLog ? "1" : "0"); } catch (e) {}
+    renderLootLog();
+  });
+  if (cl) cl.addEventListener("change", () => {
+    S.showCombatLog = __omp_shell("!cl.checked;")
+    try { localStorage.setItem(LS_COMBATLOG, S.showCombatLog ? "1" : "0"); } catch (e) {}
+    renderCombatLog();
+  });
   if (logoutBtn) logoutBtn.addEventListener("click", () => logout());
   syncMenuControls();
   applyLang(getLang());
+  renderLootLog();
+  renderCombatLog();
 }
 var PANEL_ORDER = ["dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "inspectPanel"];
 function closeTopPanel() {
@@ -5347,6 +5405,39 @@ function renderQuests() {
   }
   b.innerHTML = html;
   updateQuestTracker();
+}
+
+function renderLootLog() {
+  const body = $("lootLogBody");
+  const panel = $("lootLogPanel");
+  if (!body || !panel) return;
+  panel.classList.toggle("hidden", !S.showLootLog);
+  const rows = S.lootLog || [];
+  if (!rows.length) {
+    body.innerHTML = `<div class="log-empty">${t("lootlog.empty")}</div>`;
+    return;
+  }
+  body.innerHTML = rows.slice(0, 12).map((e) => {
+    const when = e.at ? new Date(e.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+    const extra = e.gold ? ` <span class="log-gold">+${e.gold}g</span>` : "";
+    const rarity = e.rarity || "common";
+    return `<div class="log-row"><span class="log-name ${rarity}">${e.name || "?"}</span>${extra}<span class="log-time">${when}</span></div>`;
+  }).join("");
+}
+function renderCombatLog() {
+  const body = $("combatLogBody");
+  const panel = $("combatLogPanel");
+  if (!body || !panel) return;
+  panel.classList.toggle("hidden", !S.showCombatLog);
+  const rows = S.combatLog || [];
+  if (!rows.length) {
+    body.innerHTML = `<div class="log-empty">${t("combatlog.empty")}</div>`;
+    return;
+  }
+  body.innerHTML = rows.slice(0, 14).map((e) => {
+    const when = e.at ? new Date(e.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+    return `<div class="log-row"><span class="log-src">${e.src || "?"}</span><span class="log-dmg">-${e.dmg || 0}</span><span class="log-time">${when}</span></div>`;
+  }).join("");
 }
 function updateQuestTracker() {
   const el = $("questTracker");

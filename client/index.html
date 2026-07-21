@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>La Era de los Titanes — Ideitas</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a140c'/%3E%3Cpath d='M6 8h20v4h-7v14h-6V12H6z' fill='%23c8933b'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=20260903">
+<link rel="stylesheet" href="style.css?v=20260904">
 </head>
 <body>
 
@@ -72,6 +72,14 @@
   </div>
   <div id="streakHud" class="hidden"></div>
   <div id="questTracker" class="hidden"></div>
+  <div id="lootLogPanel" class="hidden">
+    <div class="side-log-title" data-i18n="panel.lootlog">Botín reciente</div>
+    <div id="lootLogBody"></div>
+  </div>
+  <div id="combatLogPanel" class="hidden">
+    <div class="side-log-title" data-i18n="panel.combatlog">Registro de combate</div>
+    <div id="combatLogBody"></div>
+  </div>
   <div id="inspectPanel" class="panel hidden"></div>
   <div id="toasts"></div>
 
@@ -213,6 +221,8 @@
       <div class="menu-help-row"><b>B</b> — <span data-i18n="help.recall">Volver a Helike (recall)</span></div>
       <div class="menu-help-row"><b data-i18n="help.enterKey">Enter</b> — <span data-i18n="help.chat">Escribir en el chat (/w nombre mensaje = susurro)</span></div>
       <div class="menu-help-row"><b>/wave</b> — <span data-i18n="help.emote">Gestos: /wave /dance /cheer /bow (o /me …)</span></div>
+      <div class="menu-help-row"><b data-i18n="panel.lootlog">Botín reciente</b> — <span data-i18n="help.lootlog">Botín reciente de la sesión</span></div>
+      <div class="menu-help-row"><b data-i18n="panel.combatlog">Registro de combate</b> — <span data-i18n="help.combatlog">Daño recibido reciente</span></div>
       <div class="menu-help-row"><b data-i18n="help.pingKey">G / clic minimapa</b> — <span data-i18n="help.ping">Marcar una posición para tu grupo</span></div>
       <div class="menu-help-row"><b data-i18n="help.playerKey">Clic en otro jugador</b> — <span data-i18n="help.player">Invitarlo a tu grupo</span> / <span data-i18n="help.inspect">Inspeccionar</span></div>
       <div class="menu-help-row"><b data-i18n="help.followKey">"Seguir" (panel de grupo)</b> — <span data-i18n="help.follow">Tu personaje camina solo hacia el líder del grupo</span></div>
@@ -237,6 +247,8 @@
           <option value="hp" data-i18n="opt.autopotion.hp">Solo vida baja</option>
         </select>
       </label>
+      <label class="menu-opt"><span data-i18n="opt.lootlog">Mostrar botín reciente</span> <input type="checkbox" id="optLootLog" checked></label>
+      <label class="menu-opt"><span data-i18n="opt.combatlog">Mostrar registro de combate</span> <input type="checkbox" id="optCombatLog"></label>
       <label class="menu-opt"><span data-i18n="opt.lang">Idioma</span>
         <select id="langSelect"><option value="es">Español</option><option value="en">English</option></select>
       </label>
@@ -282,7 +294,7 @@ if (!document.getElementById("respawnBtn") && !location.search.includes("v=")) {
   location.replace(location.pathname + "?v=" + Date.now());
 }
 </script>
-<script src="audio.js?v=20260903"></script>
-<script src="game.js?v=20260903"></script>
+<script src="audio.js?v=20260904"></script>
+<script src="game.js?v=20260904"></script>
 </body>
 </html>

@@ -145,6 +145,8 @@ interface Player extends StatusHolder {
   buyback: { item: Item; price: number }[]; // last sold items this session (vendor repurchase)
   lastPingAt: number; // party map-ping rate limit
   recentHits: { n: string; a: number; t: number }[]; // last hits taken (death recap)
+  lootHist: { name: string; rarity: string; icon: string; gold?: number; at: number }[]; // session loot feed
+  combatLog: { src: string; dmg: number; at: number }[]; // session hits taken
   lastDaily: string; // YYYY-MM-DD of last daily login reward
   lastEmoteAt: number;
   dead: boolean; deadAt: number; lastChat: number; dirty: boolean;
@@ -299,6 +301,20 @@ function send(ws: WS | null, msg: unknown): void {
 
 function toast(p: Player, msg: string): void {
   send(p.ws, { t: "toast", msg });
+}
+
+function pushLootLog(p: Player, entry: { name: string; rarity: string; icon: string; gold?: number }): void {
+  p.lootHist.unshift({ ...entry, at: Date.now() });
+  if (p.lootHist.length > 30) p.lootHist.length = 30;
+  send(p.ws, { t: "lootlog", entries: p.lootHist });
+}
+
+function sendLootLog(p: Player): void {
+  send(p.ws, { t: "lootlog", entries: p.lootHist });
+}
+
+function sendCombatLog(p: Player): void {
+  send(p.ws, { t: "combatlog", entries: p.combatLog });
 }
 
 /** Broadcast to every online player whose AOI covers (x,y). */
@@ -499,7 +515,9 @@ const BOSS_KILL_MSG: Record<string, (killer: string) => string> = {
 function rollDrops(m: Mob, killer: Player): void {
   const petDef = killer.activePet ? PET_DEFS[killer.activePet] : null;
   const petGoldPct = petDef?.stat === "gold" ? petDef.amount : 0;
-  killer.gold += Math.round(m.gold() * (1 + petGoldPct / 100));
+  const goldGain = Math.round(m.gold() * (1 + petGoldPct / 100));
+  killer.gold += goldGain;
+  if (goldGain > 0) pushLootLog(killer, { name: "Oro", rarity: "common", icon: "coin", gold: goldGain });
   // Equipped pet occasionally "fetches" a little extra gold (toast rate kept low).
   if (petDef && Math.random() < 0.08) {
     const bonus = 2 + Math.floor(Math.random() * (3 + Math.max(1, Math.floor(m.lvl / 2))));
@@ -616,8 +634,12 @@ function mobDie(m: Mob, killer: Player): void {
 }
 
 function noteHitTaken(p: Player, src: string, dmg: number): void {
-  p.recentHits.push({ n: src, a: dmg, t: Date.now() });
+  const at = Date.now();
+  p.recentHits.push({ n: src, a: dmg, t: at });
   if (p.recentHits.length > 8) p.recentHits.splice(0, p.recentHits.length - 8);
+  p.combatLog.unshift({ src, dmg, at });
+  if (p.combatLog.length > 40) p.combatLog.length = 40;
+  send(p.ws, { t: "combatlog", entries: p.combatLog });
 }
 
 function playerDie(p: Player): void {
@@ -1362,7 +1384,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     skillCds: [0, 0, 0, 0, 0], potCdUntil: 0, combatUntil: 0, recallCdUntil: 0,
     killStreak: 0, killStreakAt: 0, restedUntil: 0, restAccum: 0,
     buyback: [], lastPingAt: 0,
-    recentHits: [], lastDaily: "", lastEmoteAt: 0,
+    recentHits: [], lootHist: [], combatLog: [], lastDaily: "", lastEmoteAt: 0,
     dead: false, deadAt: 0, lastChat: 0, dirty: true, seen: new Set(),
     party: null, partyId: null, invites: new Map(), disconnectedAt: null, followId: null,
     followStuck: 0,
@@ -1572,6 +1594,8 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
     checkZoneVisit(player);
     if (player.party) partyBcast(player.party); // reenvía el roster tras reconectar / restaurar
     if (player.followId != null) send(ws, { t: "follow_state", id: player.followId });
+    sendLootLog(player);
+    sendCombatLog(player);
     if (!BOT_SQUAD.has(player.name)) {
       const day = new Date().toISOString().slice(0, 10);
       if (player.lastDaily !== day) {
@@ -1580,6 +1604,7 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
         player.lastDaily = day;
         player.dirty = true;
         toast(player, `Bonus diario: +${bonus} de oro`);
+        pushLootLog(player, { name: "Bonus diario", rarity: "magic", icon: "coin", gold: bonus });
         sendYou(player);
       }
       sysChat(`${player.name} ha entrado en Helike.`);
@@ -1623,6 +1648,7 @@ function tryPickupLoot(p: Player, id: number): boolean {
     return true;
   }
   loot.delete(id);
+  pushLootLog(p, { name: l.item.name, rarity: l.item.rarity || "common", icon: l.item.icon || "sword" });
   if (l.item.rarity === "rare") toast(p, `¡Raro! Recogiste ${l.item.name}`);
   updateCollect(p);
   sendYou(p);
@@ -2191,6 +2217,14 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       }
       p.followId = id;
       send(p.ws, { t: "follow_state", id });
+      break;
+    }
+    case "lootlog": {
+      sendLootLog(p);
+      break;
+    }
+    case "combatlog": {
+      sendCombatLog(p);
       break;
     }
     case "party_ping": {

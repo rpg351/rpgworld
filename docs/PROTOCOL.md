@@ -50,6 +50,7 @@ Client renders 32 px/tile, may add procedural per-tile decoration seeded by `(x,
 - `{t:"chat", text}` — ≤200 chars, rate-limit 1/s. Whispers `/w`/`/susurro`. Emotes `/wave|/dance|/cheer|/bow` (or `/me …`).
 - `{t:"inspect", id}` — request another player's public gear summary (range 14).
 - Death packet may include `recap:[{n,a}]` (last hits taken). Prefix `/w Name msg` or `/susurro Name msg` for a private whisper.
+- `{t:"lootlog"}` / `{t:"combatlog"}` — request current session feeds.
 - `{t:"party_ping", x, y}` — mark a world position for your party (2s cooldown).
 - `{t:"inv_sort"}` — compact inventory (rarity → slot → tier → name).
 - `{t:"buyback", idx}` — repurchase a session-sold item from the vendor buyback list (must be near a merchant).
@@ -76,6 +77,8 @@ Server replies to invalid/denied actions with `{t:"toast", msg}` (short human st
 - `{t:"dead"}` — you died (client shows overlay + Respawn button).
 - `{t:"streak", n}` — killer-only kill-streak counter (`n=0` on death).
 - `{t:"toast", msg}` — transient info/error line.
+- `{t:"lootlog", entries:[{name,rarity,icon,gold?,at}]}` — session loot/gold feed (up to 30).
+- `{t:"combatlog", entries:[{src,dmg,at}]}` — session damage-taken feed (up to 40).
 - `{t:"err", msg}` — login-level failure.
 - `{t:"party_invited", from, cls, lvl}` — you received an invite (client shows join/decline prompt).
 - `{t:"party", members:[{id,name,cls,lvl,online}]}` — full durable roster on every change (join/leave/level-up/reconnect/login); `online:false` + `id:0` = offline member still in the party; empty array = not in a party.
