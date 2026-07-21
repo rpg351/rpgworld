@@ -144,6 +144,9 @@ interface Player extends StatusHolder {
   restedUntil: number; restAccum: number; // fountain rest XP buff
   buyback: { item: Item; price: number }[]; // last sold items this session (vendor repurchase)
   lastPingAt: number; // party map-ping rate limit
+  recentHits: { n: string; a: number; t: number }[]; // last hits taken (death recap)
+  lastDaily: string; // YYYY-MM-DD of last daily login reward
+  lastEmoteAt: number;
   dead: boolean; deadAt: number; lastChat: number; dirty: boolean;
   visitedZones: string[]; // portal destinations unlocked by visiting regions
   party: Party | null; partyId: string | null; // live party + durable id (survives logout/restart)
@@ -270,6 +273,7 @@ function serialize(p: Player): string {
     visitedZones: p.visitedZones,
     abilityPts: p.abilityPts, abilities: Object.fromEntries(p.abilities), loadout: p.loadout,
     pets: [...p.pets], activePet: p.activePet,
+    lastDaily: p.lastDaily || "",
   });
 }
 
@@ -611,6 +615,11 @@ function mobDie(m: Mob, killer: Player): void {
   }
 }
 
+function noteHitTaken(p: Player, src: string, dmg: number): void {
+  p.recentHits.push({ n: src, a: dmg, t: Date.now() });
+  if (p.recentHits.length > 8) p.recentHits.splice(0, p.recentHits.length - 8);
+}
+
 function playerDie(p: Player): void {
   p.dead = true;
   p.deadAt = Date.now();
@@ -625,13 +634,15 @@ function playerDie(p: Player): void {
   p.lootTarget = null;
   p.npcTarget = null;
   p.moving = false;
-  send(p.ws, { t: "dead", reviveAt: p.deadAt + REVIVE_MS });
+  const recap = p.recentHits.slice(-5).map((h) => ({ n: h.n, a: h.a }));
+  send(p.ws, { t: "dead", reviveAt: p.deadAt + REVIVE_MS, recap });
 }
 
 // Shared by the manual "Resucitar" button and the 30s auto-revive tick.
 function revivePlayer(p: Player): void {
   p.dead = false;
   p.deadAt = 0;
+  p.recentHits = [];
   p.x = TOWN.x + 0.5 + (Math.random() - 0.5) * 2;
   p.y = TOWN.y + 3.5;
   const d = derive(p);
@@ -1020,6 +1031,7 @@ function mobHit(m: Mob, p: Player, mul = 1): void {
   m.lastAtk = Date.now();
   m.d = p.x < m.x ? 1 : 0;
   bcastAt(p.x, p.y, { t: "dmg", i: p.id, a: dmg });
+  noteHitTaken(p, m.name || m.kind, dmg);
   // Solo auto-retaliate: if not in a party and not WASD-steering, lock onto the attacker
   // when we have no living target (manual click / party follow still win when set).
   if (!p.party && !p.vel && !p.dead) {
@@ -1350,6 +1362,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     skillCds: [0, 0, 0, 0, 0], potCdUntil: 0, combatUntil: 0, recallCdUntil: 0,
     killStreak: 0, killStreakAt: 0, restedUntil: 0, restAccum: 0,
     buyback: [], lastPingAt: 0,
+    recentHits: [], lastDaily: "", lastEmoteAt: 0,
     dead: false, deadAt: 0, lastChat: 0, dirty: true, seen: new Set(),
     party: null, partyId: null, invites: new Map(), disconnectedAt: null, followId: null,
     followStuck: 0,
@@ -1442,6 +1455,7 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
     if (Array.isArray(d.pets))
       p.pets = new Set((d.pets as unknown[]).filter((v): v is string => typeof v === "string" && !!PET_DEFS[v]));
     if (typeof d.activePet === "string" && p.pets.has(d.activePet)) p.activePet = d.activePet;
+    if (typeof d.lastDaily === "string") p.lastDaily = d.lastDaily.slice(0, 16);
     if (d.eq && typeof d.eq === "object") {
       const eq = d.eq as Record<string, unknown>;
       for (const slot of EQUIP_SLOTS) {
@@ -1558,7 +1572,18 @@ async function handleLogin(ws: WS, msg: Record<string, unknown>): Promise<void> 
     checkZoneVisit(player);
     if (player.party) partyBcast(player.party); // reenvía el roster tras reconectar / restaurar
     if (player.followId != null) send(ws, { t: "follow_state", id: player.followId });
-    if (!BOT_SQUAD.has(player.name)) sysChat(`${player.name} ha entrado en Helike.`);
+    if (!BOT_SQUAD.has(player.name)) {
+      const day = new Date().toISOString().slice(0, 10);
+      if (player.lastDaily !== day) {
+        const bonus = 40 + 12 * player.lvl;
+        player.gold += bonus;
+        player.lastDaily = day;
+        player.dirty = true;
+        toast(player, `Bonus diario: +${bonus} de oro`);
+        sendYou(player);
+      }
+      sysChat(`${player.name} ha entrado en Helike.`);
+    }
   } finally {
     sess.loggingIn = false;
   }
@@ -2085,6 +2110,24 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       sendElderDialog(p);
       break;
     }
+    case "inspect": {
+      const id = num(msg.id);
+      if (id == null) return;
+      const target = playerById(id);
+      if (!target || target === p) return;
+      if (dist(p.x, p.y, target.x, target.y) > 14) return toast(p, "Está demasiado lejos");
+      const eq: Record<string, unknown> = {};
+      for (const slot of EQUIP_SLOTS) {
+        const it = target.eq[slot];
+        if (it) eq[slot] = { name: it.name, rarity: it.rarity, icon: it.icon, tier: it.tier, lvl: it.lvl, dmg: it.dmg, arm: it.arm };
+      }
+      send(p.ws, {
+        t: "inspect",
+        id: target.id, name: target.name, cls: target.cls, lvl: target.lvl,
+        pet: target.activePet, eq,
+      });
+      break;
+    }
     case "party_invite": {
       const id = num(msg.id);
       if (id == null) return;
@@ -2203,6 +2246,27 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         if (target.id === p.id) return toast(p, "No puedes susurrarte a ti mismo");
         send(p.ws, { t: "chat", from: `Para ${target.name}`, text: body, whisper: 1 });
         send(target.ws, { t: "chat", from: `De ${p.name}`, text: body, whisper: 1 });
+        break;
+      }
+      const em = text.match(/^\/(?:me\s+)?(wave|dance|cheer|bow|salute|saludo|bailar|aplaudir|reverencia)\s*$/i);
+      if (em) {
+        if (now - p.lastEmoteAt < 2500) return toast(p, "Espera un momento para otro gesto");
+        p.lastEmoteAt = now;
+        const rawE = em[1].toLowerCase();
+        const map: Record<string, string> = {
+          wave: "wave", salute: "wave", saludo: "wave",
+          dance: "dance", bailar: "dance",
+          cheer: "cheer", aplaudir: "cheer",
+          bow: "bow", reverencia: "bow",
+        };
+        const e = map[rawE] || "wave";
+        const label: Record<string, string> = { wave: "saluda", dance: "baila", cheer: "aplaude", bow: "hace una reverencia" };
+        bcastAt(p.x, p.y, { t: "fx", k: "emote", i: p.id, e });
+        const line = JSON.stringify({ t: "chat", text: `* ${p.name} ${label[e]} *`, sys: 1 });
+        for (const q of players.values()) {
+          if (!q.ws || q.ws.readyState !== 1) continue;
+          if (dist(q.x, q.y, p.x, p.y) <= 18) q.ws.send(line);
+        }
         break;
       }
       const s = JSON.stringify({ t: "chat", from: p.name, text });

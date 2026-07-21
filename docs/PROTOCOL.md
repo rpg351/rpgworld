@@ -47,7 +47,9 @@ Client renders 32 px/tile, may add procedural per-tile decoration seeded by `(x,
 - `{t:"party_accept", from}` / `{t:"party_decline", from}` — answer a pending invite (`from` = inviter name, invites expire after 30 s).
 - `{t:"party_leave"}` — leave; a party of 1 disbands.
 - `{t:"quest_accept", qid}` / `{t:"quest_turnin", qid}` — while near the Elder.
-- `{t:"chat", text}` — ≤200 chars, rate-limit 1/s. Prefix `/w Name msg` or `/susurro Name msg` for a private whisper.
+- `{t:"chat", text}` — ≤200 chars, rate-limit 1/s. Whispers `/w`/`/susurro`. Emotes `/wave|/dance|/cheer|/bow` (or `/me …`).
+- `{t:"inspect", id}` — request another player's public gear summary (range 14).
+- Death packet may include `recap:[{n,a}]` (last hits taken). Prefix `/w Name msg` or `/susurro Name msg` for a private whisper.
 - `{t:"party_ping", x, y}` — mark a world position for your party (2s cooldown).
 - `{t:"inv_sort"}` — compact inventory (rarity → slot → tier → name).
 - `{t:"buyback", idx}` — repurchase a session-sold item from the vendor buyback list (must be near a merchant).

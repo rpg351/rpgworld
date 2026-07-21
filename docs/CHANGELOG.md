@@ -1,3 +1,16 @@
+## 2026-07-21 — Tracker de misiones, recap de muerte, inspeccionar y gestos
+
+- **Tracker de misiones**: HUD compacto a la izquierda con hasta 4 misiones activas
+  y progreso (se oculta si no hay ninguna en curso).
+- **Recap al morir**: el overlay muestra los últimos golpes recibidos (quién y cuánto).
+- **Inspeccionar**: clic en otro jugador → botón para ver clase/nivel/equipo/mascota.
+- **Gestos**: `/wave`, `/dance`, `/cheer`, `/bow` (también `/me …` y alias en español);
+  emoji sobre la cabeza + línea de sistema cercana.
+- **Bonus diario**: al entrar el primer login del día da oro según nivel (toast).
+- **Logs**: errores de sesión/tick del bot aún más filtrados (primeros + cada N).
+- Cache bust `?v=20260903`.
+
+
 ## 2026-07-21 — Recompra, susurros, pings de grupo y timers de jefes
 
 - **Recompra en tienda**: los últimos 6 objetos vendidos en la sesión se pueden

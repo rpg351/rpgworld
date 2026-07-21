@@ -73,6 +73,14 @@ var I18N = {
     "death.respawn": "Resucitar en Helike",
     "death.countdown": (s) => `Revives automáticamente en ${s}s`,
     "death.countdownNow": "Revives en un instante…",
+    "death.recap": "Últimos golpes",
+    "inspect.title": "Inspeccionar",
+    "inspect.btn": "Inspeccionar",
+    "inspect.close": "Cerrar",
+    "inspect.pet": "Mascota",
+    "inspect.empty": "Sin equipo",
+    "help.emote": "Gestos: /wave /dance /cheer /bow (o /me …)",
+    "help.inspect": "Inspeccionar equipo de otro jugador",
     "reconnect.title": "Reconectando…",
     "reconnecting.login": "Reconectando…",
     "audio.unmute": "Activar sonido",
@@ -190,6 +198,14 @@ var I18N = {
     "death.respawn": "Revive in Helike",
     "death.countdown": (s) => `Auto-revives in ${s}s`,
     "death.countdownNow": "Reviving…",
+    "death.recap": "Last hits",
+    "inspect.title": "Inspect",
+    "inspect.btn": "Inspect",
+    "inspect.close": "Close",
+    "inspect.pet": "Pet",
+    "inspect.empty": "No gear",
+    "help.emote": "Emotes: /wave /dance /cheer /bow (or /me …)",
+    "help.inspect": "Inspect another player's gear",
     "reconnect.title": "Reconnecting…",
     "reconnecting.login": "Reconnecting…",
     "audio.unmute": "Unmute",
@@ -338,6 +354,8 @@ var S = {
   buyback: [],
   bossTimers: {},
   pings: [],
+  emotes: {},
+  deathRecap: [],
   streak: 0,
   shakeMag: 0,
   targetId: 0,
@@ -497,8 +515,11 @@ function handleWorld(m) {
       } else if (S.dead && typeof m.hp === "number" && m.hp > 0) {
         S.dead = false;
         S.reviveAt = 0;
+        S.deathRecap = [];
         const ov = $("deathOverlay");
         if (ov) ov.classList.add("hidden");
+        const dr = $("deathRecap");
+        if (dr) dr.innerHTML = "";
       }
       refreshHud();
       renderInventory();
@@ -648,10 +669,16 @@ function handleWorld(m) {
     case "dead": {
       S.dead = true;
       S.reviveAt = typeof m.reviveAt === "number" ? m.reviveAt : 0;
+      S.deathRecap = Array.isArray(m.recap) ? m.recap.slice() : [];
       stopMove();
       const ov = $("deathOverlay");
       if (ov) ov.classList.remove("hidden");
+      renderDeathRecap();
       if (window.AOTAudio) AOTAudio.sfx("dead");
+      break;
+    }
+    case "inspect": {
+      showInspect(m);
       break;
     }
     case "streak": {
@@ -2082,6 +2109,20 @@ function drawEntity(E, t) {
     ctx.fillText("BOSS", 0, 0);
     ctx.restore();
   }
+  const emo = S.emotes[idOf(E)];
+  if (emo && t - emo.t0 < 2200) {
+    const glyphs = { wave: "👋", dance: "💃", cheer: "🎉", bow: "🙇" };
+    const g = glyphs[emo.e] || "✨";
+    const a = 1 - Math.max(0, (t - emo.t0 - 1400) / 800);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, a);
+    ctx.font = "16px serif";
+    ctx.textAlign = "center";
+    ctx.fillText(g, 0, topY - 18 - (t - emo.t0) * 0.01);
+    ctx.restore();
+  } else if (emo && t - emo.t0 >= 2200) {
+    delete S.emotes[idOf(E)];
+  }
   if (isPlayer || BOSS_KINDS.has(E.k)) {
     ctx.font = "11px Georgia";
     ctx.textAlign = "center";
@@ -2440,6 +2481,10 @@ function drawParticles(t) {
 }
 function addFx(m) {
   const t = now();
+  if (m.k === "emote") {
+    if (m.i) S.emotes[m.i] = { e: m.e || "wave", t0: t };
+    return;
+  }
   if (m.k === "proj") {
     const d = Math.hypot(m.to.x - m.from.x, m.to.y - m.from.y);
     S.fx.push({ k: "proj", ...m, t0: t, dur: clamp(d * 45, 120, 700) });
@@ -3180,7 +3225,7 @@ function initMenu() {
   syncMenuControls();
   applyLang(getLang());
 }
-var PANEL_ORDER = ["dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel"];
+var PANEL_ORDER = ["dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "inspectPanel"];
 function closeTopPanel() {
   for (const id of PANEL_ORDER) {
     const el = $(id);
@@ -4335,10 +4380,17 @@ function openPlayerMenu(e, entId) {
     return;
   const pm = $("playerMenu");
   const inParty = S.partyIds.has(entId);
-  pm.innerHTML = `<div class="pm-name">${E.n || ""} · Nv ${E.l}</div>` + (inParty ? '<button class="btn ghost" disabled>Ya está en tu grupo</button>' : '<button class="btn" id="pmInvite">Invitar al grupo</button>');
+  pm.innerHTML = `<div class="pm-name">${E.n || ""} · Nv ${E.l}</div>`
+    + `<button class="btn" id="pmInspect">${t("inspect.btn")}</button>`
+    + (inParty ? '<button class="btn ghost" disabled>Ya está en tu grupo</button>' : '<button class="btn" id="pmInvite">Invitar al grupo</button>');
   pm.classList.remove("hidden");
-  pm.style.left = Math.min(window.innerWidth - 180, e.clientX + 6) + "px";
-  pm.style.top = Math.min(window.innerHeight - 96, e.clientY + 6) + "px";
+  pm.style.left = Math.min(window.innerWidth - 200, e.clientX + 6) + "px";
+  pm.style.top = Math.min(window.innerHeight - 130, e.clientY + 6) + "px";
+  const insp = $("pmInspect");
+  if (insp) insp.addEventListener("click", () => {
+    send({ t: "inspect", id: entId });
+    closePlayerMenu();
+  });
   const b = $("pmInvite");
   if (b)
     b.addEventListener("click", () => {
@@ -5294,6 +5346,67 @@ function renderQuests() {
     </div>`;
   }
   b.innerHTML = html;
+  updateQuestTracker();
+}
+function updateQuestTracker() {
+  const el = $("questTracker");
+  if (!el) return;
+  const y = S.you;
+  const qs = (y && y.quests) || {};
+  const rows = [];
+  for (const qid of Object.keys(qs).sort()) {
+    const q = qs[qid];
+    const meta = QUEST_META[qid];
+    if (!q || q.turned || !meta) continue;
+    const cnt = meta.count || 1;
+    const prog = Math.min(q.n ?? 0, cnt);
+    const done = __omp_shell("!q.done || prog >= cnt;")
+    rows.push(`<div class="qt-row${done ? " done" : ""}"><span class="qt-name">${meta.name}</span><span class="qt-n">${prog}/${cnt}</span></div>`);
+    if (rows.length >= 4) break;
+  }
+  if (!rows.length) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  el.innerHTML = `<div class="qt-title">Misiones</div>` + rows.join("");
+  el.classList.remove("hidden");
+}
+function renderDeathRecap() {
+  const el = $("deathRecap");
+  if (!el) return;
+  const hits = S.deathRecap || [];
+  if (!hits.length) { el.innerHTML = ""; return; }
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  el.innerHTML = `<div class="recap-title">${t("death.recap")}</div>` +
+    hits.map((h) => `<div class="recap-row"><span>${esc(h.n)}</span><b>${h.a}</b></div>`).join("");
+}
+function showInspect(m) {
+  const panel = $("inspectPanel");
+  if (!panel) return;
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const cls = CLS_ES[m.cls] || m.cls || "";
+  let html = `<div class="panel-title"><span>${t("inspect.title")}</span> <span class="panel-x" data-close="inspectPanel">✕</span></div>`;
+  html += `<div class="inspect-head"><b>${esc(m.name || "")}</b> · ${esc(cls)} · Nv ${m.lvl || "?"}</div>`;
+  if (m.pet && PET_LABELS[m.pet]) html += `<div class="inspect-pet">${t("inspect.pet")}: ${esc(PET_LABELS[m.pet].name)}</div>`;
+  const eq = m.eq || {};
+  let any = false;
+  html += `<div class="inspect-eq">`;
+  for (const s of ["weapon", "armor", "helm", "ring"]) {
+    const it = eq[s];
+    if (!it) continue;
+    any = true;
+    html += `<div class="inspect-slot r-${esc(it.rarity || "common")}"><span class="is-slot">${s}</span><span class="is-name">${esc(it.name)}</span></div>`;
+  }
+  html += `</div>`;
+  if (!any) html += `<div class="inspect-empty">${t("inspect.empty")}</div>`;
+  html += `<button type="button" class="btn" id="inspectCloseBtn">${t("inspect.close")}</button>`;
+  panel.innerHTML = html;
+  panel.classList.remove("hidden");
+  const x = panel.querySelector(".panel-x");
+  if (x) x.addEventListener("click", () => panel.classList.add("hidden"));
+  const c = $("inspectCloseBtn");
+  if (c) c.addEventListener("click", () => panel.classList.add("hidden"));
 }
 function showDialog(m) {
   closeCityPanels("dialogPanel");

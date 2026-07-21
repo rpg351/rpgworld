@@ -105,7 +105,11 @@ class Companion {
         await waitHealthy();
         await this.connectOnce();
       } catch (e) {
-        if (!this.stopping) console.error(`[bot:${NAME}] session ended:`, e);
+        if (!this.stopping) {
+          this._sessionErrs = (this._sessionErrs || 0) + 1;
+          if (this._sessionErrs <= 2 || this._sessionErrs % 10 === 0)
+            console.error(`[bot:${NAME}] session ended (#${this._sessionErrs}):`, e);
+        }
       }
       this.resetSession();
       if (this.stopping) return;
@@ -161,7 +165,11 @@ class Companion {
         this.onMsg(msg);
         if (!tick && this.id > 0) {
           tick = setInterval(() => {
-            try { this.tick(); } catch (e) { console.error(`[bot:${NAME}] tick error:`, e); }
+            try { this.tick(); } catch (e) {
+              this._tickErrs = (this._tickErrs || 0) + 1;
+              if (this._tickErrs <= 2 || this._tickErrs % 25 === 0)
+                console.error(`[bot:${NAME}] tick error (#${this._tickErrs}):`, e);
+            }
           }, TICK_MS);
         }
       };

@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>La Era de los Titanes — Ideitas</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a140c'/%3E%3Cpath d='M6 8h20v4h-7v14h-6V12H6z' fill='%23c8933b'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=20260902">
+<link rel="stylesheet" href="style.css?v=20260903">
 </head>
 <body>
 
@@ -71,6 +71,8 @@
     <div class="target-bar"><div id="targetFill"></div></div>
   </div>
   <div id="streakHud" class="hidden"></div>
+  <div id="questTracker" class="hidden"></div>
+  <div id="inspectPanel" class="panel hidden"></div>
   <div id="toasts"></div>
 
   <div id="chat">
@@ -210,8 +212,9 @@
       <div class="menu-help-h" data-i18n="help.h.social">Pueblo y grupo</div>
       <div class="menu-help-row"><b>B</b> — <span data-i18n="help.recall">Volver a Helike (recall)</span></div>
       <div class="menu-help-row"><b data-i18n="help.enterKey">Enter</b> — <span data-i18n="help.chat">Escribir en el chat (/w nombre mensaje = susurro)</span></div>
+      <div class="menu-help-row"><b>/wave</b> — <span data-i18n="help.emote">Gestos: /wave /dance /cheer /bow (o /me …)</span></div>
       <div class="menu-help-row"><b data-i18n="help.pingKey">G / clic minimapa</b> — <span data-i18n="help.ping">Marcar una posición para tu grupo</span></div>
-      <div class="menu-help-row"><b data-i18n="help.playerKey">Clic en otro jugador</b> — <span data-i18n="help.player">Invitarlo a tu grupo</span></div>
+      <div class="menu-help-row"><b data-i18n="help.playerKey">Clic en otro jugador</b> — <span data-i18n="help.player">Invitarlo a tu grupo</span> / <span data-i18n="help.inspect">Inspeccionar</span></div>
       <div class="menu-help-row"><b data-i18n="help.followKey">"Seguir" (panel de grupo)</b> — <span data-i18n="help.follow">Tu personaje camina solo hacia el líder del grupo</span></div>
       <div class="menu-help-row"><b>P</b> — <span data-i18n="help.party">Minimizar/expandir el panel de grupo</span></div>
       <div class="menu-help-row"><b data-i18n="help.npcKey">Clic en un NPC</b> — <span data-i18n="help.npc">Hablar, comprar, teleportarte o escribir en el tablón de peticiones, según el NPC</span></div>
@@ -264,6 +267,7 @@
 
   <div id="deathOverlay" class="overlay hidden">
     <div class="overlay-title" data-i18n="death.title">Has caído</div>
+    <div id="deathRecap" class="death-recap"></div>
     <div id="reviveCountdown" class="revive-countdown"></div>
     <button id="respawnBtn" type="button" data-i18n="death.respawn">Resucitar en Helike</button>
   </div>
@@ -278,7 +282,7 @@ if (!document.getElementById("respawnBtn") && !location.search.includes("v=")) {
   location.replace(location.pathname + "?v=" + Date.now());
 }
 </script>
-<script src="audio.js?v=20260902"></script>
-<script src="game.js?v=20260902"></script>
+<script src="audio.js?v=20260903"></script>
+<script src="game.js?v=20260903"></script>
 </body>
 </html>
