@@ -5000,6 +5000,11 @@ var CLS_ES = { warrior: "Guerrero", hunter: "Cazador", mage: "Mago", cleric: "Cl
 function escHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
+function inviteCardHtml(from, lvl, cls, msg, yesId, noId, yesLabel, noLabel) {
+  return `<div class="inv-txt"><b>${escHtml(from)}</b> (${lvl != null ? `nivel ${lvl}, ` : ""}${escHtml(CLS_ES[cls] || cls)}) ${msg}</div>
+    <div class="inv-btns"><button class="btn green" id="${yesId}">${yesLabel}</button>
+    <button class="btn ghost" id="${noId}">${noLabel}</button></div>`;
+}
 function showInvitePrompt(boxId, timerKey, html, onYes, onNo, yesId, noId) {
   const box = $(boxId);
   if (!box) return;
@@ -5018,9 +5023,7 @@ function showTradeInvite(m) {
   showInvitePrompt(
     "tradeInviteBox",
     "_tradeInvTimer",
-    `<div class="inv-txt"><b>${escHtml(m.from)}</b> (nivel ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("trade.invite")}</div>
-    <div class="inv-btns"><button class="btn green" id="trYes">${t("trade.accept")}</button>
-    <button class="btn ghost" id="trNo">${t("trade.decline")}</button></div>`,
+    inviteCardHtml(m.from, m.lvl, m.cls, t("trade.invite"), "trYes", "trNo", t("trade.accept"), t("trade.decline")),
     () => send({ t: "trade_accept", from: m.from }),
     () => send({ t: "trade_decline", from: m.from }),
     "trYes",
@@ -5032,9 +5035,7 @@ function showDuelInvite(m) {
   showInvitePrompt(
     "inviteBox",
     "_partyInvTimer",
-    `<div class="inv-txt"><b>${escHtml(m.from)}</b> (Nv ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("duel.invite")}</div>
-    <div class="inv-btns"><button class="btn green" id="duelYes">${t("duel.accept")}</button>
-    <button class="btn ghost" id="duelNo">${t("duel.decline")}</button></div>`,
+    inviteCardHtml(m.from, m.lvl, m.cls, t("duel.invite"), "duelYes", "duelNo", t("duel.accept"), t("duel.decline")),
     () => send({ t: "duel_accept", from: m.from }),
     () => send({ t: "duel_decline", from: m.from }),
     "duelYes",
@@ -5153,6 +5154,15 @@ function promptPayGold(name) {
   if (!Number.isFinite(gold) || gold < 1) return;
   send({ t: "pay", name, gold });
 }
+function requestTrade(id) {
+  if (id) send({ t: "trade_req", id: id });
+}
+function requestDuel(id) {
+  if (id) send({ t: "duel_req", id: id });
+}
+function requestParty(id) {
+  if (id) send({ t: "party_invite", id: id });
+}
 function startWhisper(name) {
   const inp = $("chatInput");
   if (!inp) return;
@@ -5188,12 +5198,12 @@ function openPlayerMenu(e, entId) {
   });
   const tradeBtn = $("pmTrade");
   if (tradeBtn) tradeBtn.addEventListener("click", () => {
-    send({ t: "trade_req", id: entId });
+    requestTrade(entId);
     closePlayerMenu();
   });
   const duelBtn = $("pmDuel");
   if (duelBtn) duelBtn.addEventListener("click", () => {
-    send({ t: "duel_req", id: entId });
+    requestDuel(entId);
     closePlayerMenu();
   });
   const duelCancel = $("pmDuelCancel");
@@ -5214,7 +5224,7 @@ function openPlayerMenu(e, entId) {
   const b = $("pmInvite");
   if (b)
     b.addEventListener("click", () => {
-      send({ t: "party_invite", id: entId });
+      requestParty(entId);
       closePlayerMenu();
     });
 }
@@ -5225,9 +5235,7 @@ function showInvite(m) {
   showInvitePrompt(
     "inviteBox",
     "_partyInvTimer",
-    `<div class="inv-txt"><b>${escHtml(m.from)}</b> (nivel ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) te invita a su grupo</div>
-    <div class="inv-btns"><button class="btn green" id="invYes">Unirse</button>
-    <button class="btn ghost" id="invNo">Rechazar</button></div>`,
+    inviteCardHtml(m.from, m.lvl, m.cls, "te invita a su grupo", "invYes", "invNo", "Unirse", "Rechazar"),
     () => send({ t: "party_accept", from: m.from }),
     () => send({ t: "party_decline", from: m.from }),
     "invYes",
@@ -6567,13 +6575,13 @@ function renderWho() {
         startWhisper(btn.dataset.name);
       } else if (act === "invite") {
         const id = Number(btn.dataset.id);
-        if (id) send({ t: "party_invite", id });
+        requestParty(id);
       } else if (act === "trade") {
         const id = Number(btn.dataset.id);
-        if (id) send({ t: "trade_req", id });
+        requestTrade(id);
       } else if (act === "duel") {
         const id = Number(btn.dataset.id);
-        if (id) send({ t: "duel_req", id });
+        requestDuel(id);
       } else if (act === "pay") {
         promptPayGold(btn.dataset.name);
       } else if (act === "friend") {

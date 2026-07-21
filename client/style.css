@@ -609,9 +609,6 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .log-gold{color:#ecc16e}
 .log-dmg{color:#ff6a5e;font-variant-numeric:tabular-nums}
 .log-time{color:var(--ink-dim);font-size:10px;margin-left:auto}
-@media (max-width:900px){
-  #lootLogPanel,#combatLogPanel{display:none !important}
-}
 #inspectPanel{width:280px;z-index:40}
 .inspect-head{margin:4px 0 8px;color:var(--ink)}
 .inspect-pet{font-size:12px;color:var(--ink-dim);margin-bottom:8px}
@@ -620,9 +617,6 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .inspect-slot .is-slot{color:var(--ink-dim);font-size:11px;text-transform:uppercase}
 .inspect-slot .is-name{font-size:13px}
 .inspect-empty{color:var(--ink-dim);font-style:italic;margin-bottom:8px}
-@media(max-width:900px){
-  #questTracker{top:auto;bottom:118px;left:8px;width:160px;padding:6px 8px}
-}
 
 /* ===== chat tabs / meter / achievements ===== */
 .chat-tabs{display:flex;gap:3px;margin-bottom:3px;pointer-events:auto}
@@ -650,9 +644,6 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .ach-row .ach-gold{color:#ffcf40;font-size:11px}
 .ach-row:not(.on){opacity:.55}
 .ach-stats{font-size:11px;color:var(--ink-dim);padding:0 4px 6px}
-@media (max-width:900px){
-  #meterPanel{display:none !important}
-}
 
 #whoPanel{width:min(380px,92vw);max-height:70vh;overflow:hidden;display:flex;flex-direction:column}
 #whoPanel.hidden{display:none}
@@ -703,3 +694,8 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
 .trade-hint{font-size:11px;color:#a8946a}
 
 /* Duel invite uses inviteBox; partner targeting uses enemy tint via isEnemyEnt */
+
+@media (max-width:900px){
+  #lootLogPanel,#combatLogPanel,#meterPanel{display:none !important}
+  #questTracker{top:auto;bottom:118px;left:8px;width:160px;padding:6px 8px}
+}

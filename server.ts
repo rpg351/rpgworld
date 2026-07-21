@@ -1477,6 +1477,29 @@ function outOfCastRange(p: Player, x: number, y: number): boolean {
   if (dist(p.x, p.y, x, y) > CAST_RANGE + 0.5) { toast(p, "Fuera de alcance"); return true; }
   return false;
 }
+function needParty(p: Player): boolean {
+  if (p.party) return false;
+  toast(p, "No estás en un grupo");
+  return true;
+}
+
+function inCombatBlock(p: Player, now: number, msg: string): boolean {
+  if (now < p.combatUntil) { toast(p, msg); return true; }
+  return false;
+}
+
+function alreadyDueling(p: Player): boolean {
+  if (!p.duelWith) return false;
+  toast(p, "Ya estás en un duelo");
+  return true;
+}
+
+function targetDown(p: Player, q: Player): boolean {
+  if (!q.dead) return false;
+  toast(p, "Ese jugador ha caído");
+  return true;
+}
+
 
 
 function tileAt(x: number, y: number): string {
@@ -1526,7 +1549,7 @@ function beginFish(p: Player, now: number): void {
   dismountAndStand(p);
   if (p.fishUntil && now < p.fishUntil) return toast(p, "Ya estás pescando…");
   if (channelBlocked(p, now)) return;
-  if (now < p.combatUntil) return toast(p, "No puedes pescar en combate");
+  if (inCombatBlock(p, now, "No podés pescar en combate")) return;
   if (!nearWater(p)) return toast(p, "Debes estar junto al agua");
   if (inTown(p.x, p.y)) return toast(p, "No se puede pescar en la plaza");
   clearMobility(p);
@@ -1540,7 +1563,7 @@ function beginForage(p: Player, now: number): void {
   dismountAndStand(p);
   if (p.forageUntil && now < p.forageUntil) return toast(p, "Ya estás recolectando…");
   if (channelBlocked(p, now)) return;
-  if (now < p.combatUntil) return toast(p, "No puedes recolectar en combate");
+  if (inCombatBlock(p, now, "No podés recolectar en combate")) return;
   if (!nearTree(p)) return toast(p, "Debes estar junto a un árbol");
   if (inTown(p.x, p.y)) return toast(p, "No se recolecta en la plaza");
   clearMobility(p);
@@ -1555,7 +1578,7 @@ function beginBrew(p: Player, now: number): void {
   if (p.dead) return;
   dismountAndStand(p);
   if (channelBlocked(p, now)) return;
-  if (now < p.combatUntil) return toast(p, "No puedes preparar brebajes en combate");
+  if (inCombatBlock(p, now, "No podés preparar brebajes en combate")) return;
   if (needNpc(p, kora, "Prepara brebajes junto a Kora")) return;
   let slot = -1;
   for (let i = 0; i < p.inv.length; i++) {
@@ -1601,6 +1624,7 @@ function tryBind(p: Player): void {
 // ---------------------------------------------------------------------------
 const TRADE_SLOTS = 6;
 const TRADE_RANGE = 12;
+const DUEL_RANGE = 14;
 const TRADE_INVITE_MS = 30000;
 
 interface TradeSide {
@@ -1685,16 +1709,16 @@ function cancelDuel(p: Player, reason: string): void {
 
 function tryDuelReq(p: Player, targetId: number, now: number): void {
   if (p.dead) return;
-  if (p.duelWith) return toast(p, "Ya estás en un duelo");
+  if (alreadyDueling(p)) return;
   if (p.tradeId) return toast(p, "Terminá el intercambio primero");
   if (waitToast(p, p.lastDuelReqAt, 1500, now)) return;
   const target = playerById(targetId);
   if (!target || target === p) return;
   if (BOT_SQUAD.has(target.name)) return toast(p, "Los compañeros no aceptan duelos");
-  if (target.dead) return toast(p, "Ese jugador ha caído");
+  if (targetDown(p, target)) return;
   if (target.duelWith) return toast(p, `${target.name} ya está en un duelo`);
   if (target.tradeId) return toast(p, `${target.name} está intercambiando`);
-  if (tooFar(p, target, 14)) return;
+  if (tooFar(p, target, DUEL_RANGE)) return;
   p.lastDuelReqAt = now;
   target.duelInvites.set(p.name, now + 30000);
   send(target.ws, { t: "duel_invited", from: p.name, fromId: p.id, cls: p.cls, lvl: p.lvl });
@@ -1703,7 +1727,7 @@ function tryDuelReq(p: Player, targetId: number, now: number): void {
 
 function tryDuelAccept(p: Player, fromName: string, now: number): void {
   if (p.dead) return;
-  if (p.duelWith) return toast(p, "Ya estás en un duelo");
+  if (alreadyDueling(p)) return;
   const name = String(fromName || "").trim();
   const exp = p.duelInvites.get(name);
   if (!exp || now > exp) {
@@ -1714,8 +1738,8 @@ function tryDuelAccept(p: Player, fromName: string, now: number): void {
   const other = playerByName(name, true);
   if (!other) return toast(p, "Ese jugador no está en línea");
   if (other.duelWith) return toast(p, `${other.name} ya está en un duelo`);
-  if (other.dead) return toast(p, "Ese jugador ha caído");
-  if (tooFar(p, other, 16)) return;
+  if (targetDown(p, other)) return;
+  if (tooFar(p, other, DUEL_RANGE)) return;
   dismountAndStand(p);
   dismountAndStand(other);
   if (p.tradeId) cancelTrade(p, "Intercambio cancelado");
@@ -2206,7 +2230,7 @@ function beginCook(p: Player, now: number): void {
   dismountAndStand(p);
   if (p.cookUntil && now < p.cookUntil) return toast(p, "Ya estás cocinando…");
   if (channelBlocked(p, now)) return;
-  if (now < p.combatUntil) return toast(p, "No puedes cocinar en combate");
+  if (inCombatBlock(p, now, "No podés cocinar en combate")) return;
   if (needNpc(p, bront, "Cocina junto a la forja de Bront")) return;
   let slot = -1;
   for (let i = 0; i < p.inv.length; i++) {
@@ -2315,7 +2339,7 @@ function tryMount(p: Player): void {
     p.activeMount = first;
   }
   const now = Date.now();
-  if (now < p.combatUntil) return toast(p, "No podés montar en combate");
+  if (inCombatBlock(p, now, "No podés montar en combate")) return;
   if (channelBlocked(p, now)) return;
   standUp(p, true);
   p.mounted = true;
@@ -2328,7 +2352,7 @@ function trySit(p: Player): void {
   if (p.dead) return;
   if (p.sitting) { standUp(p); return; }
   const now = Date.now();
-  if (now < p.combatUntil) return toast(p, "No podés sentarte en combate");
+  if (inCombatBlock(p, now, "No podés sentarte en combate")) return;
   if (p.mounted) return toast(p, "Apeate antes de sentarte");
   if (channelBlocked(p, now)) return;
   clearMobility(p);
@@ -2347,7 +2371,7 @@ function tryPay(p: Player, targetName: string, amount: number, now: number): voi
   if (name.toLowerCase() === p.name.toLowerCase()) return toast(p, "No podés pagarte a vos mismo");
   const target = playerByName(name, true);
   if (!target) return toast(p, "Ese jugador no está en línea");
-  if (tooFar(p, target, 14)) return;
+  if (tooFar(p, target, DUEL_RANGE)) return;
   if (needGold(p, gold)) return;
   p.gold -= gold;
   target.gold += gold;
@@ -3194,10 +3218,10 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       const id = typeof msg.id === "string" ? msg.id : "";
       if (id && (!MOUNT_DEFS[id] || !p.mounts.has(id))) return;
       p.activeMount = id || null;
-      if (p.mounted && (!p.activeMount)) p.mounted = false;
+      if (!p.activeMount) dismount(p, true);
       p.dirty = true;
       if (p.activeMount) toast(p, `Montura lista: ${MOUNT_DEFS[p.activeMount].name}`);
-      else { p.mounted = false; toast(p, "Sin montura activa"); }
+      else toast(p, "Sin montura activa");
       sendYou(p);
       sendPetShop(p);
       break;
@@ -3371,7 +3395,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (id == null) return;
       const target = playerById(id);
       if (!target || target === p) return;
-      if (tooFar(p, target, 14)) return;
+      if (tooFar(p, target, DUEL_RANGE)) return;
       const eq: Record<string, unknown> = {};
       for (const slot of EQUIP_SLOTS) {
         const it = target.eq[slot];
@@ -3593,7 +3617,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
     }
     case "party_ping": {
       if (p.dead) return;
-      if (!p.party) return toast(p, "No estás en un grupo");
+      if (needParty(p)) return;
       if (now - p.lastPingAt < 2000) return;
       const x = num(msg.x), y = num(msg.y);
       if (x == null || y == null) return;
@@ -3611,15 +3635,10 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       if (dest !== "helike" && !p.visitedZones.includes(dest))
         return toast(p, "Primero debes visitar esa región a pie");
       if (needNpc(p, portalNpc, "Debes estar junto al Portal")) return;
-      if (p.combatUntil > now) return toast(p, "No puedes viajar en combate");
+      if (inCombatBlock(p, now, "No podés viajar en combate")) return;
       p.x = wp.x;
       p.y = wp.y;
-      p.path = null;
-      p.direct = null;
-      p.vel = null;
-      p.atkTarget = null;
-      p.lootTarget = null;
-      p.npcTarget = null;
+      clearMobility(p);
       p.followStuck = 0;
       p.combatUntil = 0;
       sendYou(p);
@@ -3698,7 +3717,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       // Party chat: /p|/g|/grupo message
       const pm = text.match(/^\/(?:p|g|grupo)\s+(.+)$/i);
       if (pm) {
-        if (!p.party) return toast(p, "No estás en un grupo");
+        if (needParty(p)) return;
         const body = pm[1].slice(0, 180);
         const line = JSON.stringify({ t: "chat", from: p.name, text: body, party: 1 });
         for (const m of p.party.members) if (m.ws && m.ws.readyState === 1) m.ws.send(line);
@@ -3764,12 +3783,7 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         p.x = FOUNTAIN.x + Math.cos(ang) * r;
         p.y = FOUNTAIN.y + Math.sin(ang) * r;
       }
-      p.path = null;
-      p.direct = null;
-      p.vel = null;
-      p.atkTarget = null;
-      p.lootTarget = null;
-      p.npcTarget = null;
+      clearMobility(p);
       p.combatUntil = 0;
       bcastAt(p.x, p.y, { t: "fx", k: "recall", i: p.id });
       toast(p, hasBind ? "Has vuelto a tu hogar ligado" : "Has vuelto a Helike");

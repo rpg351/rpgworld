@@ -1,3 +1,13 @@
+## 2026-09-21 — Duelos, recall y más dedupe
+
+- **Duelos**: rango unificado (`DUEL_RANGE`); helpers `alreadyDueling` / `targetDown`.
+- **Recall / portal**: usan `clearMobility` (sin limpiar path a mano).
+- **Montura**: desequipar activa `dismount` en vez de flags crudos.
+- Helpers `needParty` / `inCombatBlock`; toasts de combate en "No podés…".
+- Cliente: `inviteCardHtml` + `requestTrade`/`requestDuel`/`requestParty`; CSS móvil
+  de paneles/log unificado.
+- Cache bust `?v=20260921`.
+
 ## 2026-09-20 — Sit/stand + helpers de oro/canal/alcance
 
 - **Sentarse**: al moverse (clic o joystick) se usa `standUp` de verdad; el tick
