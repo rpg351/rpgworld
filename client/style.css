@@ -703,3 +703,5 @@ body.inv-dropping .inv-slot.full{cursor:grabbing}
   box-shadow:0 8px 24px rgba(0,0,0,.45);min-width:260px}
 #tradeInviteBox.hidden{display:none}
 .trade-hint{font-size:11px;color:#a8946a}
+
+/* Duel invite uses inviteBox; partner targeting uses enemy tint via isEnemyEnt */

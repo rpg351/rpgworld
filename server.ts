@@ -139,6 +139,11 @@ interface Player extends StatusHolder {
   bindX: number; bindY: number; // hearth bind (0,0 = unbound) // session: sitting for OOC regen
   tradeId: string | null; // active trade session
   lastTradeReqAt: number;
+  duelWith: number | null; // partner entity id while dueling
+  duelWins: number;
+  salvageCount: number;
+  lastDuelReqAt: number;
+  duelInvites: Map<string, number>; // fromName -> expiry
   lastPayAt: number; // gold /pay rate limit
   str: number; dex: number; int: number;
   hp: number; mp: number; x: number; y: number;
@@ -307,6 +312,8 @@ function serialize(p: Player): string {
     cookCount: p.cookCount,
     forageCount: p.forageCount,
     brewCount: p.brewCount,
+    duelWins: p.duelWins,
+    salvageCount: p.salvageCount,
     bindX: p.bindX, bindY: p.bindY,
     title: p.title || "",
   });
@@ -536,6 +543,7 @@ function sendYou(p: Player): void {
     rested: p.restedUntil > Date.now() ? Math.ceil((p.restedUntil - Date.now()) / 1000) : 0,
     title: p.title || "",
     fishCount: p.fishCount, cookCount: p.cookCount, forageCount: p.forageCount, brewCount: p.brewCount,
+    duelWins: p.duelWins, salvageCount: p.salvageCount, duelWith: p.duelWith,
     buff: p.buffUntil > Date.now() ? {
       left: Math.ceil((p.buffUntil - Date.now()) / 1000),
       dmgp: p.buffDmgp, arm: p.buffArm, spd: p.buffSpd, xp: p.buffXp,
@@ -785,6 +793,7 @@ function playerDie(p: Player): void {
   p.deadAt = Date.now();
   p.killStreak = 0;
   if (p.tradeId) cancelTrade(p, "Intercambio cancelado");
+  if (p.duelWith) cancelDuel(p, "Duelo cancelado");
   p.killStreakAt = 0;
   p.session.deaths++;
   sendMeter(p, true);
@@ -1245,15 +1254,25 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
   const d = derive(p);
 
   const hits: Mob[] = [];
+  const duelHits: Player[] = [];
   let fxMsg: Record<string, unknown> | null = null;
   const isHealFx = def.fx.k === "heal";
   if (def.kind === "target") {
     const m = targetId != null ? mobById(targetId) : null;
-    if (!m || m.dead) return toast(p, "Sin objetivo");
-    if (dist(p.x, p.y, m.x, m.y) > CAST_RANGE + 0.5) return toast(p, "Fuera de alcance");
-    hits.push(m);
-    fxMsg = { t: "fx", k: "proj", from: { x: r2(p.x), y: r2(p.y) }, to: { x: r2(m.x), y: r2(m.y) }, style: def.fx.style };
-    p.d = m.x < p.x ? 1 : 0;
+    const foe = targetId != null ? playerById(targetId) : null;
+    if (m && !m.dead) {
+      if (dist(p.x, p.y, m.x, m.y) > CAST_RANGE + 0.5) return toast(p, "Fuera de alcance");
+      hits.push(m);
+      fxMsg = { t: "fx", k: "proj", from: { x: r2(p.x), y: r2(p.y) }, to: { x: r2(m.x), y: r2(m.y) }, style: def.fx.style };
+      p.d = m.x < p.x ? 1 : 0;
+    } else if (foe && areDueling(p, foe) && def.base > 0) {
+      if (dist(p.x, p.y, foe.x, foe.y) > CAST_RANGE + 0.5) return toast(p, "Fuera de alcance");
+      duelHits.push(foe);
+      fxMsg = { t: "fx", k: "proj", from: { x: r2(p.x), y: r2(p.y) }, to: { x: r2(foe.x), y: r2(foe.y) }, style: def.fx.style };
+      p.d = foe.x < p.x ? 1 : 0;
+    } else {
+      return toast(p, "Sin objetivo");
+    }
   } else if (!isHealFx || def.fx.k === "aoe") {
     const cx = def.kind === "self" ? p.x : px;
     const cy = def.kind === "self" ? p.y : py;
@@ -1264,6 +1283,8 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
     if (def.base > 0) {
       for (const m of mobs)
         if (!m.dead && dist(m.x, m.y, cx, cy) <= r) hits.push(m);
+      const foe = duelPartner(p);
+      if (foe && dist(foe.x, foe.y, cx, cy) <= r) duelHits.push(foe);
     }
     if (def.fx.k === "aoe")
       fxMsg = { t: "fx", k: "aoe", x: r2(cx), y: r2(cy), r, style: def.fx.style };
@@ -1271,7 +1292,7 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
 
   p.mp -= def.cost;
   p.skillCds[n] = now + def.cd * cdMult(p);
-  if (def.base > 0 || hits.length) p.combatUntil = now + COMBAT_MS;
+  if (def.base > 0 || hits.length || duelHits.length) p.combatUntil = now + COMBAT_MS;
   if (fxMsg) bcastAt(p.x, p.y, fxMsg);
 
   // Healing (cleric): flat amount from the CASTER's int + node rank, boosted
@@ -1332,6 +1353,14 @@ function useSkill(p: Player, n: number, targetId: number | null, px: number | nu
       const raw = (def.base + def.perRank * (effRank - 1) + def.coeff * stat + weaponRoll + flatPassive)
         * (1 + d.dmgp / 100);
       playerHit(p, m, raw, d);
+    }
+  }
+  for (const foe of duelHits) {
+    if (def.base > 0) {
+      const weaponRoll = (def.weaponShare ?? 0) * (wLo + Math.random() * (wHi - wLo));
+      const raw = (def.base + def.perRank * (effRank - 1) + def.coeff * stat + weaponRoll)
+        * (1 + d.dmgp / 100);
+      playerHitPlayer(p, foe, raw, d);
     }
   }
   sendYou(p);
@@ -1479,6 +1508,207 @@ interface TradeSession {
 
 const trades = new Map<string, TradeSession>();
 const tradeInvites = new Map<string, { fromId: number; fromName: string; until: number }>(); // key = targetName lower
+
+
+function areDueling(a: Player, b: Player): boolean {
+  return Boolean(a) && Boolean(b) && a !== b && a.duelWith === b.id && b.duelWith === a.id;
+}
+
+function duelPartner(p: Player): Player | null {
+  if (!p.duelWith) return null;
+  const q = playersById.get(p.duelWith) || null;
+  return q && q.ws && areDueling(p, q) ? q : null;
+}
+
+function clearDuelState(p: Player): void {
+  p.duelWith = null;
+  if (p.atkTarget != null && !mobById(p.atkTarget)) p.atkTarget = null;
+}
+
+function endDuel(a: Player, b: Player, reason: string, winner: Player | null = null): void {
+  if (!a.duelWith && !b.duelWith) return;
+  clearDuelState(a);
+  clearDuelState(b);
+  a.combatUntil = 0;
+  b.combatUntil = 0;
+  a.atkTarget = null;
+  b.atkTarget = null;
+  // Soft reset — no death penalty.
+  const da = derive(a), db = derive(b);
+  if (a.hp < 1) a.hp = Math.max(1, Math.floor(da.mhp * 0.5));
+  if (b.hp < 1) b.hp = Math.max(1, Math.floor(db.mhp * 0.5));
+  if (winner === a) {
+    a.duelWins++;
+    a.dirty = true;
+    grantAch(a, "duel_1");
+    if (a.duelWins >= 5) grantAch(a, "duel_5");
+    toast(a, `Victoria en duelo contra ${b.name}`);
+    toast(b, `Derrota en duelo contra ${a.name}`);
+    bcastAt(a.x, a.y, { t: "fx", k: "level", i: a.id });
+  } else if (winner === b) {
+    b.duelWins++;
+    b.dirty = true;
+    grantAch(b, "duel_1");
+    if (b.duelWins >= 5) grantAch(b, "duel_5");
+    toast(b, `Victoria en duelo contra ${a.name}`);
+    toast(a, `Derrota en duelo contra ${b.name}`);
+    bcastAt(b.x, b.y, { t: "fx", k: "level", i: b.id });
+  } else {
+    toast(a, reason || "Duelo cancelado");
+    toast(b, reason || "Duelo cancelado");
+  }
+  send(a.ws, { t: "duel", state: "end", reason: reason || "end", wins: a.duelWins });
+  send(b.ws, { t: "duel", state: "end", reason: reason || "end", wins: b.duelWins });
+  sendYou(a);
+  sendYou(b);
+}
+
+function cancelDuel(p: Player, reason: string): void {
+  const q = p.duelWith != null ? (playersById.get(p.duelWith) || null) : null;
+  if (q && q.duelWith === p.id) endDuel(p, q, reason, null);
+  else clearDuelState(p);
+}
+
+function tryDuelReq(p: Player, targetId: number, now: number): void {
+  if (p.dead) return;
+  if (p.duelWith) return toast(p, "Ya estás en un duelo");
+  if (p.tradeId) return toast(p, "Terminá el intercambio primero");
+  if (now - p.lastDuelReqAt < 1500) return toast(p, "Esperá un momento…");
+  const target = playerById(targetId);
+  if (!target || target === p) return;
+  if (BOT_SQUAD.has(target.name)) return toast(p, "Los compañeros no aceptan duelos");
+  if (target.dead) return toast(p, "Ese jugador ha caído");
+  if (target.duelWith) return toast(p, `${target.name} ya está en un duelo`);
+  if (target.tradeId) return toast(p, `${target.name} está intercambiando`);
+  if (dist(p.x, p.y, target.x, target.y) > 14) return toast(p, "Está demasiado lejos");
+  p.lastDuelReqAt = now;
+  target.duelInvites.set(p.name, now + 30000);
+  send(target.ws, { t: "duel_invited", from: p.name, fromId: p.id, cls: p.cls, lvl: p.lvl });
+  toast(p, `Desafío de duelo enviado a ${target.name}`);
+}
+
+function tryDuelAccept(p: Player, fromName: string, now: number): void {
+  if (p.dead) return;
+  if (p.duelWith) return toast(p, "Ya estás en un duelo");
+  const name = String(fromName || "").trim();
+  const exp = p.duelInvites.get(name);
+  if (!exp || now > exp) {
+    p.duelInvites.delete(name);
+    return toast(p, "El desafío expiró");
+  }
+  p.duelInvites.delete(name);
+  let other: Player | null = null;
+  for (const q of players.values()) {
+    if (q.name.toLowerCase() === name.toLowerCase()) { other = q; break; }
+  }
+  if (!other || !other.ws) return toast(p, "Ese jugador ya no está en línea");
+  if (other.duelWith) return toast(p, `${other.name} ya está en un duelo`);
+  if (other.dead) return toast(p, "Ese jugador ha caído");
+  if (dist(p.x, p.y, other.x, other.y) > 16) return toast(p, "Está demasiado lejos");
+  if (p.mounted) dismount(p, true);
+  if (other.mounted) dismount(other, true);
+  if (p.sitting) standUp(p, true);
+  if (other.sitting) standUp(other, true);
+  if (p.tradeId) cancelTrade(p, "Intercambio cancelado");
+  if (other.tradeId) cancelTrade(other, "Intercambio cancelado");
+  p.duelWith = other.id;
+  other.duelWith = p.id;
+  p.atkTarget = null;
+  other.atkTarget = null;
+  toast(p, `¡Duelo contra ${other.name}!`);
+  toast(other, `¡Duelo contra ${p.name}!`);
+  send(p.ws, { t: "duel", state: "start", id: other.id, name: other.name });
+  send(other.ws, { t: "duel", state: "start", id: p.id, name: p.name });
+  bcastAt(p.x, p.y, { t: "fx", k: "slash", x: r2(p.x), y: r2(p.y), tx: r2(other.x), ty: r2(other.y) });
+  sendYou(p);
+  sendYou(other);
+}
+
+function tryDuelDecline(p: Player, fromName: string): void {
+  const name = String(fromName || "").trim();
+  p.duelInvites.delete(name);
+  for (const q of players.values()) {
+    if (q.name.toLowerCase() === name.toLowerCase() && q.ws) {
+      toast(q, `${p.name} rechazó el duelo`);
+      break;
+    }
+  }
+  toast(p, "Desafío rechazado");
+}
+
+function playerHitPlayer(p: Player, q: Player, raw: number, d: Derived = derive(p)): void {
+  if (q.dead || p.dead || !areDueling(p, q)) return;
+  const crit = Math.random() * 100 < d.crit;
+  if (crit) raw *= 1.6;
+  const td = derive(q);
+  const dmg = mitigate(raw, td.arm);
+  q.hp -= dmg;
+  const now = Date.now();
+  p.combatUntil = now + COMBAT_MS;
+  q.combatUntil = now + COMBAT_MS;
+  p.lastAtk = now;
+  p.d = q.x < p.x ? 1 : 0;
+  p.session.dealt += dmg;
+  sendMeter(p);
+  const ev: Record<string, unknown> = { t: "dmg", i: q.id, a: dmg, s: p.id };
+  if (crit) ev.c = 1;
+  bcastAt(q.x, q.y, ev);
+  noteHitTaken(q, p.name, dmg);
+  q.session.taken += dmg;
+  sendMeter(q);
+  sendYou(q);
+  if (q.hp <= 0) {
+    q.hp = 0;
+    endDuel(p, q, "finish", p);
+  }
+}
+
+function maintainDuels(now: number): void {
+  for (const p of players.values()) {
+    if (!p.ws || !p.duelWith) continue;
+    const q = playersById.get(p.duelWith) || null;
+    if (!q || !q.ws || q.duelWith !== p.id) {
+      clearDuelState(p);
+      send(p.ws, { t: "duel", state: "end", reason: "gone" });
+      toast(p, "Duelo cancelado");
+      continue;
+    }
+    // Only process once per pair
+    if (p.id > q.id) continue;
+    if (p.dead || q.dead) { endDuel(p, q, "dead", null); continue; }
+    if (dist(p.x, p.y, q.x, q.y) > 42) endDuel(p, q, "Os alejasteis demasiado", null);
+  }
+}
+
+const SALVAGE_SLOTS = new Set(["weapon", "armor", "helm", "ring"]);
+
+function salvageValue(it: Item): number {
+  const mul = it.rarity === "rare" ? 0.85 : it.rarity === "magic" ? 0.65 : 0.45;
+  return Math.max(1, Math.floor(it.val * mul) * (it.qty ?? 1));
+}
+
+function trySalvage(p: Player, slot: number): void {
+  if (p.dead) return;
+  if (!nearNpc(p, bront)) return toast(p, "Desguazá equipo en la forja de Bront");
+  if (!Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return;
+  const it = p.inv[slot];
+  if (!it) return;
+  if (!SALVAGE_SLOTS.has(it.slot)) return toast(p, "Solo se desguaza armas y armaduras");
+  if (it.slot === "quest") return toast(p, "No puedes desguazar objetos de misión");
+  const gain = salvageValue(it);
+  const name = it.name;
+  p.inv[slot] = null;
+  p.gold += gain;
+  p.salvageCount++;
+  p.dirty = true;
+  grantAch(p, "salvage_1");
+  if (p.salvageCount >= 20) grantAch(p, "salvage_20");
+  toast(p, `Desguazaste ${name} (+${gain} oro)`);
+  pushLootLog(p, { name: `Desguace: ${name}`, rarity: it.rarity, icon: it.icon || "armor", gold: gain });
+  bcastAt(p.x, p.y, { t: "fx", k: "brew", i: p.id });
+  sendYou(p);
+}
+
 
 function emptyTradeSide(): TradeSide {
   return { items: new Array(TRADE_SLOTS).fill(null), gold: 0, locked: false, confirmed: false };
@@ -2139,6 +2369,7 @@ function defaultPlayer(name: string, cls: string, ws: WS): Player {
     pets: new Set<string>(), activePet: null,
     mounts: new Set<string>(), activeMount: null, mounted: false, sitting: false, lastPayAt: 0,
     tradeId: null, lastTradeReqAt: 0,
+    duelWith: null, duelWins: 0, salvageCount: 0, lastDuelReqAt: 0, duelInvites: new Map(),
     forageCount: 0, forageUntil: 0, brewCount: 0, bindX: 0, bindY: 0,
     str: base.str, dex: base.dex, int: base.int,
     hp: 0, mp: 0,
@@ -2262,6 +2493,8 @@ function loadPlayer(name: string, cls: string, data: string, ws: WS): Player {
     p.cookCount = clampInt(d.cookCount, 0, 100000000, 0);
     p.forageCount = clampInt(d.forageCount, 0, 100000000, 0);
     p.brewCount = clampInt(d.brewCount, 0, 100000000, 0);
+    p.duelWins = clampInt(d.duelWins, 0, 100000000, 0);
+    p.salvageCount = clampInt(d.salvageCount, 0, 100000000, 0);
     p.bindX = typeof d.bindX === "number" && Number.isFinite(d.bindX) ? d.bindX : 0;
     p.bindY = typeof d.bindY === "number" && Number.isFinite(d.bindY) ? d.bindY : 0;
     p.title = typeof d.title === "string" && ACHIEVEMENTS[d.title] && p.achs.has(d.title) ? d.title : "";
@@ -2526,13 +2759,25 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
         break;
       }
       const m = mobById(id);
-      if (!m || m.dead) return;
-      p.atkTarget = m.id;
-      p.lootTarget = null;
-      p.npcTarget = null;
-      p.path = null;
-      p.direct = null;
-      p.repathAt = 0;
+      if (m && !m.dead) {
+        p.atkTarget = m.id;
+        p.lootTarget = null;
+        p.npcTarget = null;
+        p.path = null;
+        p.direct = null;
+        p.repathAt = 0;
+        break;
+      }
+      const foe = playerById(id);
+      if (foe && areDueling(p, foe)) {
+        p.atkTarget = foe.id;
+        p.lootTarget = null;
+        p.npcTarget = null;
+        p.path = null;
+        p.direct = null;
+        p.repathAt = 0;
+        break;
+      }
       break;
     }
     case "skill": {
@@ -3231,6 +3476,33 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       cancelTrade(p, "Intercambio cancelado");
       break;
     }
+    case "duel_req": {
+      const id = num(msg.id);
+      if (id == null) return;
+      tryDuelReq(p, id, now);
+      break;
+    }
+    case "duel_accept": {
+      const from = typeof msg.from === "string" ? msg.from : "";
+      tryDuelAccept(p, from, now);
+      break;
+    }
+    case "duel_decline": {
+      const from = typeof msg.from === "string" ? msg.from : "";
+      tryDuelDecline(p, from);
+      break;
+    }
+    case "duel_cancel": {
+      if (p.duelWith) cancelDuel(p, "Duelo cancelado");
+      break;
+    }
+    case "salvage": {
+      if (p.dead || stunned) return;
+      const slot = num(msg.slot);
+      if (slot == null) return;
+      trySalvage(p, slot);
+      break;
+    }
     case "bind": {
       tryBind(p);
       break;
@@ -3334,6 +3606,29 @@ function handleMsg(ws: WS, raw: string | Buffer): void {
       }
       if (/^\/bind$/i.test(text) || /^\/ligar$/i.test(text) || /^\/hogar$/i.test(text)) {
         tryBind(p);
+        return;
+      }
+      {
+        const duel = text.match(/^\/(?:duel|desafiar|reto)\s+(.+)$/i);
+        if (duel) {
+          const nm = duel[1].trim();
+          let target: Player | null = null;
+          for (const q of players.values()) {
+            if (q.name.toLowerCase() === nm.toLowerCase()) { target = q; break; }
+          }
+          if (!target || !target.ws) { toast(p, "Ese jugador no está en línea"); return; }
+          tryDuelReq(p, target.id, now);
+          return;
+        }
+      }
+      if (/^\/salvage$/i.test(text) || /^\/desguazar$/i.test(text) || /^\/fundir$/i.test(text)) {
+        let slot = -1;
+        for (let i = 0; i < p.inv.length; i++) {
+          const it = p.inv[i];
+          if (it && SALVAGE_SLOTS.has(it.slot)) { slot = i; break; }
+        }
+        if (slot < 0) toast(p, "No tenés equipo para desguazar");
+        else trySalvage(p, slot);
         return;
       }
       if (/^\/fish$/i.test(text) || /^\/pescar$/i.test(text)) {
@@ -3509,6 +3804,7 @@ function simTick(): void {
 
   // --- players ---
   maintainTrades(now);
+  maintainDuels(now);
   for (const p of players.values()) {
     if (!p.ws) continue;
     p.moving = false;
@@ -3615,35 +3911,42 @@ function simTick(): void {
 
     if (p.atkTarget != null) {
       const m = mobById(p.atkTarget);
-      if (!m || m.dead) {
+      const foe = (!m || m.dead) ? (() => {
+        const q = playerById(p.atkTarget!);
+        return q && areDueling(p, q) ? q : null;
+      })() : null;
+      if ((!m || m.dead) && !foe) {
         p.atkTarget = null;
         p.path = null;
       } else {
+        const tx = m && !m.dead ? m.x : foe!.x;
+        const ty = m && !m.dead ? m.y : foe!.y;
         const range = weaponRange(p);
-        const dd = dist(p.x, p.y, m.x, m.y);
+        const dd = dist(p.x, p.y, tx, ty);
         if (dd <= range) {
           p.path = null;
           p.direct = null;
-          p.d = m.x < p.x ? 1 : 0;
+          p.d = tx < p.x ? 1 : 0;
           if (now >= p.nextAtk) {
             p.nextAtk = now + ATTACK_CD;
             const icon = p.eq.weapon?.icon;
             if (range === RANGED_RANGE)
-              bcastAt(p.x, p.y, { t: "fx", k: "proj", from: { x: r2(p.x), y: r2(p.y) }, to: { x: r2(m.x), y: r2(m.y) }, style: icon === "bow" ? "arrow" : "fire" });
+              bcastAt(p.x, p.y, { t: "fx", k: "proj", from: { x: r2(p.x), y: r2(p.y) }, to: { x: r2(tx), y: r2(ty) }, style: icon === "bow" ? "arrow" : "fire" });
             else
-              bcastAt(p.x, p.y, { t: "fx", k: "slash", x: r2(p.x), y: r2(p.y), tx: r2(m.x), ty: r2(m.y) });
-            playerHit(p, m, d.lo + Math.random() * (d.hi - d.lo), d);
+              bcastAt(p.x, p.y, { t: "fx", k: "slash", x: r2(p.x), y: r2(p.y), tx: r2(tx), ty: r2(ty) });
+            if (m && !m.dead) playerHit(p, m, d.lo + Math.random() * (d.hi - d.lo), d);
+            else if (foe) playerHitPlayer(p, foe, d.lo + Math.random() * (d.hi - d.lo), d);
           }
         } else if (!p.vel) {
           if (now >= p.repathAt) {
             p.repathAt = now + 500;
-            const path = astar(world.walk, p.x, p.y, m.x, m.y);
+            const path = astar(world.walk, p.x, p.y, tx, ty);
             if (path) {
               p.path = path;
               p.direct = null;
             } else {
               p.path = null;
-              p.direct = { x: m.x, y: m.y };
+              p.direct = { x: tx, y: ty };
             }
           }
           if (p.path) followPath(p, speed, dt);
@@ -4022,6 +4325,8 @@ const server = Bun.serve<Session, Record<string, never>>({
         if (p.tradeId) cancelTrade(p, "Intercambio cancelado");
         p.ws = null;
         p.disconnectedAt = Date.now(); // linger in memory so a quick reconnect keeps party/state
+        if (p.duelWith) cancelDuel(p, "Tu rival se desconectó");
+        if (p.tradeId) cancelTrade(p, "Intercambio cancelado");
         savePlayer(p);
         if (!BOT_SQUAD.has(p.name)) sysChat(`${p.name} se ha ido.`);
       }

@@ -124,6 +124,17 @@ var I18N = {
     "pet.section": "Mascotas",
     "pay.btn": "Enviar oro",
     "trade.btn": "Intercambiar",
+
+    "duel.btn": "Desafiar a duelo",
+    "duel.accept": "Aceptar duelo",
+    "duel.decline": "Rechazar",
+    "duel.cancel": "Rendirse",
+    "duel.hud": "Duelo",
+    "duel.invite": "te desafía a un duelo",
+    "salvage.tip": "X cerca de Bront: desguazar",
+    "help.duel": "Desafiar a duelo (/duel Nombre)",
+    "help.salvage": "Desguazar equipo en la forja de Bront (X / /salvage)",
+
     "trade.you": "Tu oferta",
     "trade.them": "Su oferta",
     "trade.gold": "Oro",
@@ -333,6 +344,17 @@ var I18N = {
     "help.bind": "Bind hearth at the fountain (/bind) — B returns there",
     "help.trade": "Trade with a nearby player (/trade Name)",
     "trade.btn": "Trade",
+
+    "duel.btn": "Challenge to duel",
+    "duel.accept": "Accept duel",
+    "duel.decline": "Decline",
+    "duel.cancel": "Forfeit",
+    "duel.hud": "Duel",
+    "duel.invite": "challenges you to a duel",
+    "salvage.tip": "X near Bront: salvage",
+    "help.duel": "Challenge to a duel (/duel Name)",
+    "help.salvage": "Salvage gear at Bront's forge (X / /salvage)",
+
     "trade.you": "Your offer",
     "trade.them": "Their offer",
     "trade.gold": "Gold",
@@ -565,6 +587,9 @@ var S = {
   _fpsAt: 0,
   _fpsVal: 0,
   emotes: {},
+  duelPartnerId: 0,
+  duelPartnerName: "",
+  lastInvSlot: -1,
   deathRecap: [],
   streak: 0,
   shakeMag: 0,
@@ -715,6 +740,8 @@ function handleWorld(m) {
     case "you": {
       const prevLvl = S.you ? S.you.lvl : 0;
       S.you = m;
+      if (m.duelWith) S.duelPartnerId = m.duelWith;
+      else if (m.duelWith === 0 || m.duelWith === null) S.duelPartnerId = 0;
       if (typeof m.title === "string" && S.achs) S.achs.title = m.title;
       if (Array.isArray(m.loadout) && m.loadout.length === 4 && m.loadout.some((v, i) => v !== S.loadout[i])) {
         S.loadout = m.loadout.slice();
@@ -974,6 +1001,13 @@ function handleWorld(m) {
     case "trade_invited":
       showTradeInvite(m);
       if (window.AOTAudio) AOTAudio.sfx("invite");
+      break;
+    case "duel_invited":
+      showDuelInvite(m);
+      if (window.AOTAudio) AOTAudio.sfx("invite");
+      break;
+    case "duel":
+      onDuelMsg(m);
       break;
     case "trade":
       onTradeMsg(m);
@@ -3231,7 +3265,9 @@ function updateTargetFrame() {
   $("targetFill").style.width = Math.max(0, 100 * E.h / (E.H || 1)) + "%";
 }
 function isEnemyEnt(E, id) {
-  return E && !E.dieT && id !== S.myId && !PLAYER_KINDS[E.k] && !NPC_KINDS[E.k];
+  if (!E || E.dieT || id === S.myId || NPC_KINDS[E.k]) return false;
+  if (PLAYER_KINDS[E.k]) return S.duelPartnerId && id === S.duelPartnerId;
+  return true;
 }
 function nearestEnemy(maxR) {
   let best = 0, bestD = maxR;
@@ -3864,6 +3900,7 @@ function updateBuffHud() {
     chips.push(`<span class="buff-chip food">${t("buff.food")} ${bits.join(" ") || ""} · ${buff.left}s</span>`);
   }
   if (y.bind) chips.push(`<span class="buff-chip bind">${t("buff.bind")}</span>`);
+  if (S.duelPartnerId) chips.push(`${t("duel.hud")}: ${S.duelPartnerName || "?"}`);
   if (!chips.length) { el.classList.add("hidden"); el.innerHTML = ""; return; }
   el.innerHTML = chips.join("");
   el.classList.remove("hidden");
@@ -4014,6 +4051,22 @@ window.addEventListener("keydown", (e) => {
     case "B":
       if (!S.dead)
         send({ t: "recall" });
+      break;
+    case "x":
+    case "X":
+      if (!S.dead) {
+        let slot = S.lastInvSlot;
+        const inv = (S.you && S.you.inv) || [];
+        const gear = new Set(["weapon", "armor", "helm", "ring"]);
+        if (!(slot >= 0 && inv[slot] && gear.has(inv[slot].slot))) {
+          slot = -1;
+          for (let i = 0; i < inv.length; i++) {
+            if (inv[i] && gear.has(inv[i].slot)) { slot = i; break; }
+          }
+        }
+        if (slot >= 0) send({ t: "salvage", slot });
+        else toast(t("help.salvage"));
+      }
       break;
     case "Escape": {
       const anyOpen = PANEL_ORDER.some((id) => !$(id).classList.contains("hidden"))
@@ -4954,6 +5007,41 @@ function showTradeInvite(m) {
   });
   window._tradeInvTimer = setTimeout(() => box.classList.add("hidden"), 30000);
 }
+
+function showDuelInvite(m) {
+  clearTimeout(inviteTimer);
+  const box = $("inviteBox");
+  if (!box) return;
+  box.innerHTML = `<div class="inv-txt"><b>${m.from}</b> (Nv ${m.lvl}, ${CLS_ES[m.cls] || m.cls}) ${t("duel.invite")}</div>
+    <div class="inv-btns"><button class="btn green" id="duelYes">${t("duel.accept")}</button>
+    <button class="btn ghost" id="duelNo">${t("duel.decline")}</button></div>`;
+  box.classList.remove("hidden");
+  $("duelYes").addEventListener("click", () => {
+    send({ t: "duel_accept", from: m.from });
+    box.classList.add("hidden");
+  });
+  $("duelNo").addEventListener("click", () => {
+    send({ t: "duel_decline", from: m.from });
+    box.classList.add("hidden");
+  });
+  inviteTimer = setTimeout(() => box.classList.add("hidden"), 30000);
+}
+function onDuelMsg(m) {
+  if (!m) return;
+  if (m.state === "start") {
+    S.duelPartnerId = m.id || 0;
+    S.duelPartnerName = m.name || "";
+    toast(`${t("duel.hud")}: ${S.duelPartnerName}`);
+  } else if (m.state === "end") {
+    S.duelPartnerId = 0;
+    S.duelPartnerName = "";
+    if (S.targetId && PLAYER_KINDS[(S.ents.get(S.targetId) || {}).k]) {
+      S.targetId = 0;
+      send({ t: "attack", id: 0 });
+    }
+  }
+  updateBuffHud();
+}
 function closeTradePanel() {
   const el = $("tradePanel");
   if (el) el.classList.add("hidden");
@@ -5049,10 +5137,14 @@ function openPlayerMenu(e, entId) {
     return;
   const pm = $("playerMenu");
   const inParty = S.partyIds.has(entId);
+  const dueling = S.duelPartnerId && S.duelPartnerId === entId;
   pm.innerHTML = `<div class="pm-name">${E.n || ""} · Nv ${E.l}</div>`
     + `<button class="btn" id="pmInspect">${t("inspect.btn")}</button>`
     + (inParty ? '<button class="btn ghost" disabled>Ya está en tu grupo</button>' : '<button class="btn" id="pmInvite">Invitar al grupo</button>')
     + `<button class="btn" id="pmTrade">${t("trade.btn")}</button>`
+    + (dueling
+      ? `<button class="btn ghost" id="pmDuelCancel">${t("duel.cancel")}</button>`
+      : `<button class="btn" id="pmDuel">${t("duel.btn")}</button>`)
     + `<button class="btn ghost" id="pmWhisper">${t("whisper.btn")}</button>`
     + `<button class="btn ghost" id="pmPay">${t("pay.btn")}</button>`;
   pm.classList.remove("hidden");
@@ -5066,6 +5158,16 @@ function openPlayerMenu(e, entId) {
   const tradeBtn = $("pmTrade");
   if (tradeBtn) tradeBtn.addEventListener("click", () => {
     send({ t: "trade_req", id: entId });
+    closePlayerMenu();
+  });
+  const duelBtn = $("pmDuel");
+  if (duelBtn) duelBtn.addEventListener("click", () => {
+    send({ t: "duel_req", id: entId });
+    closePlayerMenu();
+  });
+  const duelCancel = $("pmDuelCancel");
+  if (duelCancel) duelCancel.addEventListener("click", () => {
+    send({ t: "duel_cancel" });
     closePlayerMenu();
   });
   const whBtn = $("pmWhisper");
@@ -5331,6 +5433,12 @@ function handleWorldPointer(clientX, clientY) {
       return;
     }
     if (PLAYER_KINDS[E.k]) {
+      if (S.duelPartnerId && p.ent === S.duelPartnerId) {
+        S.targetId = p.ent;
+        S.lootTarget = 0;
+        send({ t: "attack", id: p.ent });
+        return;
+      }
       openPlayerMenu({ clientX, clientY }, p.ent);
       return;
     }
@@ -5935,7 +6043,7 @@ function renderInventory() {
                     ? "Clic: beber elixir · Arrastra fuera: tirar"
                     : item.slot === "quest"
                       ? "Objeto de misión"
-                      : "Clic: equipar · Arrastra fuera: tirar";
+                      : "Clic: equipar · X en Bront: desguazar · Arrastra: tirar";
       d._tip = { item, action: act };
       d.addEventListener("mousemove", (e) => showTooltip(e, item, act));
       d.addEventListener("mouseleave", hideTooltip);
@@ -5945,6 +6053,7 @@ function renderInventory() {
           invDrag.suppressClick = false;
           return;
         }
+        S.lastInvSlot = slot;
         if (S.shopOpen) {
           if (item.rarity !== "common" && !confirm(`¿Vender ${item.name} (${RARITY_ES[item.rarity] || item.rarity}) por ${Math.floor(item.val / 4)} de oro?`))
             return;
@@ -6132,7 +6241,8 @@ function renderChar() {
     ${bindLine}
     ${buffLine}
   </div>`;
-    html += `<div class="stat-row"><span>${t("prof.title")}</span><b>${t("prof.fish")} ${y.fishCount||0} · ${t("prof.cook")} ${y.cookCount||0} · ${t("prof.forage")} ${y.forageCount||0} · ${t("prof.brew")} ${y.brewCount||0}</b></div>`;
+    if ((y.duelWins||0) > 0 || (y.salvageCount||0) > 0) html += `<div class="stat-row"><span>PvP / Forja</span><b>${y.duelWins||0} duelos · ${y.salvageCount||0} desguaces</b></div>`;
+  html += `<div class="stat-row"><span>${t("prof.title")}</span><b>${t("prof.fish")} ${y.fishCount||0} · ${t("prof.cook")} ${y.cookCount||0} · ${t("prof.forage")} ${y.forageCount||0} · ${t("prof.brew")} ${y.brewCount||0}</b></div>`;
   b.innerHTML = html;
   b.querySelectorAll(".plus").forEach((btn) => btn.addEventListener("click", () => send({ t: "allot", stat: btn.dataset.st })));
   const resetBtn = $("charResetBtn");
@@ -6427,6 +6537,7 @@ function renderWho() {
       if (p.id) acts.push(`<button type="button" data-wact="invite" data-id="${p.id}">${t("who.invite")}</button>`);
       if (p.id) acts.push(`<button type="button" data-wact="trade" data-id="${p.id}">${t("trade.btn")}</button>`);
       acts.push(`<button type="button" data-wact="pay" data-name="${esc(p.name)}">${t("pay.btn")}</button>`);
+      if (p.id) acts.push(`<button type="button" data-wact="duel" data-id="${p.id}">${t("duel.btn")}</button>`);
     }
     if (!self) acts.push(`<button type="button" data-wact="friend" data-name="${esc(p.name)}">${friend ? t("who.friendDel") : "★ " + t("who.friendAdd")}</button>`);
     return `<div class="who-row${bot ? " bot" : ""}${friend ? " friend" : ""}">
@@ -6453,6 +6564,9 @@ function renderWho() {
       } else if (act === "trade") {
         const id = Number(btn.dataset.id);
         if (id) send({ t: "trade_req", id });
+      } else if (act === "duel") {
+        const id = Number(btn.dataset.id);
+        if (id) send({ t: "duel_req", id });
       } else if (act === "pay") {
         const amt = prompt(t("pay.prompt"), "50");
         if (amt == null) return;

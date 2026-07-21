@@ -576,6 +576,10 @@ export const ACHIEVEMENTS: Record<string, { name: string; desc: string; gold: nu
   brew_15: { name: "Alquimista", desc: "Prepara 15 brebajes en el alambique de Kora", gold: 120 },
   bind_1: { name: "Hogar ligado", desc: "Liga tu piedra de hogar en la fuente", gold: 40 },
   trade_1: { name: "Mercader", desc: "Completa un intercambio con otro jugador", gold: 50 },
+  duel_1: { name: "Retador", desc: "Gana tu primer duelo", gold: 60 },
+  duel_5: { name: "Gladiador", desc: "Gana 5 duelos", gold: 200 },
+  salvage_1: { name: "Chatarrero", desc: "Desguaza tu primer equipo en la forja", gold: 40 },
+  salvage_20: { name: "Fundidor", desc: "Desguaza 20 piezas en la forja de Bront", gold: 180 },
 };
 
 export const QUEST_ORDER = ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12"];

@@ -1,3 +1,13 @@
+## 2026-09-14 — Duelos y desguace
+
+- **Duelos**: menú de jugador / Quién (O) / `/duel Nombre` (`/desafiar`). Aceptá el
+  desafío y pelearos sin muerte permanente ni pérdida de oro; al caer termina el
+  duelo y regeneráis. Clic en tu rival ataca. Logros Retador / Gladiador.
+- **Desguace (X / `/salvage` / `/desguazar`)**: junto a la forja de Bront convertís
+  armas/armaduras del inventario en oro (mejor que venderlas). Logros Chatarrero /
+  Fundidor.
+- Cache bust `?v=20260914`.
+
 ## 2026-09-13 — Intercambio entre jugadores
 
 - **Comercio**: clic derecho / menú de jugador → Intercambiar, botón en Quién (O),
