@@ -1,3 +1,16 @@
+## 2026-07-21 — Mapa del mundo, marca personal, coords y FPS
+
+- **Mapa del mundo (M)**: overlay grande con zonas, jefes (y timers), grupo,
+  objetivos de misión y tu posición. Clic = ping de grupo; Shift+clic = marca.
+- **Marca personal**: Shift+clic en minimapa o mapa; se guarda en el navegador;
+  triángulo cian en minimapa/mapa; botón para quitarla.
+- **Coords HUD**: casilla X,Y bajo el minimapa.
+- **FPS opcional**: casilla en Opciones (apagado por defecto).
+- **Logs**: bots silencian casi todas las reconexiones (1ª + cada 50) y el startup
+  ya no imprime la URL del WS.
+- Cache bust `?v=20260905`.
+
+
 ## 2026-07-21 — Botín reciente, registro de combate y logs aún más limpios
 
 - **Botín reciente**: panel lateral con los últimos recolectables/oro de la sesión

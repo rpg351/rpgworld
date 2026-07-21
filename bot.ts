@@ -115,7 +115,7 @@ class Companion {
       if (this.stopping) return;
       // Keep reconnect notices rare so journal stays readable across bot restarts.
       this._reconnects = (this._reconnects || 0) + 1;
-      if (this._reconnects <= 1 || this._reconnects % 20 === 0) {
+      if (this._reconnects === 1 || this._reconnects % 50 === 0) {
         console.log(`[bot:${NAME}] reconnecting in ${RECONNECT_MS}ms… (#${this._reconnects})`);
       }
       await sleep(RECONNECT_MS);
@@ -530,5 +530,5 @@ const bot = new Companion();
 process.on("SIGTERM", () => { bot.stop(); });
 process.on("SIGINT", () => { bot.stop(); });
 
-console.log(`[bot:${NAME}] start ${BOT_CLS} → ${WS_URL}`);
+console.log(`[bot:${NAME}] start ${BOT_CLS}`);
 await bot.start();

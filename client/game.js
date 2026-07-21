@@ -80,6 +80,14 @@ var I18N = {
     "combatlog.empty": "Aún no has recibido daño en esta sesión.",
     "opt.lootlog": "Mostrar botín reciente",
     "opt.combatlog": "Mostrar registro de combate",
+    "opt.fps": "Mostrar FPS",
+    "panel.worldmap": "Mapa del mundo",
+    "help.worldmap": "Abrir mapa del mundo",
+    "help.waypoint": "Marca personal (se guarda en este navegador)",
+    "help.waypointKey": "Shift+clic (minimapa/mapa)",
+    "waypoint.clear": "Quitar marca",
+    "waypoint.set": "Marca personal fijada",
+    "waypoint.cleared": "Marca personal quitada",
     "help.lootlog": "Botín reciente de la sesión",
     "help.combatlog": "Daño recibido reciente",
     "inspect.title": "Inspeccionar",
@@ -213,6 +221,14 @@ var I18N = {
     "combatlog.empty": "No damage taken this session yet.",
     "opt.lootlog": "Show recent loot",
     "opt.combatlog": "Show combat log",
+    "opt.fps": "Show FPS",
+    "panel.worldmap": "World map",
+    "help.worldmap": "Open the world map",
+    "help.waypoint": "Personal marker (saved in this browser)",
+    "help.waypointKey": "Shift+click (minimap/map)",
+    "waypoint.clear": "Clear marker",
+    "waypoint.set": "Personal marker set",
+    "waypoint.cleared": "Personal marker cleared",
     "help.lootlog": "Recent session loot",
     "help.combatlog": "Recent damage taken",
     "inspect.title": "Inspect",
@@ -374,6 +390,11 @@ var S = {
   combatLog: [],
   showLootLog: true,
   showCombatLog: false,
+  showFps: false,
+  waypoint: null,
+  _fpsFrames: 0,
+  _fpsAt: 0,
+  _fpsVal: 0,
   emotes: {},
   deathRecap: [],
   streak: 0,
@@ -2944,7 +2965,30 @@ function tickAutoAtk(t) {
 var _lastFrameT = 0;
 var _dustAt = 0;
 function frame() {
-  requestAnimationFrame(frame);
+  
+(function initWorldMapUi() {
+  const cv = $("worldMap");
+  if (cv) {
+    cv.addEventListener("click", (e) => {
+      if (!S.loggedIn || !S.map || S.dead) return;
+      const w = worldMapEventToWorld(e);
+      if (!w) return;
+      if (e.shiftKey) setPersonalWaypoint(w.x, w.y);
+      else sendPartyPing(w.x, w.y);
+    });
+  }
+  const clr = $("waypointClearBtn");
+  if (clr) clr.addEventListener("click", () => {
+    saveWaypoint(null);
+    toast(t("waypoint.cleared"));
+    drawWorldMap();
+  });
+  document.querySelectorAll('[data-close="worldMapPanel"]').forEach((x) => {
+    x.addEventListener("click", () => $("worldMapPanel").classList.add("hidden"));
+  });
+})();
+
+requestAnimationFrame(frame);
   const t = now();
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   if (!S.loggedIn || !S.map) {
@@ -3194,6 +3238,8 @@ var LS_AUTOLOOT = "aot_autoloot";
 var LS_AUTOPOTION = "aot_autopotion";
 var LS_LOOTLOG = "aot_lootlog";
 var LS_COMBATLOG = "aot_combatlog";
+var LS_FPS = "aot_fps";
+var LS_WAYPOINT = "aot_waypoint";
 function loadAutoLoot() {
   try {
     const v = localStorage.getItem(LS_AUTOLOOT);
@@ -3210,10 +3256,41 @@ function loadLogPanels() {
   try {
     S.showLootLog = localStorage.getItem(LS_LOOTLOG) !== "0";
     S.showCombatLog = localStorage.getItem(LS_COMBATLOG) === "1";
+    S.showFps = localStorage.getItem(LS_FPS) === "1";
   } catch (e) {
     S.showLootLog = true;
     S.showCombatLog = false;
+    S.showFps = false;
   }
+}
+function loadWaypoint() {
+  try {
+    const raw = localStorage.getItem(LS_WAYPOINT);
+    if (!raw) { S.waypoint = null; return; }
+    const o = JSON.parse(raw);
+    if (o && typeof o.x === "number" && typeof o.y === "number") S.waypoint = { x: o.x, y: o.y };
+    else S.waypoint = null;
+  } catch (e) { S.waypoint = null; }
+}
+function saveWaypoint(wp) {
+  S.waypoint = wp;
+  try {
+    if (wp) localStorage.setItem(LS_WAYPOINT, JSON.stringify(wp));
+    else localStorage.removeItem(LS_WAYPOINT);
+  } catch (e) {}
+}
+function setPersonalWaypoint(x, y) {
+  if (!S.map) return;
+  const nx = Math.max(0.5, Math.min(S.map.w - 0.5, x));
+  const ny = Math.max(0.5, Math.min(S.map.h - 0.5, y));
+  if (S.waypoint && Math.hypot(S.waypoint.x - nx, S.waypoint.y - ny) < 3) {
+    saveWaypoint(null);
+    toast(t("waypoint.cleared"));
+  } else {
+    saveWaypoint({ x: nx, y: ny });
+    toast(t("waypoint.set"));
+  }
+  drawWorldMap();
 }
 var RARITY_RANK = { common: 0, magic: 1, rare: 2 };
 function lootMatchesAutoFilter(item) {
@@ -3224,7 +3301,7 @@ function lootMatchesAutoFilter(item) {
 }
 function syncMenuControls() {
   const vm = $("volMusic"), vf = $("volFx"), lang = $("langSelect"), al = $("autoLootSelect"), ap = $("autoPotionSelect");
-  const ll = $("optLootLog"), cl = $("optCombatLog");
+  const ll = $("optLootLog"), cl = $("optCombatLog"), fp = $("optFps");
   if (window.AOTAudio) {
     if (vm) vm.value = Math.round((AOTAudio.musicVol ?? 1) * 100);
     if (vf) vf.value = Math.round((AOTAudio.sfxVol ?? 1) * 100);
@@ -3232,8 +3309,11 @@ function syncMenuControls() {
   if (lang) lang.value = getLang();
   if (al) al.value = S.autoLoot;
   if (ap) ap.value = S.autoPotion;
-  if (ll) ll.checked = !!S.showLootLog;
-  if (cl) cl.checked = !!S.showCombatLog;
+  if (ll) ll.checked = Boolean(S.showLootLog);
+  if (cl) cl.checked = Boolean(S.showCombatLog);
+  if (fp) fp.checked = Boolean(S.showFps);
+  const fh = $("fpsHud");
+  if (fh) fh.classList.toggle("hidden", !S.showFps);
 }
 function logout() {
   try { localStorage.removeItem("aot_creds"); } catch (e) {}
@@ -3245,6 +3325,7 @@ function initMenu() {
   loadAutoLoot();
   loadAutoPotion();
   loadLogPanels();
+  loadWaypoint();
   document.querySelectorAll(".menu-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".menu-tab").forEach((b) => b.classList.toggle("sel", b === btn));
@@ -3268,14 +3349,21 @@ function initMenu() {
   });
   const ll = $("optLootLog"), cl = $("optCombatLog");
   if (ll) ll.addEventListener("change", () => {
-    S.showLootLog = __omp_shell("!ll.checked;")
+    S.showLootLog = Boolean(ll.checked);
     try { localStorage.setItem(LS_LOOTLOG, S.showLootLog ? "1" : "0"); } catch (e) {}
     renderLootLog();
   });
   if (cl) cl.addEventListener("change", () => {
-    S.showCombatLog = __omp_shell("!cl.checked;")
+    S.showCombatLog = Boolean(cl.checked);
     try { localStorage.setItem(LS_COMBATLOG, S.showCombatLog ? "1" : "0"); } catch (e) {}
     renderCombatLog();
+  });
+  const fp = $("optFps");
+  if (fp) fp.addEventListener("change", () => {
+    S.showFps = Boolean(fp.checked);
+    try { localStorage.setItem(LS_FPS, S.showFps ? "1" : "0"); } catch (e) {}
+    const fh = $("fpsHud");
+    if (fh) fh.classList.toggle("hidden", !S.showFps);
   });
   if (logoutBtn) logoutBtn.addEventListener("click", () => logout());
   syncMenuControls();
@@ -3283,7 +3371,7 @@ function initMenu() {
   renderLootLog();
   renderCombatLog();
 }
-var PANEL_ORDER = ["dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "inspectPanel"];
+var PANEL_ORDER = ["worldMapPanel", "dialogPanel", "shopPanel", "stashPanel", "petPanel", "invPanel", "charPanel", "questPanel", "menuPanel", "boardPanel", "abilityPanel", "inspectPanel"];
 function closeTopPanel() {
   for (const id of PANEL_ORDER) {
     const el = $(id);
@@ -3517,6 +3605,10 @@ window.addEventListener("keydown", (e) => {
       if (me) sendPartyPing(me.rx, me.ry);
       break;
     }
+    case "m":
+    case "M":
+      toggleWorldMap();
+      break;
     case "b":
     case "B":
       if (!S.dead)
@@ -4824,11 +4916,12 @@ function minimapEventToWorld(e) {
 }
 if (mmCanvas) {
   mmCanvas.style.cursor = "crosshair";
-  mmCanvas.title = "Clic: marcar posición al grupo";
+  mmCanvas.title = "Clic: ping de grupo · Shift+clic: marca personal";
   mmCanvas.addEventListener("click", (e) => {
     if (!S.loggedIn || !S.map || S.dead) return;
     const w = minimapEventToWorld(e);
-    sendPartyPing(w.x, w.y);
+    if (e.shiftKey) setPersonalWaypoint(w.x, w.y);
+    else sendPartyPing(w.x, w.y);
   });
 }
 function drawMinimapDots() {
@@ -4868,6 +4961,19 @@ function drawMinimapDots() {
       mmCtx.arc(x, y, 5, 0, 7);
       mmCtx.stroke();
     }
+  }
+  if (S.waypoint) {
+    const wx = S.waypoint.x * kx, wy = S.waypoint.y * ky;
+    mmCtx.strokeStyle = "rgba(120,220,255,.95)";
+    mmCtx.fillStyle = "rgba(80,180,255,.85)";
+    mmCtx.lineWidth = 1.2;
+    mmCtx.beginPath();
+    mmCtx.moveTo(wx, wy - 4);
+    mmCtx.lineTo(wx + 3, wy + 2);
+    mmCtx.lineTo(wx - 3, wy + 2);
+    mmCtx.closePath();
+    mmCtx.fill();
+    mmCtx.stroke();
   }
   for (let i = S.pings.length - 1; i >= 0; i--) {
     const P = S.pings[i];
@@ -4909,6 +5015,134 @@ function drawMinimapDots() {
     }
   }
 }
+
+function toggleWorldMap() {
+  const p = $("worldMapPanel");
+  if (!p || !S.map) return;
+  if (p.classList.contains("hidden")) {
+    p.classList.remove("hidden");
+    drawWorldMap();
+  } else {
+    p.classList.add("hidden");
+  }
+}
+function worldMapEventToWorld(e) {
+  const cv = $("worldMap");
+  if (!cv || !S.map) return null;
+  const r = cv.getBoundingClientRect();
+  const mx = (e.clientX - r.left) / r.width;
+  const my = (e.clientY - r.top) / r.height;
+  return { x: mx * S.map.w, y: my * S.map.h };
+}
+function drawWorldMap() {
+  const cv = $("worldMap");
+  const panel = $("worldMapPanel");
+  if (!cv || !S.map || !panel || panel.classList.contains("hidden")) return;
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  ctx.imageSmoothingEnabled = false;
+  if (mmBase) ctx.drawImage(mmBase, 0, 0, W, H);
+  else { ctx.fillStyle = "#0c0a06"; ctx.fillRect(0, 0, W, H); }
+  const kx = W / S.map.w, ky = H / S.map.h;
+  if (S.map.zones) {
+    ctx.font = "12px Georgia";
+    ctx.textAlign = "center";
+    for (const z of S.map.zones) {
+      const x0 = z.x0 * kx, y0 = z.y0 * ky, x1 = z.x1 * kx, y1 = z.y1 * ky;
+      ctx.strokeStyle = "rgba(200,147,59,.35)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+      ctx.fillStyle = "rgba(232,210,160,.85)";
+      ctx.fillText(z.name + (z.lvl ? (" (" + z.lvl + ")") : ""), (x0 + x1) / 2, Math.max(14, y0 + 14));
+    }
+  }
+  const questTargets = activeQuestTargets();
+  const tNow = now();
+  for (const b of BOSS_MARKERS) {
+    const x = b.x * kx, y = b.y * ky;
+    const cd = S.bossTimers[b.k] || 0;
+    ctx.globalAlpha = cd > 0 ? 0.5 : 1;
+    ctx.fillStyle = "#ffb04a";
+    ctx.beginPath();
+    ctx.moveTo(x, y - 7);
+    ctx.lineTo(x + 6, y);
+    ctx.lineTo(x, y + 7);
+    ctx.lineTo(x - 6, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#ffe0a0";
+    ctx.font = "11px Georgia";
+    ctx.textAlign = "left";
+    ctx.fillText(cd > 0 ? (b.n + " " + Math.ceil(cd / 1000) + "s") : b.n, x + 8, y + 4);
+    if (questTargets.has(b.k)) {
+      ctx.strokeStyle = "rgba(255,220,120,.95)";
+      ctx.beginPath();
+      ctx.arc(x, y, 10, 0, 7);
+      ctx.stroke();
+    }
+  }
+  for (const [id, E] of S.ents) {
+    if (E.dieT) continue;
+    const x = E.rx * kx, y = E.ry * ky;
+    if (id === S.myId) {
+      ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,.7)";
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.stroke();
+    } else if (PLAYER_KINDS[E.k]) {
+      ctx.fillStyle = S.partyIds.has(id) ? "#5ade6a" : "#6aa8ff";
+      ctx.fillRect(x - 2, y - 2, 4, 4);
+    } else if (!NPC_KINDS[E.k] && questTargets.has(E.k)) {
+      ctx.fillStyle = "#ff7ad9";
+      ctx.fillRect(x - 2, y - 2, 4, 4);
+    }
+  }
+  if (S.waypoint) {
+    const wx = S.waypoint.x * kx, wy = S.waypoint.y * ky;
+    ctx.fillStyle = "rgba(80,180,255,.9)";
+    ctx.beginPath();
+    ctx.moveTo(wx, wy - 8);
+    ctx.lineTo(wx + 6, wy + 4);
+    ctx.lineTo(wx - 6, wy + 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#9cf";
+    ctx.stroke();
+  }
+  for (const ping of S.pings) {
+    if (tNow - ping.t0 > 6000) continue;
+    const x = ping.x * kx, y = ping.y * ky;
+    const a = 1 - (tNow - ping.t0) / 6000;
+    ctx.strokeStyle = "rgba(120,255,160," + (0.4 + a * 0.5) + ")";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 6 + (1 - a) * 10, 0, 7);
+    ctx.stroke();
+  }
+}
+function updateCoordHud() {
+  const el = $("coordHud");
+  if (!el) return;
+  const me = S.ents.get(S.myId);
+  if (!me) { el.textContent = ""; return; }
+  el.textContent = me.rx.toFixed(0) + ", " + me.ry.toFixed(0);
+}
+function updateFpsHud(t) {
+  S._fpsFrames++;
+  if (!S._fpsAt) S._fpsAt = t;
+  if (t - S._fpsAt >= 500) {
+    S._fpsVal = Math.round(S._fpsFrames * 1000 / (t - S._fpsAt));
+    S._fpsFrames = 0;
+    S._fpsAt = t;
+  }
+  const el = $("fpsHud");
+  if (!el) return;
+  if (!S.showFps) { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  el.textContent = S._fpsVal + " FPS";
+}
+
 function toast(msg) {
   const box = $("toasts");
   const el = document.createElement("div");
@@ -5451,7 +5685,7 @@ function updateQuestTracker() {
     if (!q || q.turned || !meta) continue;
     const cnt = meta.count || 1;
     const prog = Math.min(q.n ?? 0, cnt);
-    const done = __omp_shell("!q.done || prog >= cnt;")
+    const done = !!q.done || prog >= cnt;
     rows.push(`<div class="qt-row${done ? " done" : ""}"><span class="qt-name">${meta.name}</span><span class="qt-n">${prog}/${cnt}</span></div>`);
     if (rows.length >= 4) break;
   }

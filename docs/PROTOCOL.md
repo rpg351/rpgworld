@@ -27,7 +27,10 @@ Walkable: `g` grass, `d` dirt path, `s` sand, `f` ruins floor, `p` plaza stone.
 Blocking: `w` water, `t` tree, `r` rock, `W` ruin wall.
 Client renders 32 px/tile, may add procedural per-tile decoration seeded by `(x,y)` hash.
 
-## Client → server messages
+## Client
+
+- Tecla **M**: mapa del mundo (zonas/jefes/marca personal). Shift+clic en minimapa/mapa fija una marca local (`localStorage`).
+ → server messages
 
 - `{t:"dir", x, y}` — **WASD movement** (primary). `x,y` ∈ {-1,0,1}; server normalizes, moves at ~5 tiles/s with wall-slide until a zero vector stops it. A **non-zero** vector clears `atkTarget` (cancels auto-attack lock) and overrides paths/chase. Zero vector only stops movement.
 - `{t:"move", x, y}` — legacy click-to-move target (A* path, ~5 tiles/s). Kept server-side; the client no longer sends it. Cancels attack target.
